@@ -1,5 +1,6 @@
-/.vscode
 /codebase.txt
 /node_modules
 /__old
 /out
+/.vscode/settings.json
+/.vscode/tasks.json

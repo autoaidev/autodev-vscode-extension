@@ -1,89 +1,141 @@
-# AutoDev AI Prompts
+# AutoDev
 
-A VS Code extension that sends your selected code or current file to Copilot Chat or Claude Code with one-click predefined prompts. It tracks each task in a dedicated sidebar panel and automatically marks it **Done** when the agent finishes.
+Autonomous AI task loop for VS Code. Reads `TODO.md`, dispatches each task to **Claude Code** or **GitHub Copilot**, waits for the agent to finish and mark the task done, then moves to the next one — continuously, without human intervention.
+
+**GitHub:** https://github.com/autoaidev/autodev-vscode-extension
+
+---
+
+## How it works
+
+1. You write tasks in `TODO.md` using the `- [ ] task text` format
+2. AutoDev picks the first pending task and sends it to Claude or Copilot
+3. The agent works, edits files, and marks the task `- [x] YYYY-MM-DD  task text` when done
+4. AutoDev detects the `[x]` marker and moves to the next task
+5. New tasks can be added at any time via the sidebar, Discord, or directly editing `TODO.md`
 
 ---
 
 ## Features
 
-### Sidebar Panel (Chat History)
-Click the AutoDev icon in the Activity Bar to open the **Chat History** panel.
+### Autonomous Task Loop
+- Runs forever — no max iteration limit
+- At startup, resets any `[~]` in-progress tasks back to `[ ]` (configurable)
+- Sends a periodic reminder to the AI if a task has been running longer than the check-in interval without being marked done
+- Configurable task timeout — on timeout, either mark failed or retry the task
 
-- Each prompt is tracked as an entry with **⏳ Sent** → **✓ Done** status
-- **Mark Done** button on each entry for manual override
-- Trash icon in the panel title bar clears all history
-- Entries persist for the session (up to 30)
+### Sidebar Panel
+Click the AutoDev icon in the Activity Bar to open the panel.
 
-### Provider Selector
-Toggle between AI providers directly in the sidebar:
+- **Tasks tab** — live list of all tasks from `TODO.md` with ✓ / ◑ / ○ status
+- **Settings tab** — configure all options without editing JSON directly
+- **Add task** input — append a new `[ ]` task to `TODO.md` instantly
+- **Start / Stop** loop button
+
+### Provider Support
 
 | Provider | Extension required |
 |---|---|
-| **Copilot** | GitHub Copilot Chat (`GitHub.copilot-chat`) |
-| **Claude** | Claude Code (`anthropic.claude-code`) |
+| **Claude** (default) | [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) |
+| **Copilot** | [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) |
 
-The selected provider is persisted across sessions.
+Switch providers from the sidebar. AutoDev applies Claude Code permission bypass settings on activation so no permission prompts interrupt the loop.
 
-### Predefined Prompts
-Pick from 7 built-in templates via quick-pick:
+### Task Notifications
+AutoDev posts messages to Discord and/or an A2A webhook server as the loop runs:
 
-| Prompt | What it does |
+| Event | Discord / Webhook |
 |---|---|
-| Explain | Plain-English explanation of the code |
-| Find Bugs | Identifies logic errors and suggests fixes |
-| Write Tests | Generates unit tests using the project's framework |
-| Refactor | Readability and maintainability improvements |
-| Generate Docs | Adds JSDoc / docstring comments without changing logic |
-| Security Review | Scans for OWASP-style vulnerabilities |
-| Optimize Performance | Finds bottlenecks and suggests concrete optimizations |
+| Loop started | 🚀 |
+| Task started | ▶️ task label + remaining count |
+| Check-in (long task) | ⏳ elapsed time + AI reminder to mark TODO.md |
+| Task done | ✅ |
+| Task failed / timed out | ❌ |
+| All tasks done | ✅ All tasks done! |
+| Loop ended | 👋 |
 
-### Smart Context
-- **Selected text** → sends only the selection
-- **No selection** → sends the entire file
-- Files over 80,000 characters are automatically truncated with a warning
+### Discord Bot Poller
+AutoDev can receive new tasks from Discord. Messages from allowed owners in the configured channel are appended to `TODO.md` as new `[ ]` tasks. History before the loop started is ignored.
 
-### Copilot Integration
-- Opens GitHub Copilot Chat in full agent mode (can edit files, run tasks, etc.)
-- Auto-accepts file edits every second — no need to click "Keep"
-- Detects when the agent finishes and marks the entry **Done**
+### A2A Webhook Server
+AutoDev can poll an autodev server (`/v1/logs`) for incoming tasks and post structured `StreamResponse` events to `/webhook/{slug}` matching the autodev server protocol.
 
-### Claude Code Integration
-- Detects if a Claude panel is already open and reuses it
-- If no panel is open, resumes the most recent Claude session for the current workspace
-- Prompt is automatically submitted — no manual paste required
-- Works cross-platform: Windows (SendKeys), macOS (osascript), Linux (xdotool)
+### Auto-Accept Edits
+On activation, AutoDev sets:
 
-### Auto-Accept File Edits
-On startup, AutoDev applies these VS Code settings globally:
-
-| Setting | Value |
+| VS Code Setting | Value |
 |---|---|
 | `chat.editing.autoAcceptDelay` | 800 ms |
-| `chat.editing.autoAccept` | true |
-| `github.copilot.chat.agent.runTasks` | true |
-
-This removes the "Keep / Undo" prompt after Copilot edits files.
-
-### Completion Detection
-AutoDev uses two strategies simultaneously to detect when an agent is done:
-
-1. **File-save detection** — any file saved by the agent sets a "working" flag
-2. **Quiet period** — if no file is saved for 20 seconds after activity, the task is marked Done
-3. **User returns to editor** — moving the cursor back into a code editor after activity also marks Done
-4. **Safety timeout** — 10-minute hard limit in case detection misses
+| `chat.editing.autoAccept` | `true` |
+| `github.copilot.chat.agent.runTasks` | `true` |
 
 ---
 
-## Usage
+## TODO.md Format
 
-### Keyboard Shortcut
-Press `Ctrl+Alt+C` (`Cmd+Alt+C` on Mac) from any editor.
+```markdown
+## Todo
+- [ ] build the login page
+- [ ] add unit tests for auth module
 
-### Right-Click Menu
-Select code → right-click → **AutoDev: Send to Copilot Chat**
+## In Progress
+- [~] refactor database layer
 
-### Command Palette
-`Ctrl+Shift+P` → **AutoDev: Send to Copilot Chat**
+## Done
+- [x] 2026-04-01  set up project scaffold
+```
+
+Tasks move through: `[ ]` → `[~]` (AutoDev marks in-progress) → `[x] YYYY-MM-DD` (AI marks done).
+
+> **The AI must mark tasks done with two spaces between the date and text:**
+> `- [x] 2026-04-02  task text`
+
+---
+
+## Settings
+
+Stored in `.vscode/autodev.json` in your workspace. Edit via the **⚙ Settings** tab or the raw JSON file.
+
+### Server
+| Key | Description |
+|---|---|
+| `serverBaseUrl` | Base URL of your autodev server (e.g. `https://myserver.com`) |
+| `serverApiKey` | API key (`Authorization: Bearer`) |
+| `webhookSlug` | Slug for `/webhook/{slug}` events and `/v1/logs?endpoint_slug={slug}` polling |
+
+### Discord
+| Key | Description |
+|---|---|
+| `discordToken` | Bot token (`Bot xxxx`) |
+| `discordChannelId` | Channel ID to post messages to and poll for task input |
+| `discordWebhookUrl` | Webhook URL alternative (simpler, no bot required, send-only) |
+| `discordOwners` | Comma-separated usernames or user IDs allowed to send tasks |
+
+### Loop
+| Key | Default | Description |
+|---|---|---|
+| `provider` | `claude` | `claude` or `copilot` |
+| `loopInterval` | `30` | Seconds to wait when no tasks are pending |
+| `taskTimeoutMinutes` | `30` | Minutes before a running task is timed out |
+| `taskCheckInMinutes` | `20` | Minutes between check-in reminders to the AI |
+| `retryOnTimeout` | `false` | Retry timed-out tasks instead of marking failed |
+| `autoResetPendingTasks` | `true` | Reset `[~]` tasks to `[ ]` on loop start |
+
+### Paths
+| Key | Default | Description |
+|---|---|---|
+| `todoPath` | `TODO.md` in workspace root | Path to the task file |
+| `profilePath` | `AUTODEV.md` in workspace root | Path to the agent instructions file |
+
+---
+
+## Agent Instructions (AUTODEV.md)
+
+Place an `AUTODEV.md` file in your workspace root to give the agent project-specific context — coding standards, architecture notes, tool preferences. If none exists, a built-in default is used.
+
+The most critical instruction is already in the default profile:
+
+> Mark each task done in `TODO.md` as `- [x] YYYY-MM-DD  task text` (two spaces, lowercase x) before stopping.
 
 ---
 
@@ -91,43 +143,40 @@ Select code → right-click → **AutoDev: Send to Copilot Chat**
 
 - VS Code 1.99 or later
 - At least one of:
-  - [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) — signed in
   - [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) — signed in
+  - [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) — signed in
 - **Linux only:** `xdotool` for auto-submit (`sudo apt install xdotool`)
 
 ---
 
-## Debugging
+## Output Logs
 
 Open **Output → AutoDev** to see live logs:
 
 ```
-[AutoDev] Extension activated
-[AutoDev] Task started → 1234567890-abc (Copilot)
-[AutoDev] → Agent saved file
-[AutoDev] Quiet period (20s) → marking complete
-[AutoDev] ✅ Task 1234567890-abc → COMPLETE
+[AutoDev] Task loop starting — TODO: /workspace/TODO.md
+[AutoDev] Auto-reset in-progress tasks to [ ]
+[AutoDev] ▶ Task [1]: build the login page
+[AutoDev] Dispatching task: build the login page
+[AutoDev] ✅ Task done: build the login page
+[AutoDev] ▶ Task [2]: add unit tests for auth module
+[AutoDev] ⚠️ Check-in: reminding AI to mark TODO.md if done
+[AutoDev] ✅ Task done: add unit tests for auth module
+[AutoDev] All tasks completed ✓
 ```
 
 ---
 
-## Running Locally (Development)
+## Development
 
 ```bash
-git clone <repo>
+git clone https://github.com/autoaidev/autodev-vscode-extension
 cd autodev-vscode-extension
 npm install
+npm run compile
 ```
 
-Press `F5` to launch the Extension Development Host.
-
-To rebuild on file changes:
-
-```bash
-npm run watch
-```
-
----
+Press `F5` to launch the Extension Development Host. Use `npm run watch` for incremental rebuilds.
 
 ## Project Structure
 

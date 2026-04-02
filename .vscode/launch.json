@@ -1,0 +1,52 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
+      "preLaunchTask": "compile",
+      "sourceMaps": true,
+      "smartStep": true,
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "name": "Launch Extension (watch)",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
+      "preLaunchTask": "watch",
+      "sourceMaps": true,
+      "smartStep": true,
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "NODE_ENV": "development"
+      }
+    },
+    {
+      "name": "Attach to Extension Host",
+      "type": "node",
+      "request": "attach",
+      "port": 6009,
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
+      "smartStep": true
+    }
+  ]
+}
