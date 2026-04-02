@@ -1,0 +1,78 @@
+{
+  "name": "autodev-vscode-extension",
+  "displayName": "AutoDev AI Prompts",
+  "description": "Send selected text or current file to GitHub Copilot Chat with predefined prompts",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "autodev-sidebar",
+          "title": "AutoDev AI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "autodev-sidebar": [
+        {
+          "type": "webview",
+          "id": "autodev.chatStatus",
+          "name": "Chat History"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "autodev.sendToChat",
+        "title": "AutoDev: Send to Copilot Chat"
+      },
+      {
+        "command": "autodev.clearHistory",
+        "title": "AutoDev: Clear History",
+        "icon": "$(clear-all)"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "autodev.sendToChat",
+          "when": "editorHasSelection",
+          "group": "navigation@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "autodev.clearHistory",
+          "when": "view == autodev.chatStatus",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "autodev.sendToChat",
+        "key": "ctrl+alt+c",
+        "mac": "cmd+alt+c",
+        "when": "editorFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.99.0",
+    "typescript": "^5.8.0"
+  }
+}
