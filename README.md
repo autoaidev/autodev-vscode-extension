@@ -1,31 +1,28 @@
 # AutoDev AI Prompts
 
-A VS Code extension that sends your selected code or current file to an AI model with one-click predefined prompts, streams the response directly into a dedicated sidebar panel, and marks entries as **Done** the moment the stream ends — no guessing, no manual clicking.
+A VS Code extension that sends your selected code or current file to Copilot Chat or Claude Code with one-click predefined prompts. It tracks each task in a dedicated sidebar panel and automatically marks it **Done** when the agent finishes.
 
 ---
 
 ## Features
 
-### Live Streaming Sidebar
+### Sidebar Panel (Chat History)
 Click the AutoDev icon in the Activity Bar to open the **Chat History** panel.
 
-- Responses stream **word-by-word** into the sidebar in real time
-- **⚡ Thinking** badge (animated) while the model generates
-- **✓ Done** badge the instant the stream finishes — exact, not a heuristic
-- **■ Stop** button cancels a stream mid-response
-- **Copy** button copies the full response to the clipboard
-- Click any entry header to collapse / expand the response
+- Each prompt is tracked as an entry with **⏳ Sent** → **✓ Done** status
+- **Mark Done** button on each entry for manual override
 - Trash icon in the panel title bar clears all history
+- Entries persist for the session (up to 30)
 
 ### Provider Selector
 Toggle between AI providers directly in the sidebar:
 
 | Provider | Extension required |
 |---|---|
-| **Copilot** | GitHub Copilot Chat |
-| **Claude** | Claude (by Anthropic) |
+| **Copilot** | GitHub Copilot Chat (`GitHub.copilot-chat`) |
+| **Claude** | Claude Code (`anthropic.claude-code`) |
 
-The selected provider is persisted across sessions. If a provider's extension is not installed, its button is disabled.
+The selected provider is persisted across sessions.
 
 ### Predefined Prompts
 Pick from 7 built-in templates via quick-pick:
@@ -44,6 +41,36 @@ Pick from 7 built-in templates via quick-pick:
 - **Selected text** → sends only the selection
 - **No selection** → sends the entire file
 - Files over 80,000 characters are automatically truncated with a warning
+
+### Copilot Integration
+- Opens GitHub Copilot Chat in full agent mode (can edit files, run tasks, etc.)
+- Auto-accepts file edits every second — no need to click "Keep"
+- Detects when the agent finishes and marks the entry **Done**
+
+### Claude Code Integration
+- Detects if a Claude panel is already open and reuses it
+- If no panel is open, resumes the most recent Claude session for the current workspace
+- Prompt is automatically submitted — no manual paste required
+- Works cross-platform: Windows (SendKeys), macOS (osascript), Linux (xdotool)
+
+### Auto-Accept File Edits
+On startup, AutoDev applies these VS Code settings globally:
+
+| Setting | Value |
+|---|---|
+| `chat.editing.autoAcceptDelay` | 800 ms |
+| `chat.editing.autoAccept` | true |
+| `github.copilot.chat.agent.runTasks` | true |
+
+This removes the "Keep / Undo" prompt after Copilot edits files.
+
+### Completion Detection
+AutoDev uses two strategies simultaneously to detect when an agent is done:
+
+1. **File-save detection** — any file saved by the agent sets a "working" flag
+2. **Quiet period** — if no file is saved for 20 seconds after activity, the task is marked Done
+3. **User returns to editor** — moving the cursor back into a code editor after activity also marks Done
+4. **Safety timeout** — 10-minute hard limit in case detection misses
 
 ---
 
@@ -65,7 +92,22 @@ Select code → right-click → **AutoDev: Send to Copilot Chat**
 - VS Code 1.99 or later
 - At least one of:
   - [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) — signed in
-  - [Claude](https://marketplace.visualstudio.com/items?itemName=anthropics.claude-code) — signed in
+  - [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) — signed in
+- **Linux only:** `xdotool` for auto-submit (`sudo apt install xdotool`)
+
+---
+
+## Debugging
+
+Open **Output → AutoDev** to see live logs:
+
+```
+[AutoDev] Extension activated
+[AutoDev] Task started → 1234567890-abc (Copilot)
+[AutoDev] → Agent saved file
+[AutoDev] Quiet period (20s) → marking complete
+[AutoDev] ✅ Task 1234567890-abc → COMPLETE
+```
 
 ---
 
@@ -77,9 +119,9 @@ cd autodev-vscode-extension
 npm install
 ```
 
-Press `F5` to launch the Extension Development Host. The extension loads automatically in the new window.
+Press `F5` to launch the Extension Development Host.
 
-To rebuild on file changes, run the watch task instead:
+To rebuild on file changes:
 
 ```bash
 npm run watch

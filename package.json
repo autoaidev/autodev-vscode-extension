@@ -1,7 +1,7 @@
 {
   "name": "autodev-vscode-extension",
-  "displayName": "AutoDev AI Prompts",
-  "description": "Send selected text or current file to GitHub Copilot Chat with predefined prompts",
+  "displayName": "AutoDev",
+  "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Copilot or Claude, tracks progress",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.99.0"
@@ -24,45 +24,46 @@
         {
           "type": "webview",
           "id": "autodev.chatStatus",
-          "name": "Chat History"
+          "name": "Tasks"
         }
       ]
     },
     "commands": [
       {
-        "command": "autodev.sendToChat",
-        "title": "AutoDev: Send to Copilot Chat"
+        "command": "autodev.startTaskLoop",
+        "title": "AutoDev: Start Task Loop",
+        "icon": "$(play)"
       },
       {
-        "command": "autodev.clearHistory",
-        "title": "AutoDev: Clear History",
-        "icon": "$(clear-all)"
+        "command": "autodev.stopTaskLoop",
+        "title": "AutoDev: Stop Task Loop",
+        "icon": "$(stop)"
+      },
+      {
+        "command": "autodev.openSettings",
+        "title": "AutoDev: Open Settings",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
-      "editor/context": [
-        {
-          "command": "autodev.sendToChat",
-          "when": "editorHasSelection",
-          "group": "navigation@1"
-        }
-      ],
       "view/title": [
         {
-          "command": "autodev.clearHistory",
+          "command": "autodev.startTaskLoop",
+          "when": "view == autodev.chatStatus",
+          "group": "navigation"
+        },
+        {
+          "command": "autodev.stopTaskLoop",
+          "when": "view == autodev.chatStatus",
+          "group": "navigation"
+        },
+        {
+          "command": "autodev.openSettings",
           "when": "view == autodev.chatStatus",
           "group": "navigation"
         }
       ]
-    },
-    "keybindings": [
-      {
-        "command": "autodev.sendToChat",
-        "key": "ctrl+alt+c",
-        "mac": "cmd+alt+c",
-        "when": "editorFocus"
-      }
-    ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
