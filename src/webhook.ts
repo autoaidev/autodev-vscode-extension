@@ -16,7 +16,7 @@ function uuid(): string { return crypto.randomUUID(); }
 export type WebhookEvent =
   | 'agent_online' | 'agent_offline'
   | 'loop_start' | 'loop_complete'
-  | 'task_start' | 'task_done' | 'task_fail' | 'task_progress'
+  | 'task_start' | 'task_done' | 'task_fail' | 'task_progress' | 'task_checkin'
   | 'task_output' | 'all_tasks_done';
 
 export class WebhookClient {

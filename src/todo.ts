@@ -93,6 +93,25 @@ export function markInProgress(filePath: string, task: Task): void {
   fs.writeFileSync(filePath, updated, 'utf8');
 }
 
+/** Reset a [~] in-progress task back to [ ] todo. */
+export function resetToTodo(filePath: string, task: Task): void {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const escaped = escapeRegex(task.text);
+  const updated = content.replace(
+    new RegExp(`(^\\s*(?:-\\s*)?)\\[~\\](\\s+${escaped}.*)$`, 'mu'),
+    '$1[ ]$2'
+  );
+  fs.writeFileSync(filePath, updated, 'utf8');
+}
+
+/** Reset ALL [~] in-progress tasks back to [ ] todo. */
+export function resetAllInProgress(filePath: string): void {
+  if (!fs.existsSync(filePath)) { return; }
+  const content = fs.readFileSync(filePath, 'utf8');
+  const updated = content.replace(/^(\s*(?:-\s*)?)\[~\]/gmu, '$1[ ]');
+  fs.writeFileSync(filePath, updated, 'utf8');
+}
+
 export function markDone(filePath: string, task: Task): void {
   const date = new Date().toISOString().slice(0, 10);
   const escaped = escapeRegex(task.text);

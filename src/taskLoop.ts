@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
-import { parseTodo, pickNextTask, markInProgress, countRemaining, Task } from './todo';
+import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
@@ -221,13 +221,13 @@ class TaskLoopRunner {
   private async _runLoop(todoPath: string, autodevPath: string, settings: AutodevSettings): Promise<void> {
     let allTasksDoneNotified = false;
 
-    while (this._state === 'running') {
-      if (this._iterations >= settings.maxIterations) {
-        this._cb?.log(`Max iterations (${settings.maxIterations}) reached`);
-        break;
-      }
+    // Reset any [~] in-progress tasks left over from a previous run
+    if (settings.autoResetPendingTasks) {
+      resetAllInProgress(todoPath);
+      this._cb?.log('Auto-reset in-progress tasks to [ ]');
+    }
 
-      const tasks = parseTodo(todoPath);
+    while (this._state === 'running') {      const tasks = parseTodo(todoPath);
       const task = pickNextTask(tasks);
 
       if (!task) {
@@ -275,6 +275,35 @@ class TaskLoopRunner {
       try {
         // Send to AI
         await this._cb!.sendToAi(prompt, task.text);
+
+        // Brief pause for file system to settle
+        await sleep(2_000);
+
+        // If the AI didn't mark the task done, send a one-shot reminder
+        const isMarkedDone = () => {
+          const ts = parseTodo(todoPath);
+          const done = ts.some(t => t.text === task.text && t.status === 'done');
+          const inProg = ts.some(t => t.text === task.text && t.status === 'in-progress');
+          return done && !inProg;
+        };
+        if (!isMarkedDone()) {
+          const date = new Date().toISOString().slice(0, 10);
+          const reminder = [
+            `You completed the task but did NOT mark it done in TODO.md.`,
+            ``,
+            `Open TODO.md and change the line:`,
+            `  - [~] ${task.text}`,
+            `to exactly:`,
+            `  - [x] ${date}  ${task.text}`,
+            ``,
+            `(two spaces between the date and task text, lowercase x, save the file)`,
+            ``,
+            `Do this now. The loop cannot proceed until the task is marked [x].`,
+          ].join('\n');
+          this._cb?.log(`⚠️ Task not marked done — sending reminder to mark TODO.md`);
+          this._notifyDiscord(`⚠️ Reminding AI to mark task done in TODO.md`);
+          await this._cb!.sendToAi(reminder, task.text);
+        }
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task);
@@ -343,9 +372,18 @@ class TaskLoopRunner {
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
 
+      const settings = this._settings!;
+      const timeoutMs  = (settings.taskTimeoutMinutes  ?? 30) * 60 * 1_000;
+      const checkInMs  = (settings.taskCheckInMinutes  ?? 20) * 60 * 1_000;
+      const taskStartTime = Date.now();
+
       const found = () => {
         const updated = parseTodo(todoPath);
-        return updated.some(t => t.text === task.text && t.status === 'done');
+        // Only resolve when the [~] in-progress entry was converted to [x].
+        // This prevents a pre-existing [x] with the same task text from resolving immediately.
+        const isDone     = updated.some(t => t.text === task.text && t.status === 'done');
+        const isInProg   = updated.some(t => t.text === task.text && t.status === 'in-progress');
+        return isDone && !isInProg;
       };
 
       // Check immediately (AI might have already edited the file)
@@ -353,10 +391,12 @@ class TaskLoopRunner {
 
       let poller: NodeJS.Timeout | undefined;
       let timer: NodeJS.Timeout | undefined;
+      let checkInTimer: NodeJS.Timeout | undefined;
 
       const cleanup = (watcher: vscode.Disposable) => {
         this._taskCompletionAbort = null;
         clearTimeout(timer);
+        clearTimeout(checkInTimer);
         clearInterval(poller);
         watcher.dispose();
       };
@@ -381,11 +421,51 @@ class TaskLoopRunner {
       // Polling fallback every 3 s — file watcher can miss writes by other extensions
       poller = setInterval(check, 3_000);
 
-      // Hard timeout per task (30 min)
+      // Periodic check-in notifications
+      const scheduleCheckIn = (delay: number) => {
+        checkInTimer = setTimeout(() => {
+          if (this._state !== 'running') { return; }
+          const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
+          const msg = `⏳ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
+          this._cb?.log(msg);
+          this._notifyDiscord(msg);
+          this._notifyWebhook('task_checkin', {
+            iteration:      this._iterations,
+            task:           { text: task.text },
+            elapsedMinutes: elapsedMin,
+            workDir:        this._workspaceRoot,
+            gitRepo:        this._gitRepo,
+            gitBranch:      this._gitBranch,
+          });
+          scheduleCheckIn(checkInMs);
+        }, delay);
+      };
+      scheduleCheckIn(checkInMs);
+
+      // Hard timeout
       timer = setTimeout(() => {
         cleanup(watcher);
-        reject(new Error('Task timed out after 30 minutes'));
-      }, 30 * 60 * 1000);
+        const minutes = settings.taskTimeoutMinutes ?? 30;
+        if (settings.retryOnTimeout) {
+          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+          const msg = `⏱ Task timed out after ${minutes}m — retrying: ${discordLabel(task.text)}`;
+          this._cb?.log(msg);
+          this._notifyDiscord(msg);
+          this._notifyWebhook('task_checkin', {
+            iteration:      this._iterations,
+            task:           { text: task.text },
+            elapsedMinutes: minutes,
+            timedOut:       true,
+            retrying:       true,
+            workDir:        this._workspaceRoot,
+            gitRepo:        this._gitRepo,
+            gitBranch:      this._gitBranch,
+          });
+          resolve(); // loop will pick it up again as a fresh [ ] task
+        } else {
+          reject(new Error(`Task timed out after ${minutes} minutes`));
+        }
+      }, timeoutMs);
     });
   }
 

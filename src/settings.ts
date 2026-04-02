@@ -23,10 +23,16 @@ export interface AutodevSettings {
   discordWebhookUrl: string;
   /** Comma-separated list of Discord usernames or user IDs allowed to send tasks to the bot */
   discordOwners: string;
-  /** Max consecutive tasks before stopping the loop */
-  maxIterations: number;
   /** Seconds to wait between loop ticks when TODO is empty */
   loopInterval: number;
+  /** Minutes before a running task is considered timed out */
+  taskTimeoutMinutes: number;
+  /** Minutes between periodic check-in notifications while a task is running */
+  taskCheckInMinutes: number;
+  /** If true, retry timed-out tasks instead of marking them failed */
+  retryOnTimeout: boolean;
+  /** If true, reset any [~] in-progress tasks to [ ] when the loop starts */
+  autoResetPendingTasks: boolean;
   /** Path to the agent instructions file (defaults to AUTODEV.md in workspace root) */
   profilePath: string;
   /** Path to TODO.md (defaults to TODO.md in workspace root) */
@@ -34,7 +40,7 @@ export interface AutodevSettings {
 }
 
 const DEFAULTS: AutodevSettings = {
-  provider: 'copilot',
+  provider: 'claude',
   serverBaseUrl: '',
   serverApiKey: '',
   webhookSlug: '',
@@ -42,8 +48,11 @@ const DEFAULTS: AutodevSettings = {
   discordChannelId: '',
   discordWebhookUrl: '',
   discordOwners: '',
-  maxIterations: 300,
   loopInterval: 30,
+  taskTimeoutMinutes: 30,
+  taskCheckInMinutes: 20,
+  retryOnTimeout: false,
+  autoResetPendingTasks: true,
   profilePath: '',
   todoPath: '',
 };

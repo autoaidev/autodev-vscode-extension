@@ -221,8 +221,13 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   <div class="cfg-field"><label class="cfg-label">Allowed Owners</label><input class="cfg-input" id="cfg_discordOwners" placeholder="user1,user2"></div>
   <div class="cfg-section">Loop</div>
   <div class="cfg-row">
-    <div class="cfg-field"><label class="cfg-label">Max Iterations</label><input class="cfg-input" id="cfg_maxIterations" type="number" min="1" max="9999"></div>
-    <div class="cfg-field"><label class="cfg-label">Interval (s)</label><input class="cfg-input" id="cfg_loopInterval" type="number" min="1" max="3600"></div>
+    <div class="cfg-field"><label class="cfg-label">Idle Interval (s)</label><input class="cfg-input" id="cfg_loopInterval" type="number" min="1" max="3600"></div>
+    <div class="cfg-field"><label class="cfg-label">Task Timeout (min)</label><input class="cfg-input" id="cfg_taskTimeoutMinutes" type="number" min="1" max="1440"></div>
+    <div class="cfg-field"><label class="cfg-label">Check-in Interval (min)</label><input class="cfg-input" id="cfg_taskCheckInMinutes" type="number" min="1" max="1440"></div>
+  </div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_retryOnTimeout"> Retry on timeout</label></div>
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoResetPendingTasks"> Auto-reset pending tasks on start</label></div>
   </div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
@@ -303,10 +308,16 @@ function populateSettings(s){
     const el=document.getElementById('cfg_'+k);
     if(el) el.value=s[k]||'';
   });
-  const mi=document.getElementById('cfg_maxIterations');
-  if(mi) mi.value=s.maxIterations!==undefined?s.maxIterations:300;
   const li=document.getElementById('cfg_loopInterval');
   if(li) li.value=s.loopInterval!==undefined?s.loopInterval:30;
+  const tt=document.getElementById('cfg_taskTimeoutMinutes');
+  if(tt) tt.value=s.taskTimeoutMinutes!==undefined?s.taskTimeoutMinutes:30;
+  const ci=document.getElementById('cfg_taskCheckInMinutes');
+  if(ci) ci.value=s.taskCheckInMinutes!==undefined?s.taskCheckInMinutes:20;
+  const rot=document.getElementById('cfg_retryOnTimeout');
+  if(rot) rot.checked=!!s.retryOnTimeout;
+  const arp=document.getElementById('cfg_autoResetPendingTasks');
+  if(arp) arp.checked=s.autoResetPendingTasks!==false;
 }
 
 document.getElementById('tabTasks').addEventListener('click',function(){
@@ -343,8 +354,11 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     discordChannelId:document.getElementById('cfg_discordChannelId').value,
     discordWebhookUrl:document.getElementById('cfg_discordWebhookUrl').value,
     discordOwners:document.getElementById('cfg_discordOwners').value,
-    maxIterations:parseInt(document.getElementById('cfg_maxIterations').value)||300,
     loopInterval:parseInt(document.getElementById('cfg_loopInterval').value)||30,
+    taskTimeoutMinutes:parseInt(document.getElementById('cfg_taskTimeoutMinutes').value)||30,
+    taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
+    retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
+    autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
     profilePath:document.getElementById('cfg_profilePath').value,
     todoPath:document.getElementById('cfg_todoPath').value,
   };
