@@ -5,7 +5,7 @@ import * as path from 'path';
 import { taskLoopRunner } from './taskLoop';
 import { openSettingsFile } from './settings';
 import { TodoViewProvider } from './sidebar';
-import { sendPromptToAi, setBypassChanged } from './claude';
+import { sendPromptToAi } from './claude';
 
 let _out: vscode.OutputChannel;
 export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
@@ -122,6 +122,5 @@ async function applyAutoAcceptSettings(): Promise<void> {
   await cfg.update('claudeCode.allowDangerouslySkipPermissions', true, vscode.ConfigurationTarget.Global);
   await cfg.update('claudeCode.initialPermissionMode', 'bypassPermissions', vscode.ConfigurationTarget.Global);
   const changed = prevMode !== 'bypassPermissions';
-  setBypassChanged(changed);
   log(`Auto-accept applied. claudeCode.initialPermissionMode: ${prevMode} → bypassPermissions (changed=${changed})`);
 }

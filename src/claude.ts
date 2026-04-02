@@ -141,8 +141,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 // Whether the bypass-permissions setting was changed this session (needs a fresh conversation)
-let _bypassJustChanged = false;
-export function setBypassChanged(changed: boolean): void { _bypassJustChanged = changed; }
+// Removed — bypass is always active, no need to force new conversations.
 
 export async function sendPromptToAi(
   providerId: ProviderId,
@@ -161,23 +160,22 @@ export async function sendPromptToAi(
       .find(t => t.input instanceof vscode.TabInputWebview &&
         t.input.viewType.includes('claudeVSCodePanel'));
 
-    if (existingPanel && !_bypassJustChanged) {
-      // Setting was already correct — reuse the open panel
+    if (existingPanel) {
+      // Reuse the open panel
       await vscode.env.clipboard.writeText(prompt);
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
       await sleep(400);
       sendPasteAndEnter(log);
-      log('Sent to existing Claude panel (bypass already active)');
+      log('Sent to existing Claude panel');
     } else {
-      // Setting just changed OR no panel open — start a fresh conversation
-      _bypassJustChanged = false; // only force-new once
+      // No panel open — start a fresh conversation
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.newConversation'));
       await sleep(800);
       await vscode.env.clipboard.writeText(prompt);
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
       await sleep(400);
       sendPasteAndEnter(log);
-      log('Sent to Claude via new conversation (bypass permissions now active)');
+      log('Sent to Claude via new conversation');
     }
   } else {
     await Promise.resolve(vscode.commands.executeCommand('workbench.action.chat.open', {
