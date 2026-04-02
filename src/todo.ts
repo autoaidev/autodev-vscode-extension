@@ -70,9 +70,9 @@ function parseLine(line: string, section: string, lineNo: number): Task | null {
   return null;
 }
 
-/** Return the first todo or in-progress task, or null if all done. */
+/** Return the first todo task (not in-progress), or null if none pending. */
 export function pickNextTask(tasks: Task[]): Task | null {
-  return tasks.find(t => t.status === 'todo' || t.status === 'in-progress') ?? null;
+  return tasks.find(t => t.status === 'todo') ?? null;
 }
 
 export function countRemaining(tasks: Task[]): number {

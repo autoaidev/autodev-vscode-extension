@@ -1,44 +1,130 @@
 import * as https from 'https';
 import * as http from 'http';
 import * as url from 'url';
+import * as crypto from 'crypto';
+
+function uuid(): string { return crypto.randomUUID(); }
 
 // ---------------------------------------------------------------------------
-// Webhook client — mirrors PHP WebhookClient
+// A2A WebhookClient — mirrors PHP WebhookClient.php 1-to-1
+//
+// Emits proper A2A StreamResponse payloads (task | statusUpdate |
+// artifactUpdate | message) and tracks contextId / taskId / artifactId state
+// across the loop lifetime.
 // ---------------------------------------------------------------------------
 
 export type WebhookEvent =
-  | 'agent_online'
-  | 'loop_start'
-  | 'task_start'
-  | 'task_done'
-  | 'task_failed'
-  | 'all_tasks_done';
+  | 'agent_online' | 'agent_offline'
+  | 'loop_start' | 'loop_complete'
+  | 'task_start' | 'task_done' | 'task_fail' | 'task_progress'
+  | 'task_output' | 'all_tasks_done';
 
-export interface WebhookPayload {
-  event: WebhookEvent;
-  task?: string;
-  remaining?: number;
-  error?: string;
-  timestamp: string;
-}
+export class WebhookClient {
+  private readonly contextId: string;
+  private currentTaskId: string | null = null;
+  private currentArtifactId: string | null = null;
+  private meta: Record<string, unknown> = {};
 
-/** POST a JSON event to a webhook URL. Fire-and-forget (no await). */
-export function sendWebhook(webhookUrl: string, event: WebhookEvent, extra?: Partial<WebhookPayload>): void {
-  if (!webhookUrl) { return; }
+  constructor(
+    private readonly baseUrl: string,
+    private readonly apiKey: string,
+  ) {
+    this.contextId = uuid();
+  }
 
-  const body: WebhookPayload = {
-    event,
-    timestamp: new Date().toISOString(),
-    ...extra,
-  };
+  setMeta(meta: Record<string, unknown>): void { this.meta = meta; }
 
-  postJson(webhookUrl, body).catch(_err => {
-    // Webhook failures are non-fatal — silently drop
-  });
+  send(event: WebhookEvent, payload: Record<string, unknown> = {}): void {
+    if (!this.baseUrl) { return; }
+    const merged: Record<string, unknown> = { ...this.meta, ...payload };
+    const body = this.toStreamResponse(event, merged);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/a2a+json',
+      'User-Agent': 'AutoDev-VSCode/1.0',
+    };
+    if (this.apiKey) { headers['Authorization'] = `Bearer ${this.apiKey}`; }
+    postJson(this.baseUrl, body, headers).catch(() => {});
+  }
+
+  private toStreamResponse(event: WebhookEvent, payload: Record<string, unknown>): unknown {
+    const now = new Date().toISOString();
+    switch (event) {
+      case 'loop_start':
+        this.currentTaskId = null; this.currentArtifactId = null;
+        return { task: { id: uuid(), contextId: this.contextId,
+          status: { state: 'TASK_STATE_SUBMITTED', timestamp: now }, metadata: payload } };
+
+      case 'loop_complete':
+        return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          status: { state: 'TASK_STATE_COMPLETED', timestamp: now }, metadata: payload } };
+
+      case 'agent_online':
+        return this.buildMessage('autodev online', payload, now);
+      case 'agent_offline':
+        return this.buildMessage('autodev going offline', payload, now);
+      case 'all_tasks_done':
+        return this.buildMessage('All TODO tasks done — waiting for new tasks', payload, now);
+
+      case 'task_start': {
+        this.currentTaskId = uuid(); this.currentArtifactId = null;
+        const taskObj = payload['task'];
+        const taskText = typeof taskObj === 'string' ? taskObj
+          : (taskObj && typeof taskObj === 'object' && 'text' in taskObj) ? String((taskObj as Record<string, unknown>)['text']) : '';
+        return { statusUpdate: { taskId: this.currentTaskId, contextId: this.contextId,
+          status: { state: 'TASK_STATE_WORKING', timestamp: now,
+            message: { messageId: uuid(), role: 'ROLE_AGENT', parts: [{ text: taskText }] } },
+          metadata: payload } };
+      }
+
+      case 'task_done': {
+        const taskId = this.currentTaskId ?? uuid();
+        this.currentTaskId = null; this.currentArtifactId = null;
+        return { task: { id: taskId, contextId: this.contextId,
+          status: { state: 'TASK_STATE_COMPLETED', timestamp: now }, metadata: payload } };
+      }
+
+      case 'task_fail': {
+        const taskId = this.currentTaskId ?? uuid();
+        const errorText = typeof payload['error'] === 'string' ? payload['error'] : 'Task failed';
+        this.currentTaskId = null; this.currentArtifactId = null;
+        return { task: { id: taskId, contextId: this.contextId,
+          status: { state: 'TASK_STATE_FAILED', timestamp: now,
+            message: { messageId: uuid(), role: 'ROLE_AGENT', parts: [{ text: errorText }] } },
+          metadata: payload } };
+      }
+
+      case 'task_progress':
+        return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          status: { state: 'TASK_STATE_WORKING', timestamp: now }, metadata: payload } };
+
+      case 'task_output': {
+        if (!this.currentArtifactId) { this.currentArtifactId = uuid(); }
+        const chunk = typeof payload['chunk'] === 'string' ? payload['chunk']
+          : typeof payload['output'] === 'string' ? payload['output'] : '';
+        return { artifactUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          artifact: { artifactId: this.currentArtifactId, parts: [{ text: chunk }] },
+          append: true, lastChunk: false } };
+      }
+
+      default:
+        return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          status: { state: 'TASK_STATE_WORKING', timestamp: now },
+          metadata: { event, ...payload } } };
+    }
+  }
+
+  private buildMessage(text: string, payload: Record<string, unknown>, _now: string): unknown {
+    return { message: { messageId: uuid(), contextId: this.contextId,
+      role: 'ROLE_AGENT', parts: [{ text }], metadata: payload } };
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Discord webhook client — POST a simple message embed
+// Discord — bot REST API (preferred) and plain webhook URL (fallback)
 // ---------------------------------------------------------------------------
 
 export interface DiscordEmbed {
@@ -48,7 +134,38 @@ export interface DiscordEmbed {
   footer?: { text: string };
 }
 
-/** POST a message to a Discord webhook URL. Fire-and-forget. */
+/**
+ * Send a message via the Discord bot REST API.
+ * Uses `Authorization: Bot {token}` targeting a specific channel.
+ * Fire-and-forget.
+ */
+export function sendDiscordBotMessage(
+  botToken: string,
+  channelId: string,
+  content: string,
+): void {
+  if (!botToken || !channelId) { return; }
+
+  const apiUrl = `https://discord.com/api/v10/channels/${channelId}/messages`;
+  const MAX_LEN = 1900;
+  const chunks = content.length <= MAX_LEN
+    ? [content]
+    : chunkString(content, MAX_LEN);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const text = i === 0 ? chunks[i] : `(continued) ${chunks[i]}`;
+    const headers: Record<string, string> = {
+      'Authorization': `Bot ${botToken}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'AutoDev-VSCode/1.0',
+    };
+    postJson(apiUrl, { content: text }, headers).catch(_err => {
+      // Discord failures are non-fatal
+    });
+  }
+}
+
+/** POST a message to a plain Discord webhook URL. Fire-and-forget. */
 export function sendDiscordWebhook(webhookUrl: string, content: string, embed?: DiscordEmbed): void {
   if (!webhookUrl) { return; }
 
@@ -57,7 +174,10 @@ export function sendDiscordWebhook(webhookUrl: string, content: string, embed?: 
     body.embeds = [embed];
   }
 
-  postJson(webhookUrl, body).catch(_err => {
+  postJson(webhookUrl, body, {
+    'Content-Type': 'application/json',
+    'User-Agent': 'AutoDev-VSCode/1.0',
+  }).catch(_err => {
     // Discord failures are non-fatal
   });
 }
@@ -66,21 +186,29 @@ export function sendDiscordWebhook(webhookUrl: string, content: string, embed?: 
 // Helpers
 // ---------------------------------------------------------------------------
 
-function postJson(rawUrl: string, body: unknown): Promise<void> {
+function chunkString(str: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < str.length; i += size) {
+    chunks.push(str.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function postJson(rawUrl: string, body: unknown, headers: Record<string, string>): Promise<void> {
   return new Promise((resolve, reject) => {
     const parsed = url.parse(rawUrl);
     const json = JSON.stringify(body);
+    const allHeaders = {
+      ...headers,
+      'Content-Length': String(Buffer.byteLength(json)),
+    };
 
     const options: http.RequestOptions = {
       hostname: parsed.hostname ?? '',
       port: parsed.port,
       path: parsed.path ?? '/',
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(json),
-        'User-Agent': 'AutoDev-VSCode/1.0',
-      },
+      headers: allHeaders,
     };
 
     const transport = rawUrl.startsWith('https') ? https : http;

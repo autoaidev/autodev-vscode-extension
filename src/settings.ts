@@ -9,14 +9,20 @@ import * as path from 'path';
 export interface AutodevSettings {
   /** Active AI provider */
   provider: 'copilot' | 'claude';
-  /** Webhook URL to POST task events (A2A-style) */
-  webhookUrl: string;
+  /** Base URL of the autodev server (e.g. https://myserver.com) */
+  serverBaseUrl: string;
+  /** API key (X-API-Key) for the autodev server */
+  serverApiKey: string;
+  /** Webhook endpoint slug — events POST to {serverBaseUrl}/webhook/{slug}, logs polled from {serverBaseUrl}/v1/logs */
+  webhookSlug: string;
   /** Discord bot token */
   discordToken: string;
   /** Discord channel ID to post messages to */
   discordChannelId: string;
   /** Discord webhook URL (simpler alternative to bot — just POSTs embeds) */
   discordWebhookUrl: string;
+  /** Comma-separated list of Discord usernames or user IDs allowed to send tasks to the bot */
+  discordOwners: string;
   /** Max consecutive tasks before stopping the loop */
   maxIterations: number;
   /** Seconds to wait between loop ticks when TODO is empty */
@@ -29,10 +35,13 @@ export interface AutodevSettings {
 
 const DEFAULTS: AutodevSettings = {
   provider: 'copilot',
-  webhookUrl: '',
+  serverBaseUrl: '',
+  serverApiKey: '',
+  webhookSlug: '',
   discordToken: '',
   discordChannelId: '',
   discordWebhookUrl: '',
+  discordOwners: '',
   maxIterations: 300,
   loopInterval: 30,
   profilePath: '',

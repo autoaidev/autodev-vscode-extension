@@ -33,6 +33,80 @@ export function findLatestClaudeSession(workspacePath: string): string | undefin
 }
 
 // ---------------------------------------------------------------------------
+// Claude JSONL session output reader
+// ---------------------------------------------------------------------------
+
+/** Resolve the path to the most recent Claude session JSONL for this workspace. */
+function resolveClaudeJsonl(workspacePath: string): string | undefined {
+  try {
+    const claudeDir = process.env['CLAUDE_CONFIG_DIR'] ?? path.join(os.homedir(), '.claude');
+    const projectsDir = path.join(claudeDir, 'projects');
+    const encoded = claudeProjectFolder(workspacePath);
+    const folders = fs.readdirSync(projectsDir);
+    const match = folders.find(f => f === encoded || encoded.startsWith(f) || f.startsWith(encoded.slice(0, 8)));
+    if (!match) { return undefined; }
+    const sessionsDir = path.join(projectsDir, match);
+    const files = fs.readdirSync(sessionsDir)
+      .filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (!files[0]) { return undefined; }
+    return path.join(sessionsDir, files[0].name);
+  } catch { return undefined; }
+}
+
+/**
+ * Return the current byte size of the JSONL session file.
+ * Call this just before sending a task to AI; store the result as a cursor.
+ */
+export function getClaudeSessionCursor(workspacePath: string): number {
+  const p = resolveClaudeJsonl(workspacePath);
+  if (!p) { return 0; }
+  try { return fs.statSync(p).size; } catch { return 0; }
+}
+
+interface ClaudeJsonlEntry {
+  type?: string;
+  message?: { role?: string; content?: Array<{ type?: string; text?: string }> | string };
+}
+
+/**
+ * Read all assistant text blocks appended to the JSONL since `fromByte`.
+ * Returns concatenated text, or empty string if nothing new / file not found.
+ */
+export function readClaudeOutputSince(workspacePath: string, fromByte: number): string {
+  const p = resolveClaudeJsonl(workspacePath);
+  if (!p) { return ''; }
+  try {
+    const size = fs.statSync(p).size;
+    if (size <= fromByte) { return ''; }
+    const fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(size - fromByte);
+    fs.readSync(fd, buf, 0, buf.length, fromByte);
+    fs.closeSync(fd);
+    const parts: string[] = [];
+    for (const line of buf.toString('utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) { continue; }
+      try {
+        const entry = JSON.parse(trimmed) as ClaudeJsonlEntry;
+        if (entry.type === 'assistant' || entry.message?.role === 'assistant') {
+          const content = entry.message?.content;
+          if (typeof content === 'string') {
+            parts.push(content);
+          } else if (Array.isArray(content)) {
+            for (const part of content) {
+              if (part.type === 'text' && part.text) { parts.push(part.text); }
+            }
+          }
+        }
+      } catch { /* skip malformed lines */ }
+    }
+    return parts.join('\n\n');
+  } catch { return ''; }
+}
+
+// ---------------------------------------------------------------------------
 // OS-level keystroke: Ctrl+V then Enter
 // ---------------------------------------------------------------------------
 

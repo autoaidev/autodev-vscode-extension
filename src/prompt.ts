@@ -7,13 +7,21 @@ import { Task } from './todo';
 // ---------------------------------------------------------------------------
 
 const AUTODEV_FILENAME = 'AUTODEV.md';
+const AUTODEV_DEFAULT_FILENAME = 'AUTODEV.default.md';
 const TODO_FILENAME = 'TODO.md';
+
+/** Bundled fallback instructions shipped with the extension (media/AUTODEV.default.md). */
+function defaultAutodevPath(): string {
+  // __dirname resolves to out/ at runtime; media/ is a sibling of src/ and out/
+  return path.join(__dirname, '..', 'media', AUTODEV_DEFAULT_FILENAME);
+}
 
 export function buildPrompt(task: Task, todoDir: string, autodevPath?: string): string {
   const resolvedAutodev = autodevPath || path.join(todoDir, AUTODEV_FILENAME);
   const todoPath = path.join(todoDir, TODO_FILENAME);
 
-  const autodevContent = readOrEmpty(resolvedAutodev);
+  // Use workspace AUTODEV.md if it exists, otherwise fall back to the bundled default
+  const autodevContent = readOrEmpty(resolvedAutodev) || readOrEmpty(defaultAutodevPath());
   const todoContent = readOrEmpty(todoPath);
 
   const taskInstruction = buildTaskInstruction(task.text);
