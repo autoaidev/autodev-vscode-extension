@@ -28,6 +28,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/** First line of task text, capped at 200 chars — safe to post to Discord. */
+function discordLabel(taskText: string): string {
+  const first = taskText.split('\n')[0].trim();
+  return first.length > 200 ? first.slice(0, 197) + '\u2026' : first;
+}
+
 function resolveGitInfo(workDir: string): { gitRepo: string; gitBranch: string } {
   const run = (cmd: string) => {
     try { return execSync(cmd, { cwd: workDir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); }
@@ -263,7 +269,7 @@ class TaskLoopRunner {
         gitRepo:   this._gitRepo,
         gitBranch: this._gitBranch,
       });
-      this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${task.text}`);
+      this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
 
       const taskStartTime = Date.now();
       try {
@@ -287,7 +293,7 @@ class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`\u2705 **Task done** (${afterRemaining} remaining):\n${task.text}`);
+        this._notifyDiscord(`\u2705 **Task done** (${afterRemaining} remaining):\n${discordLabel(task.text)}`);
         if (afterRemaining > 0) {
           this._notifyDiscord(`\ud83d\udcca Progress: ${this._iterations}/${totalKnown}`);
           this._notifyWebhook('task_progress', {
@@ -313,7 +319,7 @@ class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`❌ **Task failed:**\n${task.text}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
+        this._notifyDiscord(`❌ **Task failed:**\n${discordLabel(task.text)}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
         if (afterRemainingFail > 0) {
           const totalKnownFail = this._iterations + afterRemainingFail;
           this._notifyDiscord(`\ud83d\udcca Progress: ${this._iterations}/${totalKnownFail}`);

@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
-import { loadSettings } from './settings';
+import { loadSettings, saveSettings, AutodevSettings } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +46,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'addTask':     this._addTask(msg.text as string); break;
         case 'startLoop':   void vscode.commands.executeCommand('autodev.startTaskLoop'); break;
         case 'stopLoop':    void vscode.commands.executeCommand('autodev.stopTaskLoop'); break;
+        case 'saveSettings':
+          saveSettings(msg.settings as AutodevSettings);
+          this._startWatcher();
+          vscode.window.showInformationMessage('AutoDev: Settings saved.');
+          break;
         case 'openSettings': void vscode.commands.executeCommand('autodev.openSettings'); break;
       }
     });
@@ -84,9 +89,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _startWatcher(): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { return; }
+    const settings = loadSettings();
+    const todoPath = settings.todoPath || path.join(root, 'TODO.md');
     this._watcher?.dispose();
     this._watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, 'TODO.md')
+      new vscode.RelativePattern(path.dirname(todoPath), path.basename(todoPath))
     );
     this._watcher.onDidChange(() => this._refreshTasks());
     this._watcher.onDidCreate(() => this._refreshTasks());
@@ -114,6 +121,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate })),
       loopState: this._loopState,
       loopTask: this._loopTask,
+      settings: loadSettings(),
     });
   }
 }
@@ -166,24 +174,65 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .task-date{font-size:10px;color:var(--vscode-descriptionForeground);margin-top:1px}
 .pulse{animation:pulse 1.4s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.tab-bar{display:flex;border-bottom:1px solid var(--vscode-panel-border);margin-bottom:8px}
+.tab-btn{flex:1;padding:5px 0;font-size:12px;cursor:pointer;border:none;background:transparent;color:var(--vscode-descriptionForeground);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:var(--vscode-font-family)}
+.tab-btn.active{color:var(--vscode-foreground);border-bottom-color:var(--vscode-button-background);font-weight:600}
+.cfg-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-descriptionForeground));margin:10px 0 5px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)}
+.cfg-section:first-child{border-top:none;margin-top:0;padding-top:0}
+.cfg-field{margin-bottom:7px}
+.cfg-label{display:block;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
+.cfg-input{width:100%;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none}
+.cfg-input:focus{border-color:var(--vscode-focusBorder)}
+.cfg-row{display:flex;gap:5px}
+.cfg-row .cfg-field{flex:1;min-width:0}
+.cfg-save{width:100%;padding:5px;border-radius:3px;cursor:pointer;border:none;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-family:var(--vscode-font-family);font-size:12px;margin-top:8px}
+.cfg-save:hover{opacity:.88}
+.cfg-json{display:block;width:100%;padding:4px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-textLink-foreground);font-size:11px;font-family:var(--vscode-font-family);margin-top:5px;text-align:center}
+.cfg-json:hover{background:var(--vscode-list-hoverBackground)}
 </style>
 </head>
 <body>
 <div class="provider-row" id="providerRow"></div>
 <div class="loop-bar">
   <span class="loop-status" id="loopStatus">&#9711; Idle</span>
-  <button class="settings-btn" id="settingsBtn" title="Open settings">&#9881;</button>
   <button class="loop-btn" id="loopBtn">&#9654; Start</button>
 </div>
+<div class="tab-bar">
+  <button class="tab-btn active" id="tabTasks">Tasks</button>
+  <button class="tab-btn" id="tabSettings">&#9881; Settings</button>
+</div>
+<div id="panelTasks">
 <form class="add-form" id="addForm">
   <input class="add-input" id="taskInput" placeholder="New task&#x2026;" autocomplete="off">
   <button class="add-btn" type="submit">Add</button>
 </form>
 <div class="section-label">Tasks</div>
 <div id="taskList"></div>
+</div>
+<div id="panelSettings" style="display:none">
+  <div class="cfg-section">Server</div>
+  <div class="cfg-field"><label class="cfg-label">Server Base URL</label><input class="cfg-input" id="cfg_serverBaseUrl" placeholder="https://myserver.com"></div>
+  <div class="cfg-field"><label class="cfg-label">Server API Key</label><input class="cfg-input" id="cfg_serverApiKey" type="password" placeholder="api-key"></div>
+  <div class="cfg-field"><label class="cfg-label">Webhook Slug</label><input class="cfg-input" id="cfg_webhookSlug" placeholder="my-slug"></div>
+  <div class="cfg-section">Discord</div>
+  <div class="cfg-field"><label class="cfg-label">Bot Token</label><input class="cfg-input" id="cfg_discordToken" type="password" placeholder="Bot token"></div>
+  <div class="cfg-field"><label class="cfg-label">Channel ID</label><input class="cfg-input" id="cfg_discordChannelId" placeholder="123456789"></div>
+  <div class="cfg-field"><label class="cfg-label">Webhook URL</label><input class="cfg-input" id="cfg_discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..."></div>
+  <div class="cfg-field"><label class="cfg-label">Allowed Owners</label><input class="cfg-input" id="cfg_discordOwners" placeholder="user1,user2"></div>
+  <div class="cfg-section">Loop</div>
+  <div class="cfg-row">
+    <div class="cfg-field"><label class="cfg-label">Max Iterations</label><input class="cfg-input" id="cfg_maxIterations" type="number" min="1" max="9999"></div>
+    <div class="cfg-field"><label class="cfg-label">Interval (s)</label><input class="cfg-input" id="cfg_loopInterval" type="number" min="1" max="3600"></div>
+  </div>
+  <div class="cfg-section">Paths</div>
+  <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
+  <div class="cfg-field"><label class="cfg-label">Profile (AUTODEV.md)</label><input class="cfg-input" id="cfg_profilePath" placeholder="(workspace root)"></div>
+  <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
+  <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
+</div>
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-let state = {selectedProvider:'copilot',providers:[],tasks:[],loopState:'idle',loopTask:null};
+let state = {selectedProvider:'copilot',providers:[],tasks:[],loopState:'idle',loopTask:null,settings:{}};
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -198,7 +247,7 @@ function renderProviders(){
   row.innerHTML=state.providers.map(function(p){
     const active=p.id===state.selectedProvider?' active':'';
     const dis=!p.installed?' disabled title="Not installed"':'';
-    return '<button class="provider-btn'+active+'" data-id="'+p.id+'"'+dis+'>'+esc(p.label)+(!p.installed?' \u2717':'')+'</button>';
+    return '<button class="provider-btn'+active+'" data-id="'+p.id+'"'+dis+'>'+esc(p.label)+(p.installed?'':' \u2717')+'</button>';
   }).join('');
   row.querySelectorAll('.provider-btn:not([disabled])').forEach(function(btn){
     btn.addEventListener('click',function(){vscode.postMessage({command:'setProvider',provider:btn.dataset.id});});
@@ -248,8 +297,30 @@ function renderTasks(){
   }).join('');
 }
 
-document.getElementById('settingsBtn').addEventListener('click',function(){
-  vscode.postMessage({command:'openSettings'});
+function populateSettings(s){
+  ['serverBaseUrl','serverApiKey','webhookSlug','discordToken','discordChannelId',
+   'discordWebhookUrl','discordOwners','profilePath','todoPath'].forEach(function(k){
+    const el=document.getElementById('cfg_'+k);
+    if(el) el.value=s[k]||'';
+  });
+  const mi=document.getElementById('cfg_maxIterations');
+  if(mi) mi.value=s.maxIterations!==undefined?s.maxIterations:300;
+  const li=document.getElementById('cfg_loopInterval');
+  if(li) li.value=s.loopInterval!==undefined?s.loopInterval:30;
+}
+
+document.getElementById('tabTasks').addEventListener('click',function(){
+  this.className='tab-btn active';
+  document.getElementById('tabSettings').className='tab-btn';
+  document.getElementById('panelTasks').style.display='';
+  document.getElementById('panelSettings').style.display='none';
+});
+document.getElementById('tabSettings').addEventListener('click',function(){
+  this.className='tab-btn active';
+  document.getElementById('tabTasks').className='tab-btn';
+  document.getElementById('panelTasks').style.display='none';
+  document.getElementById('panelSettings').style.display='';
+  populateSettings(state.settings||{});
 });
 
 document.getElementById('addForm').addEventListener('submit',function(e){
@@ -260,6 +331,29 @@ document.getElementById('addForm').addEventListener('submit',function(e){
   vscode.postMessage({command:'addTask',text:text});
   input.value='';
   input.focus();
+});
+
+document.getElementById('saveSettingsBtn').addEventListener('click',function(){
+  const s={
+    provider:state.selectedProvider,
+    serverBaseUrl:document.getElementById('cfg_serverBaseUrl').value,
+    serverApiKey:document.getElementById('cfg_serverApiKey').value,
+    webhookSlug:document.getElementById('cfg_webhookSlug').value,
+    discordToken:document.getElementById('cfg_discordToken').value,
+    discordChannelId:document.getElementById('cfg_discordChannelId').value,
+    discordWebhookUrl:document.getElementById('cfg_discordWebhookUrl').value,
+    discordOwners:document.getElementById('cfg_discordOwners').value,
+    maxIterations:parseInt(document.getElementById('cfg_maxIterations').value)||300,
+    loopInterval:parseInt(document.getElementById('cfg_loopInterval').value)||30,
+    profilePath:document.getElementById('cfg_profilePath').value,
+    todoPath:document.getElementById('cfg_todoPath').value,
+  };
+  vscode.postMessage({command:'saveSettings',settings:s});
+  document.getElementById('tabTasks').click();
+});
+
+document.getElementById('editJsonBtn').addEventListener('click',function(){
+  vscode.postMessage({command:'openSettings'});
 });
 
 window.addEventListener('message',function(e){
