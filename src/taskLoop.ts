@@ -273,37 +273,8 @@ class TaskLoopRunner {
 
       const taskStartTime = Date.now();
       try {
-        // Send to AI
+        // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
         await this._cb!.sendToAi(prompt, task.text);
-
-        // Brief pause for file system to settle
-        await sleep(2_000);
-
-        // If the AI didn't mark the task done, send a one-shot reminder
-        const isMarkedDone = () => {
-          const ts = parseTodo(todoPath);
-          const done = ts.some(t => t.text === task.text && t.status === 'done');
-          const inProg = ts.some(t => t.text === task.text && t.status === 'in-progress');
-          return done && !inProg;
-        };
-        if (!isMarkedDone()) {
-          const date = new Date().toISOString().slice(0, 10);
-          const reminder = [
-            `You completed the task but did NOT mark it done in TODO.md.`,
-            ``,
-            `Open TODO.md and change the line:`,
-            `  - [~] ${task.text}`,
-            `to exactly:`,
-            `  - [x] ${date}  ${task.text}`,
-            ``,
-            `(two spaces between the date and task text, lowercase x, save the file)`,
-            ``,
-            `Do this now. The loop cannot proceed until the task is marked [x].`,
-          ].join('\n');
-          this._cb?.log(`⚠️ Task not marked done — sending reminder to mark TODO.md`);
-          this._notifyDiscord(`⚠️ Reminding AI to mark task done in TODO.md`);
-          await this._cb!.sendToAi(reminder, task.text);
-        }
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task);
@@ -421,9 +392,9 @@ class TaskLoopRunner {
       // Polling fallback every 3 s — file watcher can miss writes by other extensions
       poller = setInterval(check, 3_000);
 
-      // Periodic check-in notifications
+      // Periodic check-in: notify discord/webhook AND remind the AI to mark TODO.md
       const scheduleCheckIn = (delay: number) => {
-        checkInTimer = setTimeout(() => {
+        checkInTimer = setTimeout(async () => {
           if (this._state !== 'running') { return; }
           const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
           const msg = `⏳ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
@@ -437,6 +408,21 @@ class TaskLoopRunner {
             gitRepo:        this._gitRepo,
             gitBranch:      this._gitBranch,
           });
+          // Send a one-shot reminder to the AI to mark the task done in TODO.md
+          const date = new Date().toISOString().slice(0, 10);
+          const reminder = [
+            `Reminder: when you are done with the task, mark it done in TODO.md.`,
+            ``,
+            `Change the line:`,
+            `  - [~] ${task.text}`,
+            `to exactly:`,
+            `  - [x] ${date}  ${task.text}`,
+            ``,
+            `(two spaces between the date and task text, lowercase x, save the file)`,
+            `If you have already finished, do this now.`,
+          ].join('\n');
+          this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md if done`);
+          try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
           scheduleCheckIn(checkInMs);
         }, delay);
       };
