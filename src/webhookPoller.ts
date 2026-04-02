@@ -139,7 +139,7 @@ function jsonRequest<T>(
     };
 
     const transport = rawUrl.startsWith('https') ? https : http;
-    const req = transport.request(options, res => {
+    const req = transport.request(options, (res: import('http').IncomingMessage) => {
       let data = '';
       res.on('data', (chunk: string) => { data += chunk; });
       res.on('end', () => {
