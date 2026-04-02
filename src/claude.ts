@@ -143,10 +143,24 @@ function sleep(ms: number): Promise<void> {
 // Whether the bypass-permissions setting was changed this session (needs a fresh conversation)
 // Removed — bypass is always active, no need to force new conversations.
 
+/** Detect any open Claude Code webview panel. */
+function findClaudePanel(): vscode.Tab | undefined {
+  return vscode.window.tabGroups.all
+    .flatMap(g => g.tabs)
+    .find(t =>
+      t.input instanceof vscode.TabInputWebview && (
+        t.input.viewType.toLowerCase().includes('claude') ||
+        t.label.toLowerCase().includes('claude')
+      )
+    );
+}
+
 export async function sendPromptToAi(
   providerId: ProviderId,
   prompt: string,
-  log: (msg: string) => void
+  log: (msg: string) => void,
+  /** If true, only focus and paste — never open a new conversation (used for reminders). */
+  focusOnly = false,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
 
@@ -155,25 +169,22 @@ export async function sendPromptToAi(
   }
 
   if (providerId === 'claude') {
-    const existingPanel = vscode.window.tabGroups.all
-      .flatMap(g => g.tabs)
-      .find(t => t.input instanceof vscode.TabInputWebview &&
-        t.input.viewType.includes('claudeVSCodePanel'));
+    const existingPanel = findClaudePanel();
 
-    if (existingPanel) {
+    if (existingPanel || focusOnly) {
       // Reuse the open panel
       await vscode.env.clipboard.writeText(prompt);
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
-      await sleep(400);
+      await sleep(600);
       sendPasteAndEnter(log);
       log('Sent to existing Claude panel');
     } else {
-      // No panel open — start a fresh conversation
+      // No panel open — start a fresh conversation and wait for it to load
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.newConversation'));
-      await sleep(800);
+      await sleep(2_000);
       await vscode.env.clipboard.writeText(prompt);
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
-      await sleep(400);
+      await sleep(600);
       sendPasteAndEnter(log);
       log('Sent to Claude via new conversation');
     }

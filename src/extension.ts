@@ -39,9 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       vscode.window.showInformationMessage('AutoDev: Starting task loop');
       void taskLoopRunner.start({
-        sendToAi: (prompt, taskLabel) => {
+        sendToAi: (prompt, taskLabel, focusOnly) => {
           log(`Dispatching task: ${taskLabel}`);
-          return sendPromptToAi(sidebar.selectedProvider, prompt, log);
+          return sendPromptToAi(sidebar.selectedProvider, prompt, log, focusOnly);
         },
         log,
         onStatusChange: (state, task) => {

@@ -17,7 +17,7 @@ export type LoopState = 'idle' | 'running' | 'stopping';
 
 export interface LoopCallbacks {
   /** Send a raw prompt string to the active AI provider */
-  sendToAi: (prompt: string, taskLabel: string) => Promise<void>;
+  sendToAi: (prompt: string, taskLabel: string, focusOnly?: boolean) => Promise<void>;
   /** Append a message to the extension's output channel */
   log: (msg: string) => void;
   /** Called whenever the loop state changes so the sidebar can refresh */
@@ -422,7 +422,7 @@ class TaskLoopRunner {
             `If you have already finished, do this now.`,
           ].join('\n');
           this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md if done`);
-          try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
+          try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
           scheduleCheckIn(checkInMs);
         }, delay);
       };
