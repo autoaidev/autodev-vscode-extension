@@ -4,6 +4,7 @@ import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
+import { getSessionId } from './sessionState';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
@@ -143,6 +144,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   }
 
   private _push(): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const sessionId = root ? (getSessionId(root, this._selectedProvider) ?? null) : null;
     this._view?.webview.postMessage({
       command: 'update',
       selectedProvider: this._selectedProvider,
@@ -157,6 +160,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       loopTask: this._loopTask,
       claudeActivity: this._claudeActivity,
       settings: loadSettings(),
+      sessionId,
     });
   }
 }
@@ -182,8 +186,11 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .provider-label{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;flex-shrink:0}
 .provider-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
 .provider-select:focus{border-color:var(--vscode-focusBorder)}
-.resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 10px;font-size:11px;color:var(--vscode-descriptionForeground)}
+.resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
 .resume-row input{cursor:pointer}
+.session-id-row{margin:0 0 10px;font-size:10px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:4px;min-width:0}
+.session-id-val{font-family:var(--vscode-editor-font-family,monospace);color:var(--vscode-foreground);opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
+.session-id-dot{width:6px;height:6px;border-radius:50%;background:var(--vscode-testing-iconPassed,#388a34);flex-shrink:0}
 .loop-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;margin-bottom:10px;font-size:12px}
 .loop-status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground)}
 .loop-status.running{color:var(--vscode-testing-iconPassed,#388a34);font-weight:600}
@@ -236,6 +243,11 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
+</div>
+<div class="session-id-row" id="sessionIdRow" style="display:none">
+  <span class="session-id-dot"></span>
+  <span style="flex-shrink:0">Session:</span>
+  <span class="session-id-val" id="sessionIdVal"></span>
 </div>
 <div class="loop-bar">
   <span class="loop-status" id="loopStatus">&#9711; Idle</span>
@@ -320,10 +332,17 @@ function renderProviders(){
   const resumeRow=document.getElementById('resumeRow');
   resumeRow.style.display=isCli?'flex':'none';
   const resumeCheck=document.getElementById('resumeCheck');
-  resumeCheck.checked=!!(state.settings&&state.settings.resumeSession);
+  const resumeOn=!!(state.settings&&state.settings.resumeSession);
+  resumeCheck.checked=resumeOn;
   resumeCheck.onchange=function(){
     vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
   };
+  // Show captured session ID when resume is active and a session exists
+  const sidRow=document.getElementById('sessionIdRow');
+  const sidVal=document.getElementById('sessionIdVal');
+  const hasSession=isCli&&resumeOn&&state.sessionId;
+  sidRow.style.display=hasSession?'flex':'none';
+  if(sidVal)sidVal.textContent=state.sessionId||'';
 }
 
 function renderLoop(){

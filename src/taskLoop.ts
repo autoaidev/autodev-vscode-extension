@@ -6,7 +6,7 @@ import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProg
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
-import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './claude';
+import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { captureAndSaveSessionId } from './sessionState';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
