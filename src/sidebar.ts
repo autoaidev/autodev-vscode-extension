@@ -20,6 +20,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _loopTask?: string;
   private _selectedProvider: ProviderId;
   private _watcher?: vscode.FileSystemWatcher;
+  private _pollTimer?: ReturnType<typeof setInterval>;
+  private _lastNotifyTime = 0;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -46,6 +48,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'addTask':     this._addTask(msg.text as string); break;
         case 'startLoop':   void vscode.commands.executeCommand('autodev.startTaskLoop'); break;
         case 'stopLoop':    void vscode.commands.executeCommand('autodev.stopTaskLoop'); break;
+        case 'openTask':    void this._openTaskLine(msg.line as number); break;
         case 'saveSettings':
           saveSettings(msg.settings as AutodevSettings);
           this._startWatcher();
@@ -55,7 +58,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    webviewView.onDidDispose(() => { this._watcher?.dispose(); this._watcher = undefined; });
+    webviewView.onDidDispose(() => {
+      this._watcher?.dispose(); this._watcher = undefined;
+      if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = undefined; }
+    });
     webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this._refreshTasks(); } });
 
     this._startWatcher();
@@ -95,9 +101,30 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(path.dirname(todoPath), path.basename(todoPath))
     );
-    this._watcher.onDidChange(() => this._refreshTasks());
-    this._watcher.onDidCreate(() => this._refreshTasks());
-    this._watcher.onDidDelete(() => { this._tasks = []; this._push(); });
+    const notify = () => { this._lastNotifyTime = Date.now(); this._refreshTasks(); };
+    this._watcher.onDidChange(notify);
+    this._watcher.onDidCreate(notify);
+    this._watcher.onDidDelete(() => { this._lastNotifyTime = Date.now(); this._tasks = []; this._push(); });
+
+    // Fallback poll every 5 min — catches missed fs events on Linux
+    if (this._pollTimer) { clearInterval(this._pollTimer); }
+    this._pollTimer = setInterval(() => {
+      const sinceLastNotify = Date.now() - this._lastNotifyTime;
+      if (sinceLastNotify > 4.5 * 60 * 1000) { this._refreshTasks(); }
+    }, 5 * 60 * 1000);
+  }
+
+  private async _openTaskLine(line: number): Promise<void> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return; }
+    const settings = loadSettings();
+    const todoPath = settings.todoPath || path.join(root, 'TODO.md');
+    const uri = vscode.Uri.file(todoPath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    const pos = new vscode.Position(Math.max(0, line - 1), 0);
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
   }
 
   private _refreshTasks(): void {
@@ -118,7 +145,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         label: cfg.label,
         installed: !!vscode.extensions.getExtension(cfg.extensionId),
       })),
-      tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate })),
+      tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate, line: t.line })),
       loopState: this._loopState,
       loopTask: this._loopTask,
       settings: loadSettings(),
@@ -165,7 +192,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-descriptionForeground));margin-bottom:6px}
 .empty{text-align:center;color:var(--vscode-descriptionForeground);font-size:12px;padding:24px 0 8px;line-height:2}
 .task{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;margin-bottom:2px}
-.task:hover{background:var(--vscode-list-hoverBackground)}
+.task{cursor:pointer}.task:hover{background:var(--vscode-list-hoverBackground)}
 .task-icon{flex-shrink:0;font-size:14px;line-height:1.3;width:16px;text-align:center}
 .task-body{flex:1;min-width:0}
 .task-text{font-size:12px;line-height:1.45;word-break:break-word}
@@ -206,7 +233,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   <input class="add-input" id="taskInput" placeholder="New task&#x2026;" autocomplete="off">
   <button class="add-btn" type="submit">Add</button>
 </form>
-<div class="section-label">Tasks</div>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+  <div class="section-label" style="margin-bottom:0">Tasks</div>
+  <span id="taskProgress" style="font-size:11px;color:var(--vscode-descriptionForeground)"></span>
+</div>
 <div id="taskList"></div>
 </div>
 <div id="panelSettings" style="display:none">
@@ -238,6 +268,16 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 let state = {selectedProvider:'copilot',providers:[],tasks:[],loopState:'idle',loopTask:null,settings:{}};
+let activeTab = 'tasks'; // track which tab is currently visible
+
+function showTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabTasks').className   = 'tab-btn' + (tab==='tasks'?' active':'');
+  document.getElementById('tabSettings').className = 'tab-btn' + (tab==='settings'?' active':'');
+  document.getElementById('panelTasks').style.display    = tab==='tasks'?'':'none';
+  document.getElementById('panelSettings').style.display = tab==='settings'?'':'none';
+  if(tab==='settings'){populateSettings(state.settings||{});}
+}
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -287,6 +327,11 @@ function renderLoop(){
 
 function renderTasks(){
   const list=document.getElementById('taskList');
+  const prog=document.getElementById('taskProgress');
+  const total=state.tasks.length;
+  const doneCount=state.tasks.filter(function(t){return t.status==='done';}).length;
+  const remaining=total-doneCount;
+  if(prog){prog.textContent=total?doneCount+'/'+total+' done \u2022 '+remaining+' left':''}
   if(!state.tasks.length){
     list.innerHTML='<div class="empty">No tasks in TODO.md yet.<br>Add one above or edit <strong>TODO.md</strong> directly.</div>';
     return;
@@ -294,12 +339,18 @@ function renderTasks(){
   const pending=state.tasks.filter(function(t){return t.status!=='done';});
   const done=state.tasks.filter(function(t){return t.status==='done';});
   list.innerHTML=pending.concat(done).map(function(t){
-    return '<div class="task '+t.status+'">'
+    return '<div class="task '+t.status+'" data-line="'+(t.line||0)+'">'
       +'<span class="task-icon">'+statusIcon(t.status)+'</span>'
       +'<div class="task-body"><div class="task-text">'+esc(t.text)+'</div>'
       +(t.completedDate?'<div class="task-date">'+esc(t.completedDate)+'</div>':'')
       +'</div></div>';
   }).join('');
+  list.querySelectorAll('.task').forEach(function(el){
+    el.addEventListener('click',function(){
+      const line=parseInt(el.getAttribute('data-line')||'0');
+      if(line>0){vscode.postMessage({command:'openTask',line:line});}
+    });
+  });
 }
 
 function populateSettings(s){
@@ -320,19 +371,8 @@ function populateSettings(s){
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
 }
 
-document.getElementById('tabTasks').addEventListener('click',function(){
-  this.className='tab-btn active';
-  document.getElementById('tabSettings').className='tab-btn';
-  document.getElementById('panelTasks').style.display='';
-  document.getElementById('panelSettings').style.display='none';
-});
-document.getElementById('tabSettings').addEventListener('click',function(){
-  this.className='tab-btn active';
-  document.getElementById('tabTasks').className='tab-btn';
-  document.getElementById('panelTasks').style.display='none';
-  document.getElementById('panelSettings').style.display='';
-  populateSettings(state.settings||{});
-});
+document.getElementById('tabTasks').addEventListener('click',function(){showTab('tasks');});
+document.getElementById('tabSettings').addEventListener('click',function(){showTab('settings');});
 
 document.getElementById('addForm').addEventListener('submit',function(e){
   e.preventDefault();
@@ -372,7 +412,7 @@ document.getElementById('editJsonBtn').addEventListener('click',function(){
 
 window.addEventListener('message',function(e){
   const msg=e.data;
-  if(msg.command==='update'){state=msg;renderProviders();renderLoop();renderTasks();}
+  if(msg.command==='update'){state=msg;renderProviders();renderLoop();renderTasks();showTab(activeTab);}
 });
 </script>
 </body>

@@ -67,7 +67,34 @@ export function getClaudeSessionCursor(workspacePath: string): number {
 
 interface ClaudeJsonlEntry {
   type?: string;
+  stop_reason?: string;
   message?: { role?: string; content?: Array<{ type?: string; text?: string }> | string };
+}
+
+/**
+ * Read only the bytes since `fromByte` in the JSONL and return true if any
+ * entry has stop_reason === 'end_turn'. Does NOT read the full file.
+ */
+export function hasClaudeEndTurnSince(workspacePath: string, fromByte: number): boolean {
+  const p = resolveClaudeJsonl(workspacePath);
+  if (!p) { return false; }
+  try {
+    const size = fs.statSync(p).size;
+    if (size <= fromByte) { return false; }
+    const fd = fs.openSync(p, 'r');
+    const buf = Buffer.alloc(size - fromByte);
+    fs.readSync(fd, buf, 0, buf.length, fromByte);
+    fs.closeSync(fd);
+    for (const line of buf.toString('utf8').split('\n')) {
+      const t = line.trim();
+      if (!t) { continue; }
+      try {
+        const e = JSON.parse(t) as ClaudeJsonlEntry;
+        if (e.stop_reason === 'end_turn') { return true; }
+      } catch { /* skip malformed */ }
+    }
+    return false;
+  } catch { return false; }
 }
 
 /**

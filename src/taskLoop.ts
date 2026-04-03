@@ -6,6 +6,7 @@ import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProg
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
+import { getClaudeSessionCursor, hasClaudeEndTurnSince } from './claude';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
 
@@ -272,12 +273,14 @@ class TaskLoopRunner {
       this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
 
       const taskStartTime = Date.now();
+      // Snapshot the JSONL cursor before sending — we only read bytes written after this
+      const claudeCursor = getClaudeSessionCursor(this._workspaceRoot!);
       try {
         // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
         await this._cb!.sendToAi(prompt, task.text);
 
         // Wait for the AI to mark the task [x] done in TODO.md
-        await this._waitForTaskCompletion(todoPath, task);
+        await this._waitForTaskCompletion(todoPath, task, claudeCursor);
 
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._completedCount++;
@@ -339,7 +342,7 @@ class TaskLoopRunner {
   }
 
   /** Return when the task text appears with [x] status in the TODO.md file. */
-  private _waitForTaskCompletion(todoPath: string, task: Task): Promise<void> {
+  private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
 
@@ -362,12 +365,10 @@ class TaskLoopRunner {
 
       let poller: NodeJS.Timeout | undefined;
       let timer: NodeJS.Timeout | undefined;
-      let checkInTimer: NodeJS.Timeout | undefined;
 
       const cleanup = (watcher: vscode.Disposable) => {
         this._taskCompletionAbort = null;
         clearTimeout(timer);
-        clearTimeout(checkInTimer);
         clearInterval(poller);
         watcher.dispose();
       };
@@ -389,44 +390,75 @@ class TaskLoopRunner {
       watcher.onDidChange(check);
       watcher.onDidCreate(check);
 
-      // Polling fallback every 3 s — file watcher can miss writes by other extensions
-      poller = setInterval(check, 3_000);
+      // Inactivity-based check-in: track Claude JSONL byte size every 3 s.
+      // After 3 minutes of silence (no new bytes), send the TODO.md reminder.
+      // Resets when Claude writes again so we don't spam.
+      const INACTIVITY_MS = 3 * 60 * 1_000;
+      let endTurnSeen = false;
+      let lastJSONLSize = claudeCursor > 0 && this._workspaceRoot
+        ? getClaudeSessionCursor(this._workspaceRoot) : 0;
+      let lastActivityTime = Date.now();
+      let reminderPending = true; // allow one reminder per quiet period
 
-      // Periodic check-in: notify discord/webhook AND remind the AI to mark TODO.md
-      const scheduleCheckIn = (delay: number) => {
-        checkInTimer = setTimeout(async () => {
-          if (this._state !== 'running') { return; }
-          const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
-          const msg = `⏳ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
-          this._cb?.log(msg);
-          this._notifyDiscord(msg);
-          this._notifyWebhook('task_checkin', {
-            iteration:      this._iterations,
-            task:           { text: task.text },
-            elapsedMinutes: elapsedMin,
-            workDir:        this._workspaceRoot,
-            gitRepo:        this._gitRepo,
-            gitBranch:      this._gitBranch,
-          });
-          // Send a one-shot reminder to the AI to mark the task done in TODO.md
-          const date = new Date().toISOString().slice(0, 10);
-          const reminder = [
-            `Reminder: when you are done with the task, mark it done in TODO.md.`,
-            ``,
-            `Change the line:`,
-            `  - [~] ${task.text}`,
-            `to exactly:`,
-            `  - [x] ${date}  ${task.text}`,
-            ``,
-            `(two spaces between the date and task text, lowercase x, save the file)`,
-            `If you have already finished, do this now.`,
-          ].join('\n');
-          this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md if done`);
-          try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
-          scheduleCheckIn(checkInMs);
-        }, delay);
-      };
-      scheduleCheckIn(checkInMs);
+      poller = setInterval(async () => {
+        check();
+
+        if (!this._workspaceRoot) { return; }
+
+        // end_turn detection — fast-path on Linux where inotify can lag
+        if (!endTurnSeen && claudeCursor > 0) {
+          if (hasClaudeEndTurnSince(this._workspaceRoot, claudeCursor)) {
+            endTurnSeen = true;
+            this._cb?.log('end_turn detected in Claude JSONL — checking TODO.md');
+            setTimeout(check, 800);
+            setTimeout(check, 2_500);
+          }
+        }
+
+        // Track JSONL activity
+        const currentSize = getClaudeSessionCursor(this._workspaceRoot);
+        if (currentSize !== lastJSONLSize) {
+          lastJSONLSize = currentSize;
+          lastActivityTime = Date.now();
+          reminderPending = true; // new activity — allow a fresh reminder after next silence
+          return;
+        }
+
+        // No new bytes — check if we've been quiet long enough
+        if (!reminderPending) { return; }
+        if (Date.now() - lastActivityTime < INACTIVITY_MS) { return; }
+
+        // 3+ minutes of JSONL silence — send one reminder
+        reminderPending = false;
+        if (this._state !== 'running') { return; }
+
+        const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
+        const msg = `⏳ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
+        this._cb?.log(msg);
+        this._notifyDiscord(msg);
+        this._notifyWebhook('task_checkin', {
+          iteration:      this._iterations,
+          task:           { text: task.text },
+          elapsedMinutes: elapsedMin,
+          workDir:        this._workspaceRoot,
+          gitRepo:        this._gitRepo,
+          gitBranch:      this._gitBranch,
+        });
+        const date = new Date().toISOString().slice(0, 10);
+        const reminder = [
+          `Reminder: when you are done with the task, mark it done in TODO.md.`,
+          ``,
+          `Change the line:`,
+          `  - [~] ${task.text}`,
+          `to exactly:`,
+          `  - [x] ${date}  ${task.text}`,
+          ``,
+          `(two spaces between the date and task text, lowercase x, save the file)`,
+          `If you have already finished, do this now.`,
+        ].join('\n');
+        this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
+        try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
+      }, 3_000);
 
       // Hard timeout
       timer = setTimeout(() => {

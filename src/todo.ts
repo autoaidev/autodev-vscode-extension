@@ -131,12 +131,16 @@ export function markDone(filePath: string, task: Task): void {
   fs.writeFileSync(filePath, updated, 'utf8');
 }
 
-/** Append a new task line to the ## Todo section. */
+/** Append a new task line to the ## Todo section (at the bottom, before the next heading). */
 export function appendTask(filePath: string, text: string): void {
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
   const todoMatch = content.match(/^(##\s+Todo\s*\n)/mu);
   if (todoMatch && todoMatch.index !== undefined) {
-    const insertAt = todoMatch.index + todoMatch[0].length;
+    const afterHeading = todoMatch.index + todoMatch[0].length;
+    // Find the next ## heading after the Todo heading (In Progress / Done / etc.)
+    const rest = content.slice(afterHeading);
+    const nextSection = rest.match(/^##\s+/mu);
+    const insertAt = nextSection ? afterHeading + nextSection.index! : content.length;
     content = content.slice(0, insertAt) + `- [ ] ${text}\n` + content.slice(insertAt);
   } else {
     content += `\n## Todo\n- [ ] ${text}\n`;
