@@ -110,9 +110,10 @@ export async function sendClaudeUi(
 
   if (existingTab) {
     if (root) {
-      fs.writeFileSync(path.join(root, 'TEMP_PROMPT.md'), prompt, 'utf8');
+      fs.mkdirSync(path.join(root, '.autodev'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.autodev', 'TEMP_PROMPT.md'), prompt, 'utf8');
     }
-    await vscode.env.clipboard.writeText('@TEMP_PROMPT.md');
+    await vscode.env.clipboard.writeText('@.autodev/TEMP_PROMPT.md');
     await vscode.commands.executeCommand('claude-vscode.focus');
     await sleep(300);
     pasteAndSubmit(log);

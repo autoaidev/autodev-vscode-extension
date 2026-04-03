@@ -24,8 +24,7 @@ export const DEFAULT_MCP_SERVERS: McpServerEntry[] = [
   {
     name: 'playwright',
     command: 'npx',
-    args: ['@playwright/mcp@latest'],
-    env: {},
+    args: ['-y', '@playwright/mcp@latest'],
     tools: ['*'],
   },
 ];
@@ -79,7 +78,7 @@ interface OpenCodeServerSchema {
   type?: string;
   /** OpenCode stores command + args as a single array: [command, ...args] */
   command: string[];
-  env?: Record<string, string>;
+  environment?: Record<string, string>;
   enabled?: boolean;
 }
 
@@ -200,7 +199,7 @@ function readOpenCodeServers(): Record<string, McpServerEntry> {
       name,
       command: command ?? '',
       args,
-      ...(s.env ? { env: s.env } : {}),
+      ...(s.environment ? { env: s.environment } : {}),
     };
   }
   return result;
@@ -210,12 +209,15 @@ function writeOpenCodeServers(servers: Record<string, McpServerEntry>): void {
   const cfg = readJson<OpenCodeConfigSchema>(opencodeConfigPath(), {});
   cfg.mcp = {};
   for (const [name, s] of Object.entries(servers)) {
-    cfg.mcp[name] = {
+    const entry: OpenCodeServerSchema = {
       type: 'local',
       command: [s.command, ...s.args],
-      ...(s.env ? { env: s.env } : {}),
       enabled: true,
     };
+    if (s.env && Object.keys(s.env).length > 0) {
+      entry.environment = s.env;
+    }
+    cfg.mcp[name] = entry;
   }
   writeJson(opencodeConfigPath(), cfg);
 }

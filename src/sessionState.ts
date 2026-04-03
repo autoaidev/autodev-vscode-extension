@@ -3,14 +3,31 @@ import * as path from 'path';
 import { ProviderId } from './providers';
 
 // ---------------------------------------------------------------------------
-// CLI session ID persistence — stored in .autodev-session-state.json
-// Mirrors the PHP MetaStore approach (keys per provider).
+// All autodev runtime files live under <workspace>/.autodev/
 // ---------------------------------------------------------------------------
 
-export const SESSION_STATE_FILE = '.autodev-session-state.json';
+/** Returns the .autodev directory path, creating it if needed. */
+export function autodevDir(root: string): string {
+  const dir = path.join(root, '.autodev');
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  return dir;
+}
 
-/** Session output capture file — CLI stdout is tee'd here so we can parse session IDs. */
-export const SESSION_OUT_FILE = 'TEMP_SESSION_OUT.txt';
+/** .autodev/session-state.json — session IDs keyed by provider */
+export const SESSION_STATE_FILE = '.autodev/session-state.json';
+
+/** .autodev/TEMP_SESSION_OUT.txt — CLI stdout tee for session ID extraction */
+export const SESSION_OUT_FILE = '.autodev/TEMP_SESSION_OUT.txt';
+
+/** .autodev/TEMP_PROMPT.md — prompt written for CLI providers */
+export const PROMPT_FILE = '.autodev/TEMP_PROMPT.md';
+
+/** .autodev/output/<providerId>.txt — stdout capture per provider */
+export function stdoutFilePath(root: string, providerId: string): string {
+  const dir = path.join(autodevDir(root), 'output');
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  return path.join(dir, `${providerId}.txt`);
+}
 
 type SessionMap = Partial<Record<string, string>>;
 
@@ -23,6 +40,7 @@ function readMap(root: string): SessionMap {
 }
 
 function writeMap(root: string, map: SessionMap): void {
+  autodevDir(root); // ensure dir exists
   fs.writeFileSync(path.join(root, SESSION_STATE_FILE), JSON.stringify(map, null, 2), 'utf8');
 }
 
@@ -56,16 +74,16 @@ export function extractCopilotSessionId(stdout: string): string | undefined {
   return stdout.match(/"sessionId"\s*:\s*"([^"]+)"/)?.[1];
 }
 
-/** OpenCode: "sessionID":"<id>" in JSON stream */
+/** OpenCode: "sessionID":"ses_xxx" in --format json event stream */
 export function extractOpenCodeSessionId(stdout: string): string | undefined {
-  return stdout.match(/"sessionID"\s*:\s*"([^"]+)"/)?.[1];
+  return stdout.match(/"sessionID"\s*:\s*"(ses_[^"]+)"/)?.[1];
 }
 
 /**
  * After a CLI task finishes, try to capture and persist the session ID.
- * - claude-cli:    reads session ID from the JSONL capture file (stdout tee)
- * - copilot-cli:   reads from TEMP_SESSION_OUT.txt
- * - opencode-cli:  reads from TEMP_SESSION_OUT.txt
+ * - claude-cli:    reads from .autodev/output/claude-cli.txt (stdout tee)
+ * - opencode-cli:  reads from .autodev/output/opencode-cli.txt (--format json tee)
+ * - copilot-cli:   reads from .autodev/TEMP_SESSION_OUT.txt
  * Falls back silently — never throws.
  */
 export function captureAndSaveSessionId(
@@ -75,17 +93,18 @@ export function captureAndSaveSessionId(
   fallbackSessionId?: string,
 ): void {
   try {
-    // Try reading from the captured output file first
-    const outFile = path.join(root, SESSION_OUT_FILE);
-    if (fs.existsSync(outFile)) {
-      const stdout = fs.readFileSync(outFile, 'utf8');
+    // For claude-cli and opencode-cli, session ID is in the per-provider stdout capture file
+    const captureFile = (providerId === 'claude-cli' || providerId === 'opencode-cli')
+      ? stdoutFilePath(root, providerId)
+      : path.join(root, SESSION_OUT_FILE);
+    if (fs.existsSync(captureFile)) {
+      const stdout = fs.readFileSync(captureFile, 'utf8');
       let id: string | undefined;
       if (providerId === 'claude-cli')    { id = extractClaudeSessionId(stdout); }
       if (providerId === 'copilot-cli')   { id = extractCopilotSessionId(stdout); }
       if (providerId === 'opencode-cli')  { id = extractOpenCodeSessionId(stdout); }
       if (id) { saveSessionId(root, providerId, id); return; }
     }
-    // Fallback (e.g. JSONL-based ID for claude-cli)
     if (fallbackSessionId) { saveSessionId(root, providerId, fallbackSessionId); }
   } catch { }
 }

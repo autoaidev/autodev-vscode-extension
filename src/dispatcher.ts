@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
-import { getSessionId, captureAndSaveSessionId, SESSION_OUT_FILE } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, PROMPT_FILE, stdoutFilePath, autodevDir } from './sessionState';
 import { loadSettings } from './settings';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -59,12 +59,10 @@ export async function sendPromptToAi(
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { throw new Error('No workspace folder open'); }
 
-    const promptFile = path.join(root, 'TEMP_PROMPT.md');
-    const sessionOutFile = path.join(root, SESSION_OUT_FILE);
+    const promptFile = path.join(root, PROMPT_FILE);
+    autodevDir(root); // ensure .autodev/ exists
     fs.writeFileSync(promptFile, prompt, 'utf8');
-    ensureProjectGitignore(root, 'TEMP_PROMPT.md');
-    ensureProjectGitignore(root, SESSION_OUT_FILE);
-    ensureProjectGitignore(root, '.autodev-session-state.json');
+    ensureProjectGitignore(root, '.autodev/');
 
     const settings = loadSettings();
     const storedSessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
@@ -88,17 +86,20 @@ export async function sendPromptToAi(
     let cmd: string;
     if (providerId === 'claude-cli') {
       cmd = buildClaudeCliCommand(promptFile, resolvedSessionId);
-      // Capture stdout+stderr to a file so the task loop can detect immediate
-      // rate-limit responses (Claude prints to stdout and exits; no JSONL record).
-      const stdoutFile = path.join(root, '.autodev-claude-stdout.txt');
+      // Capture stdout+stderr per-provider so rate-limit detection never reads stale data.
+      const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
-      ensureProjectGitignore(root, '.autodev-claude-stdout.txt');
       // Force UTF-8 output so Node can read the file without encoding issues.
       cmd = `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(stdoutFile)}`;
     } else if (providerId === 'copilot-cli') {
       cmd = buildCopilotCliCommand(promptFile, resolvedSessionId);
     } else {
-      cmd = buildOpenCodeCliCommand(promptFile, sessionOutFile, resolvedSessionId);
+      // opencode: --format json output contains sessionID in every event line.
+      // Tee to capture file so we can parse the session ID after the run.
+      cmd = buildOpenCodeCliCommand(promptFile, resolvedSessionId);
+      const stdoutFile = stdoutFilePath(root, providerId);
+      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
+      cmd = `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(stdoutFile)}`;
     }
 
     const termName = `AutoDev: ${providerCfg.label}`;

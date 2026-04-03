@@ -8,7 +8,7 @@ import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
-import { captureAndSaveSessionId } from './sessionState';
+import { captureAndSaveSessionId, stdoutFilePath } from './sessionState';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
@@ -420,6 +420,7 @@ class TaskLoopRunner {
             task:        { text: task.text },
             message:     rawMsg,
             resumeAt:    resetAt?.toISOString(),
+            provider:    this._cb?.getActiveProvider() ?? 'unknown',
             workDir:     this._workspaceRoot,
             gitRepo:     this._gitRepo,
             gitBranch:   this._gitBranch,
@@ -495,6 +496,7 @@ class TaskLoopRunner {
 
   /** Return when the task text appears with [x] status in the TODO.md file. */
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
+    const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
 
@@ -540,12 +542,17 @@ class TaskLoopRunner {
         if (found()) { cleanup(watcher); resolve(); }
       };
 
+      // Per-provider stdout capture file (only used for CLI providers)
+      const activeProvider = this._cb?.getActiveProvider() ?? 'unknown';
+      const resolvedStdoutFile = this._workspaceRoot
+        ? stdoutFilePath(this._workspaceRoot, activeProvider)
+        : null;
+
       // Helper: read stdout capture file handling both UTF-8 and UTF-16 LE (PowerShell default)
       const readStdoutFile = (): string => {
-        if (!this._workspaceRoot) { return ''; }
-        const stdoutFile = path.join(this._workspaceRoot, '.autodev-claude-stdout.txt');
+        if (!resolvedStdoutFile) { return ''; }
         try {
-          const buf = fs.readFileSync(stdoutFile);
+          const buf = fs.readFileSync(resolvedStdoutFile);
           // Detect UTF-16 LE BOM (0xFF 0xFE)
           if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
             return buf.toString('utf16le');
@@ -559,6 +566,7 @@ class TaskLoopRunner {
 
       // Check stdout file: forward any new content to Discord/webhook, detect rate limit
       const checkStdout = () => {
+        if (!isClaudeCli) { return; } // only Claude CLI pipes to this file
         const content = readStdoutFile();
 
         // Forward new output lines to Discord / webhook
@@ -588,10 +596,12 @@ class TaskLoopRunner {
       // Register abort hook so stop() can resolve this immediately
       this._taskCompletionAbort = () => { cleanup(watcher); resolve(); };
 
-      // Watch the stdout capture file — reacts instantly when Claude writes rate-limit text
-      const stdoutDir = this._workspaceRoot ?? path.dirname(todoPath);
+      // Watch the per-provider stdout capture file for instant rate-limit detection
+      const stdoutDir = this._workspaceRoot
+        ? path.join(this._workspaceRoot, '.autodev', 'output')
+        : path.dirname(todoPath);
       const stdoutWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(stdoutDir, '.autodev-claude-stdout.txt')
+        new vscode.RelativePattern(stdoutDir, `${activeProvider}.txt`)
       );
       stdoutWatcherRef = stdoutWatcher;
       stdoutWatcher.onDidChange(checkStdout);

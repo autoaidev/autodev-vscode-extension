@@ -117,11 +117,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._watcher.onDidCreate(notify);
     this._watcher.onDidDelete(() => { this._lastNotifyTime = Date.now(); this._tasks = []; this._push(); });
 
-    // Watch .autodev-session-state.json so the session ID badge updates immediately
+    // Watch .autodev/session-state.json so the session ID badge updates immediately
     // when the dispatcher saves a new ID (probe result, post-task capture, etc.).
     this._sessionWatcher?.dispose();
     this._sessionWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, '.autodev-session-state.json')
+      new vscode.RelativePattern(root, '.autodev/session-state.json')
     );
     const sessionNotify = () => this._push();
     this._sessionWatcher.onDidChange(sessionNotify);
