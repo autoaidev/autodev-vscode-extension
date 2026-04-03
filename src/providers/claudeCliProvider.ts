@@ -196,13 +196,9 @@ export function readClaudeOutputSince(workspacePath: string, fromByte: number): 
 
 /** Build the shell command string for the claude-cli provider. */
 export function buildClaudeCliCommand(promptFile: string, sessionId?: string): string {
-  const isWin = process.platform === 'win32';
-  const fileArg = JSON.stringify(promptFile);
-  const pArg = isWin
-    ? `-p (Get-Content ${fileArg} -Raw)`
-    : `-p "$(cat ${fileArg})"`;
   const resume = sessionId ? ` --resume ${sessionId}` : '';
-  return `claude --dangerously-skip-permissions${resume} ${pArg}`;
+  const fileArg = JSON.stringify(`@${promptFile}`);
+  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${fileArg}`;
 }
 
 /**

@@ -288,6 +288,11 @@ class TaskLoopRunner {
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
 
+        // Let the OS fully flush Claude's final write before we re-read TODO.md.
+        // Without this delay a partial write can make the task look pending again
+        // and the loop picks it up a second time (race condition).
+        await sleep(2_000);
+
         // Capture and persist CLI session ID so the next task can resume it
         const activeProvider = this._cb?.getActiveProvider();
         if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
@@ -369,10 +374,12 @@ class TaskLoopRunner {
 
       const found = () => {
         const updated = parseTodo(todoPath);
-        // Task is complete when the [~] in-progress marker is gone.
-        // Don't require exact text match on the [x] line — Claude may rephrase slightly.
-        const isInProg = updated.some(t => t.text === task.text && t.status === 'in-progress');
-        return !isInProg;
+        const match = updated.find(t => t.text === task.text);
+        // Require the task to be explicitly marked [x] done (or removed from the file).
+        // A task that reverted to [ ] pending means Claude is still mid-write — keep waiting.
+        if (!match) { return true; }               // completely removed — treat as done
+        if (match.status === 'done') { return true; } // [x] confirmed
+        return false;                               // still in-progress or partial write
       };
 
       // Check immediately (AI might have already edited the file)

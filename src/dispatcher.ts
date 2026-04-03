@@ -101,7 +101,9 @@ export async function sendPromptToAi(
     terminal.sendText(cmd);
     log(`Sent to ${termName}: ${cmd}`);
 
-    if (providerId === 'claude-cli') {
+    // For claude-cli, try to capture session ID from the JSONL files only
+    // when the probe didn't already save one (probe result takes precedence).
+    if (providerId === 'claude-cli' && !resolvedSessionId) {
       const jsonlSession = findLatestClaudeSession(root);
       if (jsonlSession) { captureAndSaveSessionId(root, providerId, jsonlSession); }
     }

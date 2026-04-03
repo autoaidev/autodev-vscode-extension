@@ -22,6 +22,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _claudeActivity?: string;
   private _selectedProvider: ProviderId;
   private _watcher?: vscode.FileSystemWatcher;
+  private _sessionWatcher?: vscode.FileSystemWatcher;
   private _pollTimer?: ReturnType<typeof setInterval>;
   private _lastNotifyTime = 0;
 
@@ -62,6 +63,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.onDidDispose(() => {
       this._watcher?.dispose(); this._watcher = undefined;
+      this._sessionWatcher?.dispose(); this._sessionWatcher = undefined;
       if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = undefined; }
     });
     webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this._refreshTasks(); } });
@@ -112,6 +114,16 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._watcher.onDidChange(notify);
     this._watcher.onDidCreate(notify);
     this._watcher.onDidDelete(() => { this._lastNotifyTime = Date.now(); this._tasks = []; this._push(); });
+
+    // Watch .autodev-session-state.json so the session ID badge updates immediately
+    // when the dispatcher saves a new ID (probe result, post-task capture, etc.).
+    this._sessionWatcher?.dispose();
+    this._sessionWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, '.autodev-session-state.json')
+    );
+    const sessionNotify = () => this._push();
+    this._sessionWatcher.onDidChange(sessionNotify);
+    this._sessionWatcher.onDidCreate(sessionNotify);
 
     // Fallback poll every 5 min — catches missed fs events on Linux
     if (this._pollTimer) { clearInterval(this._pollTimer); }
