@@ -414,9 +414,9 @@ class TaskLoopRunner {
       watcher.onDidCreate(check);
 
       // Inactivity-based check-in: track Claude JSONL byte size every 3 s.
-      // After 3 minutes of silence (no new bytes), send the TODO.md reminder.
+      // After 15 minutes of silence (no new bytes), send the TODO.md reminder.
       // Resets when Claude writes again so we don't spam.
-      const INACTIVITY_MS = 3 * 60 * 1_000;
+      const INACTIVITY_MS = 15 * 60 * 1_000;
       let endTurnSeen = false;
       let lastJSONLSize = claudeCursor > 0 && this._workspaceRoot
         ? getClaudeSessionCursor(this._workspaceRoot) : 0;
@@ -464,7 +464,7 @@ class TaskLoopRunner {
         if (!reminderPending) { return; }
         if (Date.now() - lastActivityTime < INACTIVITY_MS) { return; }
 
-        // 3+ minutes of JSONL silence — send one reminder
+        // 15+ minutes of JSONL silence — send one reminder
         reminderPending = false;
         if (this._state !== 'running') { return; }
 
