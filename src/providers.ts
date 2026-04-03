@@ -10,12 +10,12 @@ export interface ProviderConfig {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
-  copilot: {
-    label: 'Copilot',
-    extensionId: 'GitHub.copilot-chat',
-  },
   claude: {
     label: 'Claude',
     extensionId: 'anthropic.claude-code',
+  },
+  copilot: {
+    label: 'Copilot',
+    extensionId: 'GitHub.copilot-chat',
   },
 };

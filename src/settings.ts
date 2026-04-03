@@ -80,6 +80,21 @@ export function saveSettings(settings: AutodevSettings): void {
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
   fs.writeFileSync(file, JSON.stringify(settings, null, 2), 'utf8');
+  ensureGitignore(path.dirname(dir), '.vscode/autodev.json');
+}
+
+/** Add `entry` to the project .gitignore if not already present. */
+function ensureGitignore(root: string, entry: string): void {
+  const gitignorePath = path.join(root, '.gitignore');
+  try {
+    let content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+    const lines = content.split('\n').map(l => l.trim());
+    if (lines.includes(entry)) { return; }
+    // Append with a trailing newline
+    if (content.length > 0 && !content.endsWith('\n')) { content += '\n'; }
+    content += `${entry}\n`;
+    fs.writeFileSync(gitignorePath, content, 'utf8');
+  } catch { /* ignore — .gitignore may not be writable */ }
 }
 
 /** Open .vscode/autodev.json in the editor (create with defaults if missing). */

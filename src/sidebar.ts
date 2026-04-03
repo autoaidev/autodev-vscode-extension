@@ -29,7 +29,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     private readonly _context: vscode.ExtensionContext
   ) {
     this._selectedProvider =
-      this._context.globalState.get<ProviderId>(PROVIDER_KEY) ?? 'copilot';
+      this._context.globalState.get<ProviderId>(PROVIDER_KEY) ?? 'claude';
   }
 
   get selectedProvider(): ProviderId { return this._selectedProvider; }
@@ -177,10 +177,10 @@ function buildHtml(webview: vscode.Webview): string {
 <style nonce="${nonce}">
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);background:transparent;padding:0 8px 12px;overflow-x:hidden}
-.provider-row{display:flex;gap:6px;margin:10px 0 10px}
-.provider-btn{flex:1;padding:5px 0;border-radius:4px;border:1px solid var(--vscode-button-background);background:transparent;color:var(--vscode-button-background);cursor:pointer;font-family:var(--vscode-font-family);font-size:12px;font-weight:500}
-.provider-btn.active{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-.provider-btn:disabled{opacity:.35;cursor:not-allowed;border-color:var(--vscode-disabledForeground);color:var(--vscode-disabledForeground)}
+.provider-row{display:flex;align-items:center;gap:6px;margin:10px 0 10px}
+.provider-label{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;flex-shrink:0}
+.provider-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
+.provider-select:focus{border-color:var(--vscode-focusBorder)}
 .loop-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;margin-bottom:10px;font-size:12px}
 .loop-status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground)}
 .loop-status.running{color:var(--vscode-testing-iconPassed,#388a34);font-weight:600}
@@ -226,7 +226,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 </style>
 </head>
 <body>
-<div class="provider-row" id="providerRow"></div>
+<div class="provider-row">
+  <span class="provider-label">Provider:</span>
+  <select class="provider-select" id="providerSelect"></select>
+</div>
 <div class="loop-bar">
   <span class="loop-status" id="loopStatus">&#9711; Idle</span>
   <button class="loop-btn" id="loopBtn">&#9654; Start</button>
@@ -295,15 +298,15 @@ function statusIcon(s){
 }
 
 function renderProviders(){
-  const row=document.getElementById('providerRow');
-  row.innerHTML=state.providers.map(function(p){
-    const active=p.id===state.selectedProvider?' active':'';
-    const dis=!p.installed?' disabled title="Not installed"':'';
-    return '<button class="provider-btn'+active+'" data-id="'+p.id+'"'+dis+'>'+esc(p.label)+(p.installed?'':' \u2717')+'</button>';
+  const sel=document.getElementById('providerSelect');
+  const prev=sel.value;
+  sel.innerHTML=state.providers.map(function(p){
+    const label=esc(p.label)+(p.installed?'':' \u2717');
+    const dis=p.installed?'':' disabled';
+    return '<option value="'+p.id+'"'+dis+'>'+label+'</option>';
   }).join('');
-  row.querySelectorAll('.provider-btn:not([disabled])').forEach(function(btn){
-    btn.addEventListener('click',function(){vscode.postMessage({command:'setProvider',provider:btn.dataset.id});});
-  });
+  sel.value=state.selectedProvider||prev;
+  sel.onchange=function(){vscode.postMessage({command:'setProvider',provider:sel.value});};
 }
 
 function renderLoop(){
