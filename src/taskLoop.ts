@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
-import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
+import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
@@ -16,7 +17,65 @@ import { WebhookPoller } from './webhookPoller';
 // TaskLoopRunner — mirrors PHP Loop.php
 // ---------------------------------------------------------------------------
 
-export type LoopState = 'idle' | 'running' | 'stopping';
+export type LoopState = 'idle' | 'running' | 'stopping' | 'paused';
+
+// ---------------------------------------------------------------------------
+// Rate-limit helpers
+// ---------------------------------------------------------------------------
+
+class RateLimitError extends Error {
+  constructor(readonly rawMessage: string, readonly resetAt: Date | undefined) {
+    super(rawMessage);
+    this.name = 'RateLimitError';
+  }
+}
+
+/**
+ * Parse "You've hit your limit · resets 9pm (Europe/Sofia)" into a UTC Date.
+ * Returns undefined when the string cannot be parsed.
+ */
+function parseRateLimitResetTime(text: string): Date | undefined {
+  const m = text.match(/resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i);
+  if (!m) { return undefined; }
+  try {
+    let hour = parseInt(m[1]);
+    const min = parseInt(m[2] ?? '0');
+    const isPm = m[3].toLowerCase() === 'pm';
+    const tz = m[4];
+    if (isPm && hour !== 12) { hour += 12; }
+    if (!isPm && hour === 12) { hour = 0; }
+    const now = new Date();
+    // Get date in target timezone (sv locale gives YYYY-MM-DD)
+    const dateStr = new Intl.DateTimeFormat('sv', { timeZone: tz }).format(now);
+    for (let d = 0; d <= 1; d++) {
+      const base = Date.parse(dateStr) + d * 86_400_000 + hour * 3_600_000 + min * 60_000;
+      const naiveDate = new Date(base);
+      // Correct naive UTC for the actual tz offset at that moment
+      const inTz = new Date(naiveDate.toLocaleString('en-US', { timeZone: tz }));
+      const offset = naiveDate.getTime() - inTz.getTime();
+      const resetUtc = new Date(base + offset);
+      if (resetUtc > now) { return resetUtc; }
+    }
+    return undefined;
+  } catch { return undefined; }
+}
+
+// ---------------------------------------------------------------------------
+// RetryScheduler — single clearable timer for rate-limit resume
+// ---------------------------------------------------------------------------
+
+class RetryScheduler {
+  private _timer: NodeJS.Timeout | null = null;
+
+  schedule(ms: number, cb: () => void): void {
+    this.clear();
+    this._timer = setTimeout(cb, ms);
+  }
+
+  clear(): void {
+    if (this._timer !== null) { clearTimeout(this._timer); this._timer = null; }
+  }
+}
 
 export interface LoopCallbacks {
   /** Send a raw prompt string to the active AI provider */
@@ -65,6 +124,9 @@ class TaskLoopRunner {
   private _webhookPoller: WebhookPoller | null = null;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _taskCompletionAbort: (() => void) | null = null;
+  private _retryScheduler = new RetryScheduler();
+  private _resumeResolve: (() => void) | null = null;
+  private _resumeAt: Date | undefined;
   private _gitRepo: string = '';
   private _gitBranch: string = '';
   private _hostname: string = '';
@@ -74,6 +136,18 @@ class TaskLoopRunner {
 
   get state(): LoopState { return this._state; }
   get currentTask(): string | undefined { return this._currentTask; }
+  get resumeAt(): Date | undefined { return this._resumeAt; }
+
+  /** Resume the loop after a rate-limit pause. Clears the scheduled timer. */
+  retry(): void {
+    if (this._state !== 'paused') { return; }
+    this._retryScheduler.clear();
+    this._resumeAt = undefined;
+    this._setState('running');
+    const r = this._resumeResolve;
+    this._resumeResolve = null;
+    r?.();
+  }
 
   async start(callbacks: LoopCallbacks): Promise<void> {
     if (this._state === 'running') {
@@ -182,8 +256,14 @@ class TaskLoopRunner {
   }
 
   stop(): void {
-    if (this._state !== 'running') { return; }
+    if (this._state !== 'running' && this._state !== 'paused') { return; }
     this._setState('stopping');
+    this._retryScheduler.clear();
+    this._resumeAt = undefined;
+    // Unblock _pause() if we're currently suspended
+    const r = this._resumeResolve;
+    this._resumeResolve = null;
+    r?.();
     this._disposeWatcher();
     this._stopPollers();
     // Abort any in-progress task wait immediately
@@ -261,9 +341,7 @@ class TaskLoopRunner {
       this._currentTask = task.text;
       this._setState('running', task.text);
 
-      // Mark in-progress before sending to AI
-      try { markInProgress(todoPath, task); } catch { /* file may not be writable yet */ }
-
+      // Do NOT mark in-progress from JS — the prompt instructs the LLM to do it
       const prompt = buildPrompt(task, path.dirname(todoPath), autodevPath);
       const remaining = countRemaining(parseTodo(todoPath));
 
@@ -289,9 +367,8 @@ class TaskLoopRunner {
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
 
         // Let the OS fully flush Claude's final write before we re-read TODO.md.
-        // Without this delay a partial write can make the task look pending again
-        // and the loop picks it up a second time (race condition).
-        await sleep(2_000);
+        // Uses the task-completion abort hook so Stop clears this immediately.
+        await this._sleepAbortable(2_000);
 
         // Capture and persist CLI session ID so the next task can resume it
         const activeProvider = this._cb?.getActiveProvider();
@@ -330,6 +407,23 @@ class TaskLoopRunner {
           });
         }
       } catch (err) {
+        // --- Rate limit: pause loop, schedule auto-resume -----------------
+        if (err instanceof RateLimitError) {
+          const resetAt = err.resetAt;
+          const resumeMs = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : undefined;
+          const resumeStr = resetAt ? resetAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
+          this._cb?.log(`⏸ Rate limit hit — ${err.rawMessage}. Auto-resume at ${resumeStr} (+15 min)`);
+          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (+15 min)`);
+          // Reset task so it gets picked up again after resume
+          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+          // Block here until resumed (timer or user clicks Retry Now)
+          this._resumeAt = resetAt;
+          await this._pauseLoop(resumeMs);
+          // After resume, if user stopped while paused, exit the while loop
+          if (this._state !== 'running') { break; }
+          continue; // pick up the same task at the top of the loop
+        }
+        // --- Normal task failure ------------------------------------------
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._failedCount++;
         const msg = err instanceof Error ? err.message : String(err);
@@ -362,6 +456,33 @@ class TaskLoopRunner {
     }
   }
 
+  /**
+   * Suspend the loop in 'paused' state.
+   * Resolves when retry() is called or (optionally) the timer fires.
+   * MUST be called only from _runLoop.
+   */
+  private _pauseLoop(resumeAfterMs?: number): Promise<void> {
+    this._setState('paused');
+    return new Promise<void>(resolve => {
+      this._resumeResolve = resolve;
+      if (resumeAfterMs !== undefined && resumeAfterMs > 0) {
+        this._retryScheduler.schedule(resumeAfterMs, () => {
+          this._cb?.log('Rate limit timer expired — resuming loop automatically');
+          this.retry();
+        });
+      }
+    });
+  }
+
+  /** sleep() that resolves immediately when the task-completion abort fires. */
+  private _sleepAbortable(ms: number): Promise<void> {
+    return new Promise<void>(resolve => {
+      const id = setTimeout(resolve, ms);
+      const prev = this._taskCompletionAbort;
+      this._taskCompletionAbort = () => { clearTimeout(id); resolve(); prev?.(); };
+    });
+  }
+
   /** Return when the task text appears with [x] status in the TODO.md file. */
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     return new Promise<void>((resolve, reject) => {
@@ -374,12 +495,12 @@ class TaskLoopRunner {
 
       const found = () => {
         const updated = parseTodo(todoPath);
-        const match = updated.find(t => t.text === task.text);
-        // Require the task to be explicitly marked [x] done (or removed from the file).
-        // A task that reverted to [ ] pending means Claude is still mid-write — keep waiting.
-        if (!match) { return true; }               // completely removed — treat as done
-        if (match.status === 'done') { return true; } // [x] confirmed
-        return false;                               // still in-progress or partial write
+        // Match by LINE NUMBER — not text — to avoid false positives when multiple
+        // tasks share the same wording (e.g. two "cool game" entries).
+        const byLine = updated.find(t => t.line === task.line);
+        if (!byLine) { return true; }                  // line gone from file — treat as done
+        if (byLine.status === 'done') { return true; } // [x] confirmed at that exact line
+        return false;                                  // still [ ] or [~] — keep waiting
       };
 
       // Check immediately (AI might have already edited the file)
@@ -387,12 +508,15 @@ class TaskLoopRunner {
 
       let poller: NodeJS.Timeout | undefined;
       let timer: NodeJS.Timeout | undefined;
+      let stdoutWatcherRef: vscode.Disposable | undefined;
 
       const cleanup = (watcher: vscode.Disposable) => {
         this._taskCompletionAbort = null;
         clearTimeout(timer);
         clearInterval(poller);
         watcher.dispose();
+        stdoutWatcherRef?.dispose();
+        stdoutWatcherRef = undefined;
         this._cb?.onActivityChange?.(undefined);
       };
 
@@ -406,8 +530,40 @@ class TaskLoopRunner {
         if (found()) { cleanup(watcher); resolve(); }
       };
 
+      // Helper: read stdout capture file handling both UTF-8 and UTF-16 LE (PowerShell default)
+      const readStdoutFile = (): string => {
+        if (!this._workspaceRoot) { return ''; }
+        const stdoutFile = path.join(this._workspaceRoot, '.autodev-claude-stdout.txt');
+        try {
+          const buf = fs.readFileSync(stdoutFile);
+          // Detect UTF-16 LE BOM (0xFF 0xFE)
+          if (buf.length >= 2 && buf[0] === 0xFF && buf[1] === 0xFE) {
+            return buf.toString('utf16le');
+          }
+          return buf.toString('utf8');
+        } catch { return ''; }
+      };
+
+      // Check stdout file for rate-limit message and reject if found
+      const checkStdout = () => {
+        const content = readStdoutFile();
+        if (content.includes('hit your limit') || content.toLowerCase().includes('rate limit')) {
+          cleanup(watcher);
+          reject(new RateLimitError(content.trim(), parseRateLimitResetTime(content)));
+        }
+      };
+
       // Register abort hook so stop() can resolve this immediately
       this._taskCompletionAbort = () => { cleanup(watcher); resolve(); };
+
+      // Watch the stdout capture file — reacts instantly when Claude writes rate-limit text
+      const stdoutDir = this._workspaceRoot ?? path.dirname(todoPath);
+      const stdoutWatcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(stdoutDir, '.autodev-claude-stdout.txt')
+      );
+      stdoutWatcherRef = stdoutWatcher;
+      stdoutWatcher.onDidChange(checkStdout);
+      stdoutWatcher.onDidCreate(checkStdout);
 
       // File watcher — fires on change/create events
       watcher.onDidChange(check);
@@ -449,7 +605,20 @@ class TaskLoopRunner {
             lastActivity = activity;
             this._cb?.onActivityChange?.(activity);
           }
+
+          // Rate limit detection — reject immediately so _runLoop can pause
+          if (sessionState.rateLimitMessage) {
+            cleanup(watcher);
+            reject(new RateLimitError(
+              sessionState.rateLimitMessage,
+              parseRateLimitResetTime(sessionState.rateLimitMessage),
+            ));
+            return;
+          }
         }
+
+        // Also check stdout capture file as poller fallback (watcher handles most cases)
+        checkStdout();
 
         // Track JSONL activity
         const currentSize = getClaudeSessionCursor(this._workspaceRoot);

@@ -57,12 +57,18 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand('autodev.stopTaskLoop', () => {
-      if (taskLoopRunner.state !== 'running') {
+      if (taskLoopRunner.state !== 'running' && taskLoopRunner.state !== 'paused') {
         vscode.window.showInformationMessage('AutoDev: Task loop is not running.');
         return;
       }
       taskLoopRunner.stop();
       vscode.window.showInformationMessage('AutoDev: Task loop stopping');
+    }),
+
+    vscode.commands.registerCommand('autodev.retryLoop', () => {
+      if (taskLoopRunner.state !== 'paused') { return; }
+      taskLoopRunner.retry();
+      vscode.window.showInformationMessage('AutoDev: Resuming after rate limit');
     }),
 
     vscode.commands.registerCommand('autodev.openSettings', () => openSettingsFile()),

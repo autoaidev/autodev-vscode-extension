@@ -48,9 +48,10 @@ ${taskText}
 
 ## Instructions
 
+0. **First**, mark this task as in-progress in **TODO.md** by changing \`[ ]\` to \`[~]\` on this task's line and saving the file.
 1. Read and understand the full codebase before making changes.
 2. Implement this task completely, including all required files and tests.
-3. When the task is done, mark it as completed in **TODO.md** by replacing \`[ ]\` or \`[~]\` with \`[x] YYYY-MM-DD  task text\` (ISO date, two spaces, then the original task text).
+3. When the task is done, mark it as completed in **TODO.md** by replacing \`[~]\` with \`[x] YYYY-MM-DD  task text\` (ISO date, two spaces, then the original task text).
 4. Commit all changes with a descriptive commit message.
 5. Stop after completing this one task — do not start the next task.
 `;

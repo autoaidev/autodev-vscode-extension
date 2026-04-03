@@ -61,6 +61,8 @@ export interface ClaudeSessionState {
   activeToolStatus?: string;
   /** True if a bash_progress or mcp_progress record was seen. */
   hasProgress: boolean;
+  /** Set when a rate_limit error is found — contains the raw message text. */
+  rateLimitMessage?: string;
 }
 
 function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
@@ -145,6 +147,17 @@ export function parseClaudeStateSince(workspacePath: string, fromByte: number): 
 
         if ((record['stop_reason'] as string | undefined) === 'end_turn') {
           result.hasEndTurn = true;
+        }
+
+        // Rate limit detection — error:"rate_limit" on assistant records
+        if (record['error'] === 'rate_limit') {
+          const msgContent = (record['message'] as Record<string, unknown> | undefined)?.['content'];
+          const text = Array.isArray(msgContent)
+            ? (msgContent as Array<Record<string, unknown>>)
+                .filter(b => b['type'] === 'text')
+                .map(b => String(b['text'] ?? '')).join(' ')
+            : '';
+          if (text) { result.rateLimitMessage = text; }
         }
       } catch { /* skip malformed lines */ }
     }

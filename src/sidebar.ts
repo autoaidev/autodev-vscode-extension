@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
+import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
 import { getSessionId } from './sessionState';
@@ -51,6 +52,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'addTask':     this._addTask(msg.text as string); break;
         case 'startLoop':   void vscode.commands.executeCommand('autodev.startTaskLoop'); break;
         case 'stopLoop':    void vscode.commands.executeCommand('autodev.stopTaskLoop'); break;
+        case 'retryLoop':   void vscode.commands.executeCommand('autodev.retryLoop'); break;
         case 'openTask':    void this._openTaskLine(msg.line as number); break;
         case 'saveSettings':
           saveSettings(msg.settings as AutodevSettings);
@@ -173,6 +175,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       claudeActivity: this._claudeActivity,
       settings: loadSettings(),
       sessionId,
+      resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
     });
   }
 }
@@ -211,6 +214,8 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .loop-btn:disabled{opacity:.4;cursor:not-allowed}
 .loop-btn.stop{border-color:var(--vscode-testing-iconFailed,#c72e2e);color:var(--vscode-testing-iconFailed,#c72e2e)}
 .loop-btn.stop:hover{background:var(--vscode-testing-iconFailed,#c72e2e);color:#fff}
+.loop-btn.retry{border-color:var(--vscode-statusBarItem-warningBackground,#b5630d);color:var(--vscode-statusBarItem-warningBackground,#b5630d)}
+.loop-btn.retry:hover{background:var(--vscode-statusBarItem-warningBackground,#b5630d);color:#fff}
 .settings-btn{padding:3px 6px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:13px;line-height:1}
 .settings-btn:hover{background:var(--vscode-list-hoverBackground)}
 .add-form{display:flex;gap:5px;margin-bottom:12px}
@@ -369,6 +374,14 @@ function renderLoop(){
     btnEl.innerHTML='&#9632; Stop';
     btnEl.disabled=false;
     btnEl.onclick=function(){vscode.postMessage({command:'stopLoop'});};
+  }else if(state.loopState==='paused'){
+    statusEl.className='loop-status';
+    const resumeStr=state.resumeAt?new Date(state.resumeAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'soon';
+    statusEl.innerHTML='&#9208; Rate limited \u2014 auto-resume '+esc(resumeStr);
+    btnEl.className='loop-btn retry';
+    btnEl.innerHTML='&#9654; Retry Now';
+    btnEl.disabled=false;
+    btnEl.onclick=function(){vscode.postMessage({command:'retryLoop'});};
   }else if(state.loopState==='stopping'){
     statusEl.className='loop-status';
     statusEl.textContent='Stopping\u2026';

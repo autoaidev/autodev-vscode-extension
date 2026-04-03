@@ -88,6 +88,13 @@ export async function sendPromptToAi(
     let cmd: string;
     if (providerId === 'claude-cli') {
       cmd = buildClaudeCliCommand(promptFile, resolvedSessionId);
+      // Capture stdout+stderr to a file so the task loop can detect immediate
+      // rate-limit responses (Claude prints to stdout and exits; no JSONL record).
+      const stdoutFile = path.join(root, '.autodev-claude-stdout.txt');
+      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
+      ensureProjectGitignore(root, '.autodev-claude-stdout.txt');
+      // Force UTF-8 output so Node can read the file without encoding issues.
+      cmd = `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(stdoutFile)}`;
     } else if (providerId === 'copilot-cli') {
       cmd = buildCopilotCliCommand(promptFile, resolvedSessionId);
     } else {
