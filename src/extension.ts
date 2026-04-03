@@ -93,25 +93,51 @@ function applyClaudeCodeCliSettings(): void {
     perms['defaultMode'] = 'bypassPermissions';
     perms['skipDangerousModePermissionPrompt'] = true;
     userSettings['permissions'] = perms;
+
+    // Add Playwright MCP server if not already configured
+    const mcpServers = (typeof userSettings['mcpServers'] === 'object' && userSettings['mcpServers'] !== null
+      ? userSettings['mcpServers'] : {}) as Record<string, unknown>;
+    if (!mcpServers['playwright']) {
+      mcpServers['playwright'] = { command: 'npx', args: ['@playwright/mcp@latest'] };
+      log('Claude Code CLI: added playwright MCP server');
+    }
+    userSettings['mcpServers'] = mcpServers;
+
     fs.writeFileSync(userSettingsPath, JSON.stringify(userSettings, null, 2), 'utf8');
     log('Claude Code CLI: applied bypassPermissions to ~/.claude/settings.json');
   } catch (err) {
     log(`Claude Code CLI: failed to write ~/.claude/settings.json: ${err}`);
   }
 
-  // 2. Project-level local (.gitignored): allow all tools
-  //    (defaultMode: bypassPermissions is ignored in project settings per Claude docs)
+  // 2. Project-level: merge permissions into .claude/settings.json (create if missing)
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!root) { return; }
   try {
     const projectClaudeDir = path.join(root, '.claude');
     if (!fs.existsSync(projectClaudeDir)) { fs.mkdirSync(projectClaudeDir, { recursive: true }); }
-    const localSettingsPath = path.join(projectClaudeDir, 'settings.local.json');
-    const localSettings = { permissions: { allow: ['*'] } };
-    fs.writeFileSync(localSettingsPath, JSON.stringify(localSettings, null, 2), 'utf8');
-    log('Claude Code CLI: applied allow:* to .claude/settings.local.json');
+    const settingsPath = path.join(projectClaudeDir, 'settings.json');
+    let settings: Record<string, unknown> = {};
+    if (fs.existsSync(settingsPath)) {
+      try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as Record<string, unknown>; } catch { }
+    }
+    const perms = (typeof settings['permissions'] === 'object' && settings['permissions'] !== null
+      ? settings['permissions'] : {}) as Record<string, unknown>;
+    perms['allow'] = ['*'];
+    settings['permissions'] = perms;
+
+    // Add Playwright MCP server if not already configured
+    const mcpServers = (typeof settings['mcpServers'] === 'object' && settings['mcpServers'] !== null
+      ? settings['mcpServers'] : {}) as Record<string, unknown>;
+    if (!mcpServers['playwright']) {
+      mcpServers['playwright'] = { command: 'npx', args: ['@playwright/mcp@latest'] };
+      log('Claude Code CLI: added playwright MCP server to project settings');
+    }
+    settings['mcpServers'] = mcpServers;
+
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    log('Claude Code CLI: applied allow:* to .claude/settings.json');
   } catch (err) {
-    log(`Claude Code CLI: failed to write .claude/settings.local.json: ${err}`);
+    log(`Claude Code CLI: failed to write .claude/settings.json: ${err}`);
   }
 }
 async function applyAutoAcceptSettings(): Promise<void> {

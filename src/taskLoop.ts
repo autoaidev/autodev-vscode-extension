@@ -355,11 +355,10 @@ class TaskLoopRunner {
 
       const found = () => {
         const updated = parseTodo(todoPath);
-        // Only resolve when the [~] in-progress entry was converted to [x].
-        // This prevents a pre-existing [x] with the same task text from resolving immediately.
-        const isDone     = updated.some(t => t.text === task.text && t.status === 'done');
-        const isInProg   = updated.some(t => t.text === task.text && t.status === 'in-progress');
-        return isDone && !isInProg;
+        // Task is complete when the [~] in-progress marker is gone.
+        // Don't require exact text match on the [x] line — Claude may rephrase slightly.
+        const isInProg = updated.some(t => t.text === task.text && t.status === 'in-progress');
+        return !isInProg;
       };
 
       // Check immediately (AI might have already edited the file)
