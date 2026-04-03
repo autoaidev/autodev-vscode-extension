@@ -17,7 +17,8 @@ export type WebhookEvent =
   | 'agent_online' | 'agent_offline'
   | 'loop_start' | 'loop_complete'
   | 'task_start' | 'task_done' | 'task_fail' | 'task_progress' | 'task_checkin'
-  | 'task_output' | 'all_tasks_done';
+  | 'task_output' | 'all_tasks_done'
+  | 'rate_limit' | 'claude_output';
 
 export class WebhookClient {
   private readonly contextId: string;
@@ -106,6 +107,21 @@ export class WebhookClient {
         return { artifactUpdate: { taskId: this.currentTaskId ?? uuid(),
           contextId: this.contextId,
           artifact: { artifactId: this.currentArtifactId, parts: [{ text: chunk }] },
+          append: true, lastChunk: false } };
+      }
+
+      case 'rate_limit':
+        return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          status: { state: 'TASK_STATE_STOPPED', timestamp: now },
+          metadata: { event: 'rate_limit', ...payload } } };
+
+      case 'claude_output': {
+        if (!this.currentArtifactId) { this.currentArtifactId = uuid(); }
+        const out = typeof payload['output'] === 'string' ? payload['output'] : '';
+        return { artifactUpdate: { taskId: this.currentTaskId ?? uuid(),
+          contextId: this.contextId,
+          artifact: { artifactId: this.currentArtifactId, parts: [{ text: out }] },
           append: true, lastChunk: false } };
       }
 

@@ -412,8 +412,18 @@ class TaskLoopRunner {
           const resetAt = err.resetAt;
           const resumeMs = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : undefined;
           const resumeStr = resetAt ? resetAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
-          this._cb?.log(`⏸ Rate limit hit — ${err.rawMessage}. Auto-resume at ${resumeStr} (+15 min)`);
-          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (+15 min)`);
+          const rawMsg = err.rawMessage;
+          this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (+15 min)`);
+          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (+15 min)\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._notifyWebhook('rate_limit', {
+            iteration:   this._iterations,
+            task:        { text: task.text },
+            message:     rawMsg,
+            resumeAt:    resetAt?.toISOString(),
+            workDir:     this._workspaceRoot,
+            gitRepo:     this._gitRepo,
+            gitBranch:   this._gitBranch,
+          });
           // Reset task so it gets picked up again after resume
           try { resetToTodo(todoPath, task); } catch { /* ignore */ }
           // Block here until resumed (timer or user clicks Retry Now)
@@ -544,9 +554,31 @@ class TaskLoopRunner {
         } catch { return ''; }
       };
 
-      // Check stdout file for rate-limit message and reject if found
+      // Track how many characters of the stdout file we've already forwarded
+      let lastStdoutLen = 0;
+
+      // Check stdout file: forward any new content to Discord/webhook, detect rate limit
       const checkStdout = () => {
         const content = readStdoutFile();
+
+        // Forward new output lines to Discord / webhook
+        if (content.length > lastStdoutLen) {
+          const newText = content.slice(lastStdoutLen).trim();
+          lastStdoutLen = content.length;
+          if (newText) {
+            this._notifyDiscord(`🖥 **Claude output:**\n\`\`\`\n${newText}\n\`\`\``);
+            this._notifyWebhook('claude_output', {
+              iteration: this._iterations,
+              task:      { text: task.text },
+              output:    newText,
+              workDir:   this._workspaceRoot,
+              gitRepo:   this._gitRepo,
+              gitBranch: this._gitBranch,
+            });
+          }
+        }
+
+        // Rate limit detection
         if (content.includes('hit your limit') || content.toLowerCase().includes('rate limit')) {
           cleanup(watcher);
           reject(new RateLimitError(content.trim(), parseRateLimitResetTime(content)));
