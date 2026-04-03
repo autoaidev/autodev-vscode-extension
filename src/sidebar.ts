@@ -149,7 +149,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       providers: (Object.entries(PROVIDERS) as [ProviderId, ProviderConfig][]).map(([id, cfg]) => ({
         id,
         label: cfg.label,
-        installed: !!vscode.extensions.getExtension(cfg.extensionId),
+        installed: cfg.isCli ? true : !!vscode.extensions.getExtension(cfg.extensionId),
       })),
       tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate, line: t.line })),
       loopState: this._loopState,

@@ -264,6 +264,46 @@ function sendPasteAndEnter(log: (msg: string) => void): void {
   exec(cmd, err => { if (err) { log(`sendPasteAndEnter error: ${err.message}`); } });
 }
 
+/**
+ * Build the shell command to run a CLI AI provider.
+ * Prompt is always passed via a file to avoid shell quoting issues.
+ * On Windows (PowerShell): pipe via Get-Content.
+ * On Unix: stdin redirect.
+ */
+function buildCliCommand(providerId: 'claude-cli' | 'copilot-cli' | 'opencode-cli', promptFile: string): string {
+  const isWin = process.platform === 'win32';
+  const fileArg = JSON.stringify(promptFile);
+  // Use -p with the file content as an argument — keeps stdin as a TTY so Ink works.
+  // PowerShell: -p (Get-Content "file" -Raw)
+  // bash/zsh:   -p "$(cat "file")"
+  const pArg = isWin
+    ? `-p (Get-Content ${fileArg} -Raw)`
+    : `-p "$(cat ${fileArg})"`;
+
+  if (providerId === 'claude-cli') {
+    return `claude --dangerously-skip-permissions ${pArg}`;
+  } else if (providerId === 'copilot-cli') {
+    return `copilot --autopilot --yolo --no-ask-user --allow-all --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --max-autopilot-continues 2000 ${pArg}`;
+  } else {
+    // opencode run — prompt is positional (no -p flag)
+    const posArg = isWin
+      ? `(Get-Content ${fileArg} -Raw)`
+      : `"$(cat ${fileArg})"`;
+    return `opencode run ${posArg}`;
+  }
+}
+
+/** Ensure `entry` is present in the project .gitignore (no-op if already there). */
+function ensureProjectGitignore(root: string, entry: string): void {
+  const gitignorePath = path.join(root, '.gitignore');
+  try {
+    let content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
+    if (content.split('\n').map(l => l.trim()).includes(entry)) { return; }
+    if (content.length > 0 && !content.endsWith('\n')) { content += '\n'; }
+    fs.writeFileSync(gitignorePath, content + `${entry}\n`, 'utf8');
+  } catch { /* ignore */ }
+}
+
 export async function sendPromptToAi(
   providerId: ProviderId,
   prompt: string,
@@ -271,6 +311,26 @@ export async function sendPromptToAi(
   _focusOnly = false,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
+
+  // CLI providers — run in a VS Code terminal
+  if (providerCfg.isCli) {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { throw new Error('No workspace folder open'); }
+
+    // Write prompt to project folder so multiple instances don't collide
+    const promptFile = path.join(root, 'TEMP_PROMPT.md');
+    fs.writeFileSync(promptFile, prompt, 'utf8');
+    ensureProjectGitignore(root, 'TEMP_PROMPT.md');
+
+    const cmd = buildCliCommand(providerId as 'claude-cli' | 'copilot-cli' | 'opencode-cli', promptFile);
+    const termName = `AutoDev: ${providerCfg.label}`;
+    const terminal = vscode.window.terminals.find(t => t.name === termName)
+      ?? vscode.window.createTerminal({ name: termName, cwd: root });
+    terminal.show(true); // reveal but keep focus where it is
+    terminal.sendText(cmd);
+    log(`Sent to ${termName}: ${cmd}`);
+    return;
+  }
 
   if (!vscode.extensions.getExtension(providerCfg.extensionId)) {
     throw new Error(`"${providerCfg.label}" extension is not installed`);
