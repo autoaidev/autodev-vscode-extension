@@ -48,6 +48,9 @@ export function activate(context: vscode.ExtensionContext): void {
           sidebar.setLoopState(state, task);
           log(`Loop: ${state}${task ? `  ${task}` : ''}`);
         },
+        onActivityChange: (activity) => {
+          sidebar.setClaudeActivity(activity);
+        },
       });
     }),
 

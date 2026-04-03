@@ -65,22 +65,56 @@ export function getClaudeSessionCursor(workspacePath: string): number {
   try { return fs.statSync(p).size; } catch { return 0; }
 }
 
-interface ClaudeJsonlEntry {
-  type?: string;
-  stop_reason?: string;
-  message?: { role?: string; content?: Array<{ type?: string; text?: string }> | string };
+/** Rich state parsed from the JSONL transcript since a cursor offset. */
+export interface ClaudeSessionState {
+  /** True if a definitive turn-end was detected (system.turn_duration or stop_reason=end_turn). */
+  hasEndTurn: boolean;
+  /** Human-readable label for the tool Claude is currently running, if any. */
+  activeToolStatus?: string;
+  /** True if a bash_progress or mcp_progress record was seen (command still executing). */
+  hasProgress: boolean;
+}
+
+function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
+  const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
+  switch (toolName) {
+    case 'Read':    return `Reading ${base(input['file_path'])}`;
+    case 'Edit':    return `Editing ${base(input['file_path'])}`;
+    case 'Write':   return `Writing ${base(input['file_path'])}`;
+    case 'Bash': {
+      const cmd = String(input['command'] ?? '');
+      return `Running: ${cmd.length > 60 ? cmd.slice(0, 60) + '\u2026' : cmd}`;
+    }
+    case 'Glob':      return 'Searching files';
+    case 'Grep':      return 'Searching code';
+    case 'WebFetch':  return 'Fetching web content';
+    case 'WebSearch': return 'Searching the web';
+    case 'Task':
+    case 'Agent': {
+      const desc = typeof input['description'] === 'string' ? input['description'] as string : '';
+      return desc ? `Subtask: ${desc.length > 50 ? desc.slice(0, 50) + '\u2026' : desc}` : 'Running subtask';
+    }
+    case 'AskUserQuestion': return 'Waiting for answer';
+    case 'EnterPlanMode':   return 'Planning';
+    default: return `Using ${toolName}`;
+  }
 }
 
 /**
- * Read only the bytes since `fromByte` in the JSONL and return true if any
- * entry has stop_reason === 'end_turn'. Does NOT read the full file.
+ * Parse the JSONL bytes written since `fromByte` and return a rich state snapshot:
+ * - `hasEndTurn`: system.turn_duration fired, or stop_reason=end_turn seen
+ * - `activeToolStatus`: label of the most recently invoked tool (cleared on turn end)
+ * - `hasProgress`: bash_progress / mcp_progress records were seen (command still running)
+ *
+ * Processes lines sequentially so the returned values reflect the *latest* state.
  */
-export function hasClaudeEndTurnSince(workspacePath: string, fromByte: number): boolean {
+export function parseClaudeStateSince(workspacePath: string, fromByte: number): ClaudeSessionState {
+  const result: ClaudeSessionState = { hasEndTurn: false, hasProgress: false };
   const p = resolveClaudeJsonl(workspacePath);
-  if (!p) { return false; }
+  if (!p) { return result; }
   try {
     const size = fs.statSync(p).size;
-    if (size <= fromByte) { return false; }
+    if (size <= fromByte) { return result; }
     const fd = fs.openSync(p, 'r');
     const buf = Buffer.alloc(size - fromByte);
     fs.readSync(fd, buf, 0, buf.length, fromByte);
@@ -89,12 +123,64 @@ export function hasClaudeEndTurnSince(workspacePath: string, fromByte: number): 
       const t = line.trim();
       if (!t) { continue; }
       try {
-        const e = JSON.parse(t) as ClaudeJsonlEntry;
-        if (e.stop_reason === 'end_turn') { return true; }
-      } catch { /* skip malformed */ }
+        const record = JSON.parse(t) as Record<string, unknown>;
+        const rtype = record['type'] as string | undefined;
+
+        if (rtype === 'assistant') {
+          const msgContent = (record['message'] as Record<string, unknown> | undefined)?.['content']
+            ?? record['content'];
+          if (Array.isArray(msgContent)) {
+            for (const block of msgContent as Array<Record<string, unknown>>) {
+              if (block['type'] === 'tool_use') {
+                const name = String(block['name'] ?? '');
+                const input = (block['input'] ?? {}) as Record<string, unknown>;
+                result.activeToolStatus = formatToolStatus(name, input);
+                result.hasEndTurn = false; // new tool use means we're still going
+              }
+            }
+          }
+        } else if (rtype === 'user') {
+          const msgContent = (record['message'] as Record<string, unknown> | undefined)?.['content']
+            ?? record['content'];
+          if (Array.isArray(msgContent)) {
+            const hasToolResult = (msgContent as Array<Record<string, unknown>>)
+              .some(b => b['type'] === 'tool_result');
+            if (!hasToolResult) {
+              // Plain user message = new turn starting, clear any previous activity
+              result.activeToolStatus = undefined;
+              result.hasEndTurn = false;
+            }
+          }
+        } else if (rtype === 'system') {
+          if ((record['subtype'] as string | undefined) === 'turn_duration') {
+            // Definitive end-of-turn signal
+            result.hasEndTurn = true;
+            result.activeToolStatus = undefined;
+          }
+        } else if (rtype === 'progress') {
+          const data = record['data'] as Record<string, unknown> | undefined;
+          const dataType = data?.['type'] as string | undefined;
+          if (dataType === 'bash_progress' || dataType === 'mcp_progress') {
+            result.hasProgress = true;
+          }
+        }
+
+        // Fallback: stop_reason=end_turn (older Claude Code versions)
+        if ((record['stop_reason'] as string | undefined) === 'end_turn') {
+          result.hasEndTurn = true;
+        }
+      } catch { /* skip malformed lines */ }
     }
-    return false;
-  } catch { return false; }
+  } catch { /* file unreadable */ }
+  return result;
+}
+
+/**
+ * @deprecated Use parseClaudeStateSince instead.
+ * Kept for backwards compatibility — returns true if hasEndTurn.
+ */
+export function hasClaudeEndTurnSince(workspacePath: string, fromByte: number): boolean {
+  return parseClaudeStateSince(workspacePath, fromByte).hasEndTurn;
 }
 
 /**
@@ -116,9 +202,10 @@ export function readClaudeOutputSince(workspacePath: string, fromByte: number): 
       const trimmed = line.trim();
       if (!trimmed) { continue; }
       try {
-        const entry = JSON.parse(trimmed) as ClaudeJsonlEntry;
-        if (entry.type === 'assistant' || entry.message?.role === 'assistant') {
-          const content = entry.message?.content;
+        const entry = JSON.parse(trimmed) as Record<string, unknown>;
+        const entryMsg = entry['message'] as { role?: string; content?: Array<{ type?: string; text?: string }> | string } | undefined;
+        if (entry['type'] === 'assistant' || entryMsg?.role === 'assistant') {
+          const content = entryMsg?.content;
           if (typeof content === 'string') {
             parts.push(content);
           } else if (Array.isArray(content)) {
@@ -131,24 +218,6 @@ export function readClaudeOutputSince(workspacePath: string, fromByte: number): 
     }
     return parts.join('\n\n');
   } catch { return ''; }
-}
-
-// ---------------------------------------------------------------------------
-// OS-level keystroke: Ctrl+V then Enter
-// ---------------------------------------------------------------------------
-
-export function sendPasteAndEnter(log: (msg: string) => void): void {
-  const platform = process.platform;
-  let cmd: string;
-  if (platform === 'win32') {
-    cmd = String.raw`powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v{ENTER}')"`;
-  } else if (platform === 'darwin') {
-    cmd = `osascript -e 'tell application "System Events" to keystroke "v" using command down' -e 'tell application "System Events" to key code 36'`;
-  } else {
-    cmd = 'xdotool key ctrl+v Return';
-  }
-  exec(cmd, err => { if (err) { log(`sendPasteAndEnter error: ${err.message}`); } });
-  log(`Paste+Enter sent (${platform})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -167,27 +236,39 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// Whether the bypass-permissions setting was changed this session (needs a fresh conversation)
-// Removed — bypass is always active, no need to force new conversations.
+/** Send only an Enter keystroke to the currently focused window (no clipboard). */
+function sendEnterKey(log: (msg: string) => void): void {
+  const platform = process.platform;
+  let cmd: string;
+  if (platform === 'win32') {
+    cmd = String.raw`powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`;
+  } else if (platform === 'darwin') {
+    cmd = `osascript -e 'tell application "System Events" to key code 36'`;
+  } else {
+    cmd = 'xdotool key Return';
+  }
+  exec(cmd, err => { if (err) { log(`sendEnterKey error: ${err.message}`); } });
+}
 
-/** Detect any open Claude Code webview panel. */
-function findClaudePanel(): vscode.Tab | undefined {
-  return vscode.window.tabGroups.all
-    .flatMap(g => g.tabs)
-    .find(t =>
-      t.input instanceof vscode.TabInputWebview && (
-        t.input.viewType.toLowerCase().includes('claude') ||
-        t.label.toLowerCase().includes('claude')
-      )
-    );
+/** Paste clipboard content + Enter into the currently focused window. */
+function sendPasteAndEnter(log: (msg: string) => void): void {
+  const platform = process.platform;
+  let cmd: string;
+  if (platform === 'win32') {
+    cmd = String.raw`powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v{ENTER}')"`;
+  } else if (platform === 'darwin') {
+    cmd = `osascript -e 'tell application "System Events" to keystroke "v" using command down' && osascript -e 'tell application "System Events" to key code 36'`;
+  } else {
+    cmd = 'xdotool key ctrl+v Return';
+  }
+  exec(cmd, err => { if (err) { log(`sendPasteAndEnter error: ${err.message}`); } });
 }
 
 export async function sendPromptToAi(
   providerId: ProviderId,
   prompt: string,
   log: (msg: string) => void,
-  /** If true, only focus and paste — never open a new conversation (used for reminders). */
-  focusOnly = false,
+  _focusOnly = false,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
 
@@ -196,24 +277,43 @@ export async function sendPromptToAi(
   }
 
   if (providerId === 'claude') {
-    const existingPanel = findClaudePanel();
+    const existingTab = vscode.window.tabGroups.all
+      .flatMap(g => g.tabs)
+      .find(t =>
+        t.input instanceof vscode.TabInputWebview && (
+          t.input.viewType.toLowerCase().includes('claude') ||
+          t.label.toLowerCase().includes('claude')
+        )
+      );
 
-    if (existingPanel || focusOnly) {
-      // Reuse the open panel
-      await vscode.env.clipboard.writeText(prompt);
+    if (existingTab) {
+      // Panel already exists — focus it WITHOUT calling editor.open (which would
+      // open a new panel). Then paste the prompt via clipboard.
+      // Focus BEFORE writing clipboard so paste lands in Claude, not TODO.md.
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
-      await sleep(600);
+      await sleep(900);
+
+      await vscode.env.clipboard.writeText(prompt);
+      await sleep(200);
       sendPasteAndEnter(log);
-      log('Sent to existing Claude panel');
+      log('Sent to Claude via focus + paste+Enter (reused existing panel)');
     } else {
-      // No panel open — start a fresh conversation and wait for it to load
-      await Promise.resolve(vscode.commands.executeCommand('claude-vscode.newConversation'));
-      await sleep(2_000);
-      await vscode.env.clipboard.writeText(prompt);
+      // No existing panel — open a new one with the prompt pre-filled via initialPrompt.
+      // The webview's initialPrompt effect calls setInputText() — no clipboard needed.
+      await Promise.resolve(
+        vscode.commands.executeCommand('claude-vscode.editor.open', undefined, prompt)
+      );
+
+      // Wait for the panel to mount and setInputText to run.
+      await sleep(1_500);
+
+      // Ensure the Claude input is focused before sending Enter.
       await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
-      await sleep(600);
-      sendPasteAndEnter(log);
-      log('Sent to Claude via new conversation');
+      await sleep(300);
+
+      // Submit with Enter only — prompt is already in the input via initialPrompt.
+      sendEnterKey(log);
+      log('Sent to Claude via editor.open + Enter (new panel)');
     }
   } else {
     await Promise.resolve(vscode.commands.executeCommand('workbench.action.chat.open', {

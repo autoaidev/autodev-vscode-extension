@@ -6,7 +6,7 @@ import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProg
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
-import { getClaudeSessionCursor, hasClaudeEndTurnSince } from './claude';
+import { getClaudeSessionCursor, parseClaudeStateSince } from './claude';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
 
@@ -23,6 +23,8 @@ export interface LoopCallbacks {
   log: (msg: string) => void;
   /** Called whenever the loop state changes so the sidebar can refresh */
   onStatusChange: (state: LoopState, currentTask?: string) => void;
+  /** Called when Claude's current tool activity changes (undefined = idle/done) */
+  onActivityChange?: (activity: string | undefined) => void;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -371,6 +373,7 @@ class TaskLoopRunner {
         clearTimeout(timer);
         clearInterval(poller);
         watcher.dispose();
+        this._cb?.onActivityChange?.(undefined);
       };
 
       const watcher = vscode.workspace.createFileSystemWatcher(
@@ -399,19 +402,32 @@ class TaskLoopRunner {
         ? getClaudeSessionCursor(this._workspaceRoot) : 0;
       let lastActivityTime = Date.now();
       let reminderPending = true; // allow one reminder per quiet period
+      let lastActivity: string | undefined;
 
       poller = setInterval(async () => {
         check();
 
         if (!this._workspaceRoot) { return; }
 
-        // end_turn detection — fast-path on Linux where inotify can lag
-        if (!endTurnSeen && claudeCursor > 0) {
-          if (hasClaudeEndTurnSince(this._workspaceRoot, claudeCursor)) {
+        // Parse rich JSONL state: end_turn, active tool, bash progress
+        if (claudeCursor > 0) {
+          const sessionState = parseClaudeStateSince(this._workspaceRoot, claudeCursor);
+
+          // end_turn detection — fast-path on Linux where inotify can lag
+          if (!endTurnSeen && sessionState.hasEndTurn) {
             endTurnSeen = true;
             this._cb?.log('end_turn detected in Claude JSONL — checking TODO.md');
             setTimeout(check, 800);
             setTimeout(check, 2_500);
+          }
+
+          // Surface current tool activity to sidebar
+          const activity = sessionState.hasEndTurn
+            ? undefined
+            : (sessionState.activeToolStatus ?? (sessionState.hasProgress ? 'Running command\u2026' : undefined));
+          if (activity !== lastActivity) {
+            lastActivity = activity;
+            this._cb?.onActivityChange?.(activity);
           }
         }
 

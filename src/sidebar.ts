@@ -18,6 +18,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _tasks: Task[] = [];
   private _loopState: LoopState = 'idle';
   private _loopTask?: string;
+  private _claudeActivity?: string;
   private _selectedProvider: ProviderId;
   private _watcher?: vscode.FileSystemWatcher;
   private _pollTimer?: ReturnType<typeof setInterval>;
@@ -71,6 +72,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   setLoopState(state: LoopState, task?: string): void {
     this._loopState = state;
     this._loopTask = task;
+    this._push();
+  }
+
+  setClaudeActivity(activity: string | undefined): void {
+    this._claudeActivity = activity;
     this._push();
   }
 
@@ -148,6 +154,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate, line: t.line })),
       loopState: this._loopState,
       loopTask: this._loopTask,
+      claudeActivity: this._claudeActivity,
       settings: loadSettings(),
     });
   }
@@ -304,7 +311,9 @@ function renderLoop(){
   const btnEl=document.getElementById('loopBtn');
   if(state.loopState==='running'){
     statusEl.className='loop-status running';
-    statusEl.innerHTML=state.loopTask?'&#9654; '+esc(state.loopTask):'&#9654; Running\u2026';
+    const taskLabel=state.loopTask?'&#9654; '+esc(state.loopTask):'&#9654; Running\u2026';
+    const activityLabel=state.claudeActivity?'<div style="font-size:10px;font-weight:400;opacity:.75;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(state.claudeActivity)+'</div>':'';
+    statusEl.innerHTML=taskLabel+activityLabel;
     btnEl.className='loop-btn stop';
     btnEl.innerHTML='&#9632; Stop';
     btnEl.disabled=false;
