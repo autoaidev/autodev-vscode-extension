@@ -149,6 +149,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       providers: (Object.entries(PROVIDERS) as [ProviderId, ProviderConfig][]).map(([id, cfg]) => ({
         id,
         label: cfg.label,
+        isCli: !!cfg.isCli,
         installed: cfg.isCli ? true : !!vscode.extensions.getExtension(cfg.extensionId),
       })),
       tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate, line: t.line })),
@@ -181,6 +182,8 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .provider-label{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;flex-shrink:0}
 .provider-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
 .provider-select:focus{border-color:var(--vscode-focusBorder)}
+.resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 10px;font-size:11px;color:var(--vscode-descriptionForeground)}
+.resume-row input{cursor:pointer}
 .loop-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;margin-bottom:10px;font-size:12px}
 .loop-status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground)}
 .loop-status.running{color:var(--vscode-testing-iconPassed,#388a34);font-weight:600}
@@ -229,6 +232,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 <div class="provider-row">
   <span class="provider-label">Provider:</span>
   <select class="provider-select" id="providerSelect"></select>
+</div>
+<div class="resume-row" id="resumeRow" style="display:none">
+  <input type="checkbox" id="resumeCheck">
+  <label for="resumeCheck">Resume session</label>
 </div>
 <div class="loop-bar">
   <span class="loop-status" id="loopStatus">&#9711; Idle</span>
@@ -307,6 +314,16 @@ function renderProviders(){
   }).join('');
   sel.value=state.selectedProvider||prev;
   sel.onchange=function(){vscode.postMessage({command:'setProvider',provider:sel.value});};
+
+  // Show resume checkbox only for CLI providers
+  const isCli=state.providers.find(function(p){return p.id===state.selectedProvider;})?.isCli;
+  const resumeRow=document.getElementById('resumeRow');
+  resumeRow.style.display=isCli?'flex':'none';
+  const resumeCheck=document.getElementById('resumeCheck');
+  resumeCheck.checked=!!(state.settings&&state.settings.resumeSession);
+  resumeCheck.onchange=function(){
+    vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
+  };
 }
 
 function renderLoop(){

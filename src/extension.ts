@@ -51,6 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
         onActivityChange: (activity) => {
           sidebar.setClaudeActivity(activity);
         },
+        getActiveProvider: () => sidebar.selectedProvider,
       });
     }),
 
@@ -146,10 +147,29 @@ async function applyAutoAcceptSettings(): Promise<void> {
   await cfg.update('chat.editing.autoAcceptDelay', 800, vscode.ConfigurationTarget.Global);
   await cfg.update('github.copilot.chat.agent.runTasks', true, vscode.ConfigurationTarget.Global);
   await cfg.update('chat.editing.autoAccept', true, vscode.ConfigurationTarget.Global);
-  // Claude Code: bypass ALL permission prompts
+  // Claude Code: bypass ALL permission prompts (global)
   const prevMode = cfg.get<string>('claudeCode.initialPermissionMode');
   await cfg.update('claudeCode.allowDangerouslySkipPermissions', true, vscode.ConfigurationTarget.Global);
   await cfg.update('claudeCode.initialPermissionMode', 'bypassPermissions', vscode.ConfigurationTarget.Global);
   const changed = prevMode !== 'bypassPermissions';
   log(`Auto-accept applied. claudeCode.initialPermissionMode: ${prevMode} → bypassPermissions (changed=${changed})`);
+
+  // Also write into the project .vscode/settings.json so these settings travel with the repo
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!root) { return; }
+  try {
+    const vscodDir = path.join(root, '.vscode');
+    if (!fs.existsSync(vscodDir)) { fs.mkdirSync(vscodDir, { recursive: true }); }
+    const settingsFile = path.join(vscodDir, 'settings.json');
+    let settings: Record<string, unknown> = {};
+    if (fs.existsSync(settingsFile)) {
+      try { settings = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>; } catch { }
+    }
+    settings['claudeCode.initialPermissionMode'] = 'bypassPermissions';
+    settings['claudeCode.allowDangerouslySkipPermissions'] = true;
+    fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2), 'utf8');
+    log('Claude Code VS Code: wrote bypassPermissions to .vscode/settings.json');
+  } catch (err) {
+    log(`Claude Code VS Code: failed to write .vscode/settings.json: ${err}`);
+  }
 }

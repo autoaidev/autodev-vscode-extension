@@ -6,7 +6,9 @@ import { parseTodo, pickNextTask, markInProgress, countRemaining, resetAllInProg
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
-import { getClaudeSessionCursor, parseClaudeStateSince } from './claude';
+import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './claude';
+import { captureAndSaveSessionId } from './sessionState';
+import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
 
@@ -25,6 +27,8 @@ export interface LoopCallbacks {
   onStatusChange: (state: LoopState, currentTask?: string) => void;
   /** Called when Claude's current tool activity changes (undefined = idle/done) */
   onActivityChange?: (activity: string | undefined) => void;
+  /** Returns the currently selected provider ID (live, not from settings file) */
+  getActiveProvider: () => ProviderId;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -283,6 +287,16 @@ class TaskLoopRunner {
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
+
+        // Capture and persist CLI session ID so the next task can resume it
+        const activeProvider = this._cb?.getActiveProvider();
+        if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+          const jsonlFallback = activeProvider === 'claude-cli'
+            ? findLatestClaudeSession(this._workspaceRoot)
+            : undefined;
+          captureAndSaveSessionId(this._workspaceRoot, activeProvider, jsonlFallback);
+          this._cb?.log(`Session ID captured for ${activeProvider}`);
+        }
 
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._completedCount++;

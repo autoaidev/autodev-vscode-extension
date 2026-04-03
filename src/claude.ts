@@ -4,6 +4,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { ProviderId, PROVIDERS } from './providers';
+import { getSessionId, captureAndSaveSessionId, SESSION_OUT_FILE } from './sessionState';
+import { loadSettings } from './settings';
 
 // ---------------------------------------------------------------------------
 // Claude session helpers
@@ -236,32 +238,91 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/** Send only an Enter keystroke to the currently focused window (no clipboard). */
-function sendEnterKey(log: (msg: string) => void): void {
-  const platform = process.platform;
-  let cmd: string;
-  if (platform === 'win32') {
-    cmd = String.raw`powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`;
-  } else if (platform === 'darwin') {
-    cmd = `osascript -e 'tell application "System Events" to key code 36'`;
-  } else {
-    cmd = 'xdotool key Return';
-  }
-  exec(cmd, err => { if (err) { log(`sendEnterKey error: ${err.message}`); } });
+/**
+ * Bring the VS Code window to the OS foreground so subsequent SendKeys land there.
+ * Runs asynchronously — caller should await the returned Promise.
+ */
+/** Encode a PowerShell script as UTF-16LE base64 for -EncodedCommand (avoids all shell escaping). */
+function psEncoded(script: string): string {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  return `powershell -NoProfile -WindowStyle Hidden -EncodedCommand ${encoded}`;
 }
 
-/** Paste clipboard content + Enter into the currently focused window. */
-function sendPasteAndEnter(log: (msg: string) => void): void {
-  const platform = process.platform;
+/**
+ * Send Enter once — submits pre-filled prompt in a freshly opened Claude panel.
+ */
+function sendEnter(log: (msg: string) => void): void {
   let cmd: string;
-  if (platform === 'win32') {
-    cmd = String.raw`powershell -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v{ENTER}')"`;
-  } else if (platform === 'darwin') {
-    cmd = `osascript -e 'tell application "System Events" to keystroke "v" using command down' && osascript -e 'tell application "System Events" to key code 36'`;
+  if (process.platform === 'win32') {
+    cmd = psEncoded(`Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`);
+  } else if (process.platform === 'darwin') {
+    cmd = `osascript -e 'tell application "System Events" to key code 36'`;
   } else {
-    cmd = 'xdotool key ctrl+v Return';
+    cmd = `xdotool key Return`;
   }
-  exec(cmd, err => { if (err) { log(`sendPasteAndEnter error: ${err.message}`); } });
+  exec(cmd, err => { if (err) { log(`sendEnter error: ${err.message}`); } });
+}
+
+/**
+ * Bring VS Code to foreground, focus Claude input, paste clipboard and submit.
+ * All in one process to prevent inter-process focus loss.
+ */
+function pasteAndSubmit(log: (msg: string) => void): void {
+  let cmd: string;
+  if (process.platform === 'win32') {
+    const script = [
+      // Force VS Code to OS foreground using AttachThreadInput (reliable even from background)
+      `Add-Type -TypeDefinition @'`,
+      `using System; using System.Runtime.InteropServices;`,
+      `public class WinFocus {`,
+      `  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);`,
+      `  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();`,
+      `  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);`,
+      `  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool attach);`,
+      `  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();`,
+      `}`,
+      `'@ -ErrorAction SilentlyContinue`,
+      `$p = Get-Process -Name 'Code' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1`,
+      `if ($p) {`,
+      `  $fg = [WinFocus]::GetForegroundWindow()`,
+      `  $fgTid = 0; [WinFocus]::GetWindowThreadProcessId($fg, [ref]$fgTid) | Out-Null`,
+      `  $vsTid = 0; [WinFocus]::GetWindowThreadProcessId($p.MainWindowHandle, [ref]$vsTid) | Out-Null`,
+      `  [WinFocus]::AttachThreadInput($vsTid, $fgTid, $true) | Out-Null`,
+      `  [WinFocus]::SetForegroundWindow($p.MainWindowHandle) | Out-Null`,
+      `  [WinFocus]::AttachThreadInput($vsTid, $fgTid, $false) | Out-Null`,
+      `  Start-Sleep -Milliseconds 400`,
+      `}`,
+      // Paste, wait for @file picker to appear, Space to dismiss it, then Enter to submit
+      `Add-Type -AssemblyName System.Windows.Forms`,
+      `[System.Windows.Forms.SendKeys]::SendWait('^v')`,
+      `Start-Sleep -Milliseconds 1000`,
+      `[System.Windows.Forms.SendKeys]::SendWait(' ')`,
+      `Start-Sleep -Milliseconds 300`,
+      `[System.Windows.Forms.SendKeys]::SendWait('{ENTER}')`,
+    ].join('\n');
+    cmd = psEncoded(script);
+  } else if (process.platform === 'darwin') {
+    cmd = [
+      `osascript -e 'tell application "Visual Studio Code" to activate'`,
+      `sleep 0.4`,
+      `osascript -e 'tell application "System Events" to keystroke "v" using {command down}'`,
+      `sleep 1.0`,
+      `osascript -e 'tell application "System Events" to keystroke " "'`,
+      `sleep 0.3`,
+      `osascript -e 'tell application "System Events" to key code 36'`,
+    ].join(' && ');
+  } else {
+    cmd = [
+      `xdotool search --name "Visual Studio Code" windowactivate --sync 2>/dev/null || true`,
+      `sleep 0.4`,
+      `xdotool key ctrl+v`,
+      `sleep 1.0`,
+      `xdotool type ' '`,
+      `sleep 0.3`,
+      `xdotool key Return`,
+    ].join(' && ');
+  }
+  exec(cmd, err => { if (err) { log(`pasteAndSubmit error: ${err.message}`); } });
 }
 
 /**
@@ -270,26 +331,33 @@ function sendPasteAndEnter(log: (msg: string) => void): void {
  * On Windows (PowerShell): pipe via Get-Content.
  * On Unix: stdin redirect.
  */
-function buildCliCommand(providerId: 'claude-cli' | 'copilot-cli' | 'opencode-cli', promptFile: string): string {
+function buildCliCommand(
+  providerId: 'claude-cli' | 'copilot-cli' | 'opencode-cli',
+  promptFile: string,
+  sessionOutFile: string,
+  sessionId?: string,
+): string {
   const isWin = process.platform === 'win32';
   const fileArg = JSON.stringify(promptFile);
-  // Use -p with the file content as an argument — keeps stdin as a TTY so Ink works.
-  // PowerShell: -p (Get-Content "file" -Raw)
-  // bash/zsh:   -p "$(cat "file")"
   const pArg = isWin
     ? `-p (Get-Content ${fileArg} -Raw)`
     : `-p "$(cat ${fileArg})"`;
 
+  // Tee stdout to session capture file (copilot/opencode only — claude uses JSONL)
+  const tee = isWin
+    ? ` | Tee-Object ${JSON.stringify(sessionOutFile)}`
+    : ` | tee ${JSON.stringify(sessionOutFile)}`;
+
   if (providerId === 'claude-cli') {
-    return `claude --dangerously-skip-permissions ${pArg}`;
+    const resume = sessionId ? ` --resume ${sessionId}` : '';
+    return `claude --dangerously-skip-permissions${resume} ${pArg}`;
   } else if (providerId === 'copilot-cli') {
-    return `copilot --autopilot --yolo --no-ask-user --allow-all --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --max-autopilot-continues 2000 ${pArg}`;
+    const resume = sessionId ? ` --resume ${sessionId}` : '';
+    return `copilot --autopilot --yolo --no-ask-user --allow-all --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --max-autopilot-continues 2000${resume} ${pArg}${tee}`;
   } else {
-    // opencode run — prompt is positional (no -p flag)
-    const posArg = isWin
-      ? `(Get-Content ${fileArg} -Raw)`
-      : `"$(cat ${fileArg})"`;
-    return `opencode run ${posArg}`;
+    const session = sessionId ? ` --session ${sessionId}` : '';
+    const posArg = isWin ? `(Get-Content ${fileArg} -Raw)` : `"$(cat ${fileArg})"`;
+    return `opencode run${session} ${posArg}${tee}`;
   }
 }
 
@@ -319,16 +387,32 @@ export async function sendPromptToAi(
 
     // Write prompt to project folder so multiple instances don't collide
     const promptFile = path.join(root, 'TEMP_PROMPT.md');
+    const sessionOutFile = path.join(root, SESSION_OUT_FILE);
     fs.writeFileSync(promptFile, prompt, 'utf8');
     ensureProjectGitignore(root, 'TEMP_PROMPT.md');
+    ensureProjectGitignore(root, SESSION_OUT_FILE);
+    ensureProjectGitignore(root, '.autodev-session-state.json');
 
-    const cmd = buildCliCommand(providerId as 'claude-cli' | 'copilot-cli' | 'opencode-cli', promptFile);
+    const settings = loadSettings();
+    const cliId = providerId as 'claude-cli' | 'copilot-cli' | 'opencode-cli';
+    const sessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
+    const cmd = buildCliCommand(cliId, promptFile, sessionOutFile, sessionId);
+
     const termName = `AutoDev: ${providerCfg.label}`;
     const terminal = vscode.window.terminals.find(t => t.name === termName)
       ?? vscode.window.createTerminal({ name: termName, cwd: root });
-    terminal.show(true); // reveal but keep focus where it is
+    terminal.show(true);
     terminal.sendText(cmd);
-    log(`Sent to ${termName}: ${cmd}`);
+    log(`Sent to ${termName}${sessionId ? ` (session: ${sessionId})` : ''}: ${cmd}`);
+
+    // After the task completes the taskLoop will call captureAndSaveSessionId.
+    // For claude-cli, also pass the JSONL-based session ID as a fallback.
+    if (cliId === 'claude-cli') {
+      const jsonlSession = findLatestClaudeSession(root);
+      if (jsonlSession) {
+        captureAndSaveSessionId(root, providerId, jsonlSession);
+      }
+    }
     return;
   }
 
@@ -337,6 +421,11 @@ export async function sendPromptToAi(
   }
 
   if (providerId === 'claude') {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+    const settings = loadSettings();
+    const sessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
+
+    // Check if Claude panel already has an open session tab
     const existingTab = vscode.window.tabGroups.all
       .flatMap(g => g.tabs)
       .find(t =>
@@ -347,33 +436,34 @@ export async function sendPromptToAi(
       );
 
     if (existingTab) {
-      // Panel already exists — focus it WITHOUT calling editor.open (which would
-      // open a new panel). Then paste the prompt via clipboard.
-      // Focus BEFORE writing clipboard so paste lands in Claude, not TODO.md.
-      await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
-      await sleep(900);
-
-      await vscode.env.clipboard.writeText(prompt);
-      await sleep(200);
-      sendPasteAndEnter(log);
-      log('Sent to Claude via focus + paste+Enter (reused existing panel)');
-    } else {
-      // No existing panel — open a new one with the prompt pre-filled via initialPrompt.
-      // The webview's initialPrompt effect calls setInputText() — no clipboard needed.
-      await Promise.resolve(
-        vscode.commands.executeCommand('claude-vscode.editor.open', undefined, prompt)
-      );
-
-      // Wait for the panel to mount and setInputText to run.
-      await sleep(1_500);
-
-      // Ensure the Claude input is focused before sending Enter.
-      await Promise.resolve(vscode.commands.executeCommand('claude-vscode.focus'));
+      // Panel is already open — URI prompt param won't be applied (extension ignores it).
+      // Write @-ref to clipboard, then one PS script: SetForegroundWindow + Ctrl+Esc
+      // (Focus Input) + Ctrl+V + Enter. All in one process so no inter-process focus loss.
+      if (root) {
+        fs.writeFileSync(path.join(root, 'TEMP_PROMPT.md'), prompt, 'utf8');
+        ensureProjectGitignore(root, 'TEMP_PROMPT.md');
+      }
+      await vscode.env.clipboard.writeText('@TEMP_PROMPT.md');
+      await vscode.commands.executeCommand('claude-vscode.focus');
       await sleep(300);
-
-      // Submit with Enter only — prompt is already in the input via initialPrompt.
-      sendEnterKey(log);
-      log('Sent to Claude via editor.open + Enter (new panel)');
+      pasteAndSubmit(log);
+      log('Sent to Claude via clipboard paste + Enter (existing panel, @ref)');
+    } else {
+      // No panel yet — open via vscode:// URI (handles OS-level focus + session resume).
+      const promptParam = encodeURIComponent(prompt.slice(0, 2000)); // URL length safety
+      const sessionParam = sessionId ? `&session=${encodeURIComponent(sessionId)}` : '';
+      const uri = `vscode://anthropic.claude-code/open?prompt=${promptParam}${sessionParam}`;
+      await new Promise<void>(resolve => {
+        const openCmd = process.platform === 'win32'
+          ? psEncoded(`Start-Process "${uri}"`)
+          : process.platform === 'darwin'
+            ? `open "${uri}"`
+            : `xdg-open "${uri}"`;
+        exec(openCmd, () => resolve());
+      });
+      await sleep(1500);
+      sendEnter(log);
+      log(`Sent to Claude via vscode:// URI + Enter (session=${sessionId ?? 'new'})`);
     }
   } else {
     await Promise.resolve(vscode.commands.executeCommand('workbench.action.chat.open', {

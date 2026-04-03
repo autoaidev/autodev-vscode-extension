@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ProviderId } from './providers';
 
 // ---------------------------------------------------------------------------
 // AutoDev settings — stored in .vscode/autodev.json inside each workspace
@@ -8,7 +9,7 @@ import * as path from 'path';
 
 export interface AutodevSettings {
   /** Active AI provider */
-  provider: 'copilot' | 'claude';
+  provider: ProviderId;
   /** Base URL of the autodev server (e.g. https://myserver.com) */
   serverBaseUrl: string;
   /** API key (X-API-Key) for the autodev server */
@@ -37,10 +38,12 @@ export interface AutodevSettings {
   profilePath: string;
   /** Path to TODO.md (defaults to TODO.md in workspace root) */
   todoPath: string;
+  /** If true, pass --resume / --session flag to CLI providers to continue the last session */
+  resumeSession: boolean;
 }
 
 const DEFAULTS: AutodevSettings = {
-  provider: 'claude',
+  provider: 'claude' as ProviderId,
   serverBaseUrl: '',
   serverApiKey: '',
   webhookSlug: '',
@@ -55,6 +58,7 @@ const DEFAULTS: AutodevSettings = {
   autoResetPendingTasks: true,
   profilePath: '',
   todoPath: '',
+  resumeSession: false,
 };
 
 function settingsPath(): string | undefined {
