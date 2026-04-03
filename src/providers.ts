@@ -13,26 +13,26 @@ export interface ProviderConfig {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
-  claude: {
-    label: 'Claude',
-    extensionId: 'anthropic.claude-code',
-  },
   'claude-cli': {
     label: 'Claude CLI',
     extensionId: '',
     isCli: true,
-  },
-  copilot: {
-    label: 'Copilot',
-    extensionId: 'GitHub.copilot-chat',
   },
   'copilot-cli': {
     label: 'Copilot CLI',
     extensionId: '',
     isCli: true,
   },
+  claude: {
+    label: 'Claude UI (beta)',
+    extensionId: 'anthropic.claude-code',
+  },
+  copilot: {
+    label: 'Copilot UI (beta)',
+    extensionId: 'GitHub.copilot-chat',
+  },
   'opencode-cli': {
-    label: 'OpenCode CLI',
+    label: 'OpenCode CLI (beta)',
     extensionId: '',
     isCli: true,
   },

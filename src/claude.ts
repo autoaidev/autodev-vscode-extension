@@ -342,6 +342,7 @@ function buildCliCommand(
   const pArg = isWin
     ? `-p (Get-Content ${fileArg} -Raw)`
     : `-p "$(cat ${fileArg})"`;
+  const promptRefArg = `-p ${JSON.stringify(`@${promptFile}`)}`;
 
   // Tee stdout to session capture file (copilot/opencode only — claude uses JSONL)
   const tee = isWin
@@ -353,7 +354,8 @@ function buildCliCommand(
     return `claude --dangerously-skip-permissions${resume} ${pArg}`;
   } else if (providerId === 'copilot-cli') {
     const resume = sessionId ? ` --resume ${sessionId}` : '';
-    return `copilot --autopilot --yolo --no-ask-user --allow-all --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --max-autopilot-continues 2000${resume} ${pArg}${tee}`;
+    // For Copilot CLI, pass @file so the CLI reads the file itself.
+    return `copilot --autopilot --yolo --no-ask-user --allow-all --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --max-autopilot-continues 2000${resume} ${promptRefArg}`;
   } else {
     const session = sessionId ? ` --session ${sessionId}` : '';
     const posArg = isWin ? `(Get-Content ${fileArg} -Raw)` : `"$(cat ${fileArg})"`;
