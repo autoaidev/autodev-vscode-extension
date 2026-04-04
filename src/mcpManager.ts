@@ -199,7 +199,7 @@ function readOpenCodeServers(): Record<string, McpServerEntry> {
       name,
       command: command ?? '',
       args,
-      ...(s.environment ? { env: s.environment } : {}),
+      ...(s.environment ? { env: s.environment } : (s as unknown as Record<string,unknown>)['env'] ? { env: (s as unknown as Record<string,unknown>)['env'] as Record<string,string> } : {}),
     };
   }
   return result;
@@ -218,6 +218,12 @@ function writeOpenCodeServers(servers: Record<string, McpServerEntry>): void {
       entry.environment = s.env;
     }
     cfg.mcp[name] = entry;
+  }
+  // Remove any legacy top-level keys that opencode no longer accepts
+  // (e.g. "env" was renamed to "environment" in the mcp server schema).
+  for (const server of Object.values(cfg.mcp)) {
+    const s = server as unknown as Record<string, unknown>;
+    delete s['env'];
   }
   writeJson(opencodeConfigPath(), cfg);
 }

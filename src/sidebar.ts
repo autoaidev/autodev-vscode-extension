@@ -5,7 +5,7 @@ import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
-import { getSessionId } from './sessionState';
+import { getSessionId, clearSessionId } from './sessionState';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
@@ -60,6 +60,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           vscode.window.showInformationMessage('AutoDev: Settings saved.');
           break;
         case 'openSettings': void vscode.commands.executeCommand('autodev.openSettings'); break;
+        case 'newSession': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
+          break;
+        }
       }
     });
 
@@ -203,6 +208,8 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .provider-select:focus{border-color:var(--vscode-focusBorder)}
 .resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
 .resume-row input{cursor:pointer}
+.new-session-btn{margin-left:auto;padding:1px 5px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:12px;line-height:1.4;opacity:.7}
+.new-session-btn:hover{opacity:1;background:var(--vscode-list-hoverBackground)}
 .session-id-row{margin:0 0 10px;font-size:10px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:4px;min-width:0}
 .session-id-val{font-family:var(--vscode-editor-font-family,monospace);color:var(--vscode-foreground);opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
 .session-id-dot{width:6px;height:6px;border-radius:50%;background:var(--vscode-testing-iconPassed,#388a34);flex-shrink:0}
@@ -260,6 +267,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
+  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
 </div>
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
@@ -354,6 +362,8 @@ function renderProviders(){
   resumeCheck.onchange=function(){
     vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
   };
+  const newSessBtn=document.getElementById('newSessionBtn');
+  if(newSessBtn){newSessBtn.onclick=function(){vscode.postMessage({command:'newSession'});};}
   // Show captured session ID when resume is active and a session exists
   const sidRow=document.getElementById('sessionIdRow');
   const sidVal=document.getElementById('sessionIdVal');
