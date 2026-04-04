@@ -104,12 +104,9 @@ export async function sendPromptToAi(
     } else if (providerId === 'copilot-cli') {
       cmd = buildCopilotCliCommand(promptFile, resolvedSessionId);
     } else {
-      // opencode: --format json output contains sessionID in every event line.
-      // Tee to capture file so we can parse the session ID after the run.
+      // opencode: session ID is captured via the probe (--format json ".").
+      // Main run uses normal output mode — no JSON parsing needed.
       cmd = buildOpenCodeCliCommand(promptFile, resolvedSessionId);
-      const stdoutFile = stdoutFilePath(root, providerId);
-      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
-      cmd = teeCommand(cmd, stdoutFile);
     }
 
     const termName = `AutoDev: ${providerCfg.label}`;

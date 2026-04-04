@@ -26,7 +26,7 @@ export function buildOpenCodeCliCommand(
   const msgArg = isWin
     ? `(Get-Content ${fileArg} -Raw)`
     : `"$(cat ${fileArg})"`;
-  return `opencode run${session} --format json ${msgArg}`;
+  return `opencode run${session} ${msgArg}`;
 }
 
 /**
