@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
 import { getSessionId, captureAndSaveSessionId, PROMPT_FILE, stdoutFilePath, autodevDir } from './sessionState';
@@ -31,6 +32,15 @@ const ACCEPT_CMDS = [
   'github.copilot.chat.acceptAllEdits',
   'chat.acceptAllEdits',
 ];
+
+function teeCommand(cmd: string, outFile: string): string {
+  if (os.platform() === 'win32') {
+    return `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(outFile)}`;
+  }
+  // bash/zsh: tee writes stdout+stderr to file while still printing to terminal
+  return `{ ${cmd}; } 2>&1 | tee ${JSON.stringify(outFile)}`;
+}
+
 
 function ensureProjectGitignore(root: string, entry: string): void {
   const gitignorePath = path.join(root, '.gitignore');
@@ -90,7 +100,7 @@ export async function sendPromptToAi(
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       // Force UTF-8 output so Node can read the file without encoding issues.
-      cmd = `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(stdoutFile)}`;
+      cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
       cmd = buildCopilotCliCommand(promptFile, resolvedSessionId);
     } else {
@@ -99,7 +109,7 @@ export async function sendPromptToAi(
       cmd = buildOpenCodeCliCommand(promptFile, resolvedSessionId);
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
-      cmd = `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(stdoutFile)}`;
+      cmd = teeCommand(cmd, stdoutFile);
     }
 
     const termName = `AutoDev: ${providerCfg.label}`;
