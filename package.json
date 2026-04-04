@@ -1,12 +1,28 @@
 {
-  "name": "autodev-vscode-extension",
+  "name": "autodev",
   "displayName": "AutoDev",
-  "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Copilot or Claude, tracks progress",
-  "version": "0.0.1",
+  "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude or Copilot (UI or CLI), tracks progress, supports session resume, Discord, and webhooks",
+  "version": "1.0.0",
+  "publisher": "autoaidev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/autoaidev/autodev-vscode-extension"
+  },
+  "homepage": "https://github.com/autoaidev/autodev-vscode-extension#readme",
+  "bugs": {
+    "url": "https://github.com/autoaidev/autodev-vscode-extension/issues"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["Other"],
+  "categories": ["AI", "Programming Languages", "Other"],
+  "keywords": ["ai", "claude", "copilot", "opencode", "autonomous", "agent", "todo", "task", "loop", "automation"],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {

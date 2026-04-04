@@ -2,8 +2,13 @@
 .vscode-test/**
 src/**
 .gitignore
+.idea/**
 tsconfig.json
 **/*.map
 **/*.ts
 !out/**
 node_modules/**
+__old/**
+codebase.txt
+codebase_output.bat
+PUBLISH.md
