@@ -35,14 +35,30 @@ jobs:
           echo "filename=${NAME}-${VERSION}.vsix" >> $GITHUB_OUTPUT
 
       - name: Upload to FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./
-          server-dir: releases/
-          include: "${{ steps.meta.outputs.filename }}"
-          exclude: |
-            **/*
-            !${{ steps.meta.outputs.filename }}
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          VSIX_FILE: ${{ steps.meta.outputs.filename }}
+        run: |
+          curl --fail \
+            --ftp-create-dirs \
+            -T "$VSIX_FILE" \
+            "ftp://$FTP_SERVER/releases/$VSIX_FILE" \
+            --user "$FTP_USERNAME:$FTP_PASSWORD"
+
+      - name: Upload as latest
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          VSIX_FILE: ${{ steps.meta.outputs.filename }}
+          NAME: ${{ steps.meta.outputs.filename }}
+        run: |
+          NAME_BASE=$(node -p "require('./package.json').name")
+          cp "$VSIX_FILE" "${NAME_BASE}-latest.vsix"
+          curl --fail \
+            --ftp-create-dirs \
+            -T "${NAME_BASE}-latest.vsix" \
+            "ftp://$FTP_SERVER/releases/${NAME_BASE}-latest.vsix" \
+            --user "$FTP_USERNAME:$FTP_PASSWORD"
