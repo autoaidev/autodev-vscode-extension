@@ -12,7 +12,17 @@
 
 Search for **AutoAIDev** in the Extensions panel (`Ctrl+Shift+X`) and click **Install**.
 
-### Method 2: Command line from a `.vsix` file
+### Method 2: One-line install from autoaidev.com
+
+```bash
+# VS Code
+curl -L -o autoaidev.vsix "https://autoaidev.com/releases/autoaidev-latest.vsix" && code --install-extension autoaidev.vsix
+
+# Cursor
+curl -L -o autoaidev.vsix "https://autoaidev.com/releases/autoaidev-latest.vsix" && cursor --install-extension autoaidev.vsix
+```
+
+### Method 3: Command line from a `.vsix` file
 
 ```bash
 # VS Code
@@ -22,7 +32,7 @@ code --install-extension autoaidev-1.0.0.vsix
 cursor --install-extension autoaidev-1.0.0.vsix
 ```
 
-Download the latest `.vsix` from the [GitHub Releases](https://github.com/autoaidev/autodev-vscode-extension/releases) page, then run the command above from the folder containing the file.
+Download the latest `.vsix` from [autoaidev.com/releases](https://autoaidev.com/releases) or the [GitHub Releases](https://github.com/autoaidev/autodev-vscode-extension/releases) page, then run the command above from the folder containing the file.
 
 ---
 
