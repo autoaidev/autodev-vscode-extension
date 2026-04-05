@@ -43,7 +43,7 @@ export interface AutodevSettings {
 }
 
 const DEFAULTS: AutodevSettings = {
-  provider: 'claude' as ProviderId,
+  provider: 'claude-cli' as ProviderId,
   serverBaseUrl: '',
   serverApiKey: '',
   webhookSlug: '',

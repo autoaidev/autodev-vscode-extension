@@ -20,29 +20,37 @@ export function buildOpenCodeCliCommand(
   const msgArg = JSON.stringify(messageFile);
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
   const isWin = process.platform === 'win32';
-  // Concatenate both files via shell expansion
-  const sep = isWin ? ' + [System.Environment]::NewLine + [System.Environment]::NewLine + ' : '';
-  const content = isWin
-    ? `((Get-Content ${profileArg} -Raw)${sep}(Get-Content ${msgArg} -Raw))`
-    : `"$(cat ${profileArg})\n\n$(cat ${msgArg})"`;
-  return `opencode run${session} ${content}`;
+  if (isWin) {
+    // Assign to a local variable first — passing an inline expression directly to opencode
+    // causes PowerShell to split the multi-line result into separate args.
+    const concat = `(Get-Content ${profileArg} -Raw) + "\`n\`n" + (Get-Content ${msgArg} -Raw)`;
+    return `$autodev_msg=${concat}; opencode run${session} $autodev_msg`;
+  }
+  return `opencode run${session} "$(cat ${profileArg})\n\n$(cat ${msgArg})"`;
 }
 
 /**
- * Run a tiny probe prompt via Node exec to obtain an opencode-cli session ID.
- * Uses --format json so sessionID appears in every event line.
+ * Get the latest OpenCode session ID for this workspace directory by querying
+ * `opencode session list`. No tokens consumed — purely a metadata read.
  */
-export function probeOpenCodeSession(
+export function getLatestOpenCodeSessionId(
   cwd: string,
   log: (msg: string) => void,
 ): Promise<string | undefined> {
   return new Promise(resolve => {
-    const cmd = `opencode run --format json "."` ;
-    log(`OpenCode CLI probe: ${cmd}`);
-    exec(cmd, { cwd, encoding: 'utf8', timeout: 30000 }, (_err, stdout) => {
-      const id = (stdout ?? '').match(/"sessionID"\s*:\s*"(ses_[^"]+)"/)?.[1];
-      log(`OpenCode CLI probe result: ${id ?? 'no session ID found'}`);
-      resolve(id);
+    exec('opencode session list -n 5 --format json', { cwd, encoding: 'utf8', timeout: 10000 }, (_err, stdout) => {
+      try {
+        const sessions = JSON.parse(stdout ?? '[]') as Array<{ id: string; directory: string; updated: number }>;
+        const cwdNorm = cwd.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
+        const match = sessions
+          .filter(s => s.directory.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === cwdNorm)
+          .sort((a, b) => b.updated - a.updated)[0];
+        const id = match?.id;
+        log(`OpenCode session list: ${id ?? 'none found for this directory'}`);
+        resolve(id);
+      } catch {
+        resolve(undefined);
+      }
     });
   });
 }

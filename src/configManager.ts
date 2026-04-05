@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { McpServerManager } from './mcpManager';
+import { McpServerManager, DEFAULT_MCP_SERVERS } from './mcpManager';
 
 // ---------------------------------------------------------------------------
 // ConfigManager — applies permission/settings files for each CLI provider
@@ -74,12 +74,80 @@ export class ConfigManager {
   }
 
   // -------------------------------------------------------------------------
-  // MCP sync (delegates to McpServerManager)
+  // MCP sync — project-local only (no global config modifications)
   // -------------------------------------------------------------------------
 
   /**
-   * Add any missing default MCP servers to all three CLI providers.
-   * Already-present entries are not overwritten.
+   * Write MCP server definitions to project-local config files only.
+   * Covers: .claude/settings.local.json, .vscode/mcp.json, opencode.json, .mcp.json
+   * The memory server uses <root>/.autodev/MEMORY.jsonl as its storage file.
+   */
+  static syncProjectMcpServers(root: string, log?: (m: string) => void): void {
+    const memoryFilePath = '.autodev/MEMORY.jsonl';
+
+    const servers = [
+      ...DEFAULT_MCP_SERVERS,
+      {
+        name: 'memory',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-memory'],
+        env: { MEMORY_FILE_PATH: memoryFilePath },
+        tools: ['*'] as string[],
+      },
+    ];
+
+    // Claude CLI project-local (not committed per-user): .claude/settings.local.json
+    _mergeJson(path.join(root, '.claude', 'settings.local.json'), (cfg) => {
+      const mcp = _obj(cfg['mcpServers']);
+      for (const s of servers) {
+        mcp[s.name] = { command: s.command, args: s.args, ...(s.env ? { env: s.env } : {}) };
+      }
+      cfg['mcpServers'] = mcp;
+    }, log, 'Claude project-local MCP (.claude/settings.local.json)');
+
+    // VS Code workspace MCP: .vscode/mcp.json
+    _mergeJson(path.join(root, '.vscode', 'mcp.json'), (cfg) => {
+      const srv = _obj(cfg['servers']);
+      for (const s of servers) {
+        srv[s.name] = { command: s.command, args: s.args, ...(s.env ? { env: s.env } : {}) };
+      }
+      cfg['servers'] = srv;
+    }, log, 'VS Code MCP (.vscode/mcp.json)');
+
+    // OpenCode project config: opencode.json (merged with existing permission key)
+    _mergeJson(path.join(root, 'opencode.json'), (cfg) => {
+      const mcp = _obj(cfg['mcp']);
+      for (const s of servers) {
+        const entry: Record<string, unknown> = {
+          type: 'local',
+          command: [s.command, ...s.args],
+          enabled: true,
+        };
+        if (s.env && Object.keys(s.env).length > 0) { entry['environment'] = s.env; }
+        mcp[s.name] = entry;
+      }
+      cfg['mcp'] = mcp;
+    }, log, 'OpenCode project MCP (opencode.json)');
+
+    // Copilot CLI project-level: .mcp.json (standard project MCP config)
+    _mergeJson(path.join(root, '.mcp.json'), (cfg) => {
+      const mcp = _obj(cfg['mcpServers']);
+      for (const s of servers) {
+        mcp[s.name] = {
+          type: 'local',
+          command: s.command,
+          args: s.args,
+          ...(s.env ? { env: s.env } : {}),
+          tools: s.tools ?? ['*'],
+        };
+      }
+      cfg['mcpServers'] = mcp;
+    }, log, 'Copilot CLI project MCP (.mcp.json)');
+  }
+
+  /**
+   * @deprecated Use syncProjectMcpServers(root) instead.
+   * Kept for backwards compat — no longer called from applyAll.
    */
   static syncDefaultMcpServers(log?: (m: string) => void): void {
     McpServerManager.addDefaults(undefined, log);
@@ -96,8 +164,11 @@ export class ConfigManager {
     try { ConfigManager.applyOpenCodePermissions(root, log); }
     catch (err) { log?.(`ConfigManager: OpenCode permissions error: ${err}`); }
 
-    try { ConfigManager.syncDefaultMcpServers(log); }
-    catch (err) { log?.(`ConfigManager: MCP sync error: ${err}`); }
+    // Project-local MCP sync — no global config files are modified
+    if (root) {
+      try { ConfigManager.syncProjectMcpServers(root, log); }
+      catch (err) { log?.(`ConfigManager: Project MCP sync error: ${err}`); }
+    }
   }
 }
 

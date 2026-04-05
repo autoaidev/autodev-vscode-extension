@@ -24,6 +24,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _selectedProvider: ProviderId;
   private _watcher?: vscode.FileSystemWatcher;
   private _sessionWatcher?: vscode.FileSystemWatcher;
+  private _settingsWatcher?: vscode.FileSystemWatcher;
   private _pollTimer?: ReturnType<typeof setInterval>;
   private _lastNotifyTime = 0;
 
@@ -57,6 +58,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'saveSettings':
           saveSettings(msg.settings as AutodevSettings);
           this._startWatcher();
+          this._push();
           vscode.window.showInformationMessage('AutoDev: Settings saved.');
           break;
         case 'openSettings': void vscode.commands.executeCommand('autodev.openSettings'); break;
@@ -71,6 +73,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     webviewView.onDidDispose(() => {
       this._watcher?.dispose(); this._watcher = undefined;
       this._sessionWatcher?.dispose(); this._sessionWatcher = undefined;
+      this._settingsWatcher?.dispose(); this._settingsWatcher = undefined;
       if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = undefined; }
     });
     webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this._refreshTasks(); } });
@@ -131,6 +134,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     const sessionNotify = () => this._push();
     this._sessionWatcher.onDidChange(sessionNotify);
     this._sessionWatcher.onDidCreate(sessionNotify);
+
+    // Watch autodev.json so settings tab refreshes when file is edited externally
+    this._settingsWatcher?.dispose();
+    this._settingsWatcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(root, '.vscode/autodev.json')
+    );
+    const settingsNotify = () => this._push();
+    this._settingsWatcher.onDidChange(settingsNotify);
+    this._settingsWatcher.onDidCreate(settingsNotify);
 
     // Fallback poll every 5 min — catches missed fs events on Linux
     if (this._pollTimer) { clearInterval(this._pollTimer); }
@@ -521,6 +533,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
+    resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
   };

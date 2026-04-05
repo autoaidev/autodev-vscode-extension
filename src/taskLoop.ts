@@ -8,7 +8,8 @@ import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
 import { loadSettings, AutodevSettings } from './settings';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
-import { captureAndSaveSessionId, stdoutFilePath } from './sessionState';
+import { getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
+import { captureAndSaveSessionId, saveSessionId, stdoutFilePath } from './sessionState';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
@@ -373,10 +374,17 @@ class TaskLoopRunner {
         // Capture and persist CLI session ID so the next task can resume it
         const activeProvider = this._cb?.getActiveProvider();
         if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
-          const jsonlFallback = activeProvider === 'claude-cli'
-            ? findLatestClaudeSession(this._workspaceRoot)
-            : undefined;
-          captureAndSaveSessionId(this._workspaceRoot, activeProvider, jsonlFallback);
+          if (activeProvider === 'opencode-cli') {
+            // opencode run doesn't output JSON, so read the session list directly
+            getLatestOpenCodeSessionId(this._workspaceRoot, msg => this._cb?.log(msg))
+              .then(id => { if (id && this._workspaceRoot) { saveSessionId(this._workspaceRoot, 'opencode-cli', id); } })
+              .catch(() => {});
+          } else {
+            const jsonlFallback = activeProvider === 'claude-cli'
+              ? findLatestClaudeSession(this._workspaceRoot)
+              : undefined;
+            captureAndSaveSessionId(this._workspaceRoot, activeProvider, jsonlFallback);
+          }
           this._cb?.log(`Session ID captured for ${activeProvider}`);
         }
 

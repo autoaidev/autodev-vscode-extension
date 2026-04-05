@@ -7,7 +7,7 @@ import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, MESSAGE_FILE
 import { loadSettings } from './settings';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
-import { buildOpenCodeCliCommand, probeOpenCodeSession } from './providers/opencodeCliProvider';
+import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -78,7 +78,7 @@ export async function sendPromptToAi(
       } else if (providerId === 'copilot-cli') {
         resolvedSessionId = await probeCopilotSession(root, log);
       } else if (providerId === 'opencode-cli') {
-        resolvedSessionId = await probeOpenCodeSession(root, log);
+        resolvedSessionId = await getLatestOpenCodeSessionId(root, log);
       }
       if (resolvedSessionId) {
         captureAndSaveSessionId(root, providerId, resolvedSessionId);
