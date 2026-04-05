@@ -27,6 +27,12 @@ export const DEFAULT_MCP_SERVERS: McpServerEntry[] = [
     args: ['-y', '@playwright/mcp@latest'],
     tools: ['*'],
   },
+  {
+    name: 'sequential-thinking',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
+    tools: ['*'],
+  },
 ];
 
 /** Canonical representation of a single MCP server. */
