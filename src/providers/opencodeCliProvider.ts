@@ -7,26 +7,25 @@ import { exec } from 'child_process';
 /**
  * Build the shell command string for the opencode-cli provider.
  * `opencode run` takes the message as positional [message..] args — there is
- * no --prompt flag on `run` (only on `tui`).
- * The file content is read inline: PowerShell (Get-Content "file" -Raw) or
- * bash "$(cat 'file')" — both are evaluated by the shell before opencode sees them.
- * --format json emits newline-delimited JSON events containing sessionID.
- * Caller is responsible for piping to a Tee file for session ID capture.
+ * no --prompt flag or @file syntax on `run`.
+ * We concatenate both files via shell expansion so opencode receives the
+ * full combined content as its message argument.
  */
 export function buildOpenCodeCliCommand(
-  promptFile: string,
+  agentProfileFile: string,
+  messageFile: string,
   sessionId?: string,
 ): string {
-  const fileArg = JSON.stringify(promptFile);
+  const profileArg = JSON.stringify(agentProfileFile);
+  const msgArg = JSON.stringify(messageFile);
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
   const isWin = process.platform === 'win32';
-  // Positional [message..] — no --prompt flag on `opencode run`.
-  // PowerShell: (Get-Content "file" -Raw) is a subexpression, no surrounding quotes.
-  // Bash: "$(cat 'file')" — same effect.
-  const msgArg = isWin
-    ? `(Get-Content ${fileArg} -Raw)`
-    : `"$(cat ${fileArg})"`;
-  return `opencode run${session} ${msgArg}`;
+  // Concatenate both files via shell expansion
+  const sep = isWin ? ' + [System.Environment]::NewLine + [System.Environment]::NewLine + ' : '';
+  const content = isWin
+    ? `((Get-Content ${profileArg} -Raw)${sep}(Get-Content ${msgArg} -Raw))`
+    : `"$(cat ${profileArg})\n\n$(cat ${msgArg})"`;
+  return `opencode run${session} ${content}`;
 }
 
 /**

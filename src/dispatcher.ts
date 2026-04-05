@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
-import { getSessionId, captureAndSaveSessionId, PROMPT_FILE, stdoutFilePath, autodevDir } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, MESSAGE_FILE, stdoutFilePath, autodevDir } from './sessionState';
 import { loadSettings } from './settings';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -69,9 +69,11 @@ export async function sendPromptToAi(
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { throw new Error('No workspace folder open'); }
 
-    const promptFile = path.join(root, PROMPT_FILE);
+    // Split files (.autodev/AGENT_PROFILE.md + .autodev/MESSAGE.md) were written
+    // by buildMessage() before this is called. Derive their absolute paths here.
+    const agentProfileFile = path.join(root, AGENT_PROFILE_FILE);
+    const messageFile = path.join(root, MESSAGE_FILE);
     autodevDir(root); // ensure .autodev/ exists
-    fs.writeFileSync(promptFile, prompt, 'utf8');
     ensureProjectGitignore(root, '.autodev/');
 
     const settings = loadSettings();
@@ -95,18 +97,18 @@ export async function sendPromptToAi(
 
     let cmd: string;
     if (providerId === 'claude-cli') {
-      cmd = buildClaudeCliCommand(promptFile, resolvedSessionId);
+      cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId);
       // Capture stdout+stderr per-provider so rate-limit detection never reads stale data.
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       // Force UTF-8 output so Node can read the file without encoding issues.
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
-      cmd = buildCopilotCliCommand(promptFile, resolvedSessionId);
+      cmd = buildCopilotCliCommand(agentProfileFile, messageFile, resolvedSessionId);
     } else {
       // opencode: session ID is captured via the probe (--format json ".").
       // Main run uses normal output mode — no JSON parsing needed.
-      cmd = buildOpenCodeCliCommand(promptFile, resolvedSessionId);
+      cmd = buildOpenCodeCliCommand(agentProfileFile, messageFile, resolvedSessionId);
     }
 
     const termName = `AutoDev: ${providerCfg.label}`;

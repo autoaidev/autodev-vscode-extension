@@ -3,7 +3,7 @@ import * as path from 'path';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
-import { loadSettings, saveSettings, AutodevSettings } from './settings';
+import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
 import { getSessionId, clearSessionId } from './sessionState';
 
@@ -181,6 +181,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       settings: loadSettings(),
       sessionId,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
+      profiles: getBuiltinProfiles(),
     });
   }
 }
@@ -315,7 +316,11 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   </div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
-  <div class="cfg-field"><label class="cfg-label">Profile (AUTODEV.md)</label><input class="cfg-input" id="cfg_profilePath" placeholder="(workspace root)"></div>
+  <div class="cfg-field">
+    <label class="cfg-label">Agent Profile</label>
+    <select class="cfg-input" id="cfg_profileSelect"></select>
+    <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
+  </div>
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
   <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
 </div>
@@ -438,7 +443,7 @@ function renderTasks(){
 
 function populateSettings(s){
   ['serverBaseUrl','serverApiKey','webhookSlug','discordToken','discordChannelId',
-   'discordWebhookUrl','discordOwners','profilePath','todoPath'].forEach(function(k){
+   'discordWebhookUrl','discordOwners','todoPath'].forEach(function(k){
     const el=document.getElementById('cfg_'+k);
     if(el) el.value=s[k]||'';
   });
@@ -452,6 +457,35 @@ function populateSettings(s){
   if(rot) rot.checked=!!s.retryOnTimeout;
   const arp=document.getElementById('cfg_autoResetPendingTasks');
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
+  // Populate profile dropdown
+  renderProfileSelect(state.profiles||[], s['profilePath']||'');
+}
+
+function renderProfileSelect(profiles, currentPath){
+  const sel=document.getElementById('cfg_profileSelect');
+  const input=document.getElementById('cfg_profilePath');
+  if(!sel||!input) return;
+  sel.innerHTML=profiles.map(function(p){
+    return '<option value="'+esc(p.filePath)+'" title="'+esc(p.description)+'">'+esc(p.title)+'</option>';
+  }).join('')+'<option value="__custom__">Custom path\u2026</option>';
+  // Determine which option matches the current path
+  const match=profiles.find(function(p){return p.filePath===currentPath;});
+  if(match){
+    sel.value=match.filePath;
+    input.style.display='none';
+  } else if(currentPath){
+    sel.value='__custom__';
+    input.value=currentPath;
+    input.style.display='';
+  } else {
+    // Default: first built-in profile (empty profilePath = auto-detect)
+    sel.value=profiles[0]?profiles[0].filePath:'__custom__';
+    input.style.display='none';
+  }
+  sel.onchange=function(){
+    if(sel.value==='__custom__'){input.style.display='';input.focus();}
+    else{input.style.display='none';}
+  };
 }
 
 document.getElementById('tabTasks').addEventListener('click',function(){showTab('tasks');});
@@ -468,6 +502,11 @@ document.getElementById('addForm').addEventListener('submit',function(e){
 });
 
 document.getElementById('saveSettingsBtn').addEventListener('click',function(){
+  const profileSel=document.getElementById('cfg_profileSelect');
+  const profileInput=document.getElementById('cfg_profilePath');
+  const profilePath=profileSel&&profileSel.value==='__custom__'
+    ?(profileInput?profileInput.value:'')
+    :(profileSel?profileSel.value:'');
   const s={
     provider:state.selectedProvider,
     serverBaseUrl:document.getElementById('cfg_serverBaseUrl').value,
@@ -482,7 +521,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
-    profilePath:document.getElementById('cfg_profilePath').value,
+    profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
   };
   vscode.postMessage({command:'saveSettings',settings:s});

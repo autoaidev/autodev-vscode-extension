@@ -6,20 +6,23 @@ import { exec } from 'child_process';
 
 /**
  * Build the shell command string for the copilot-cli provider.
- * Passes @file so Copilot CLI reads the prompt file itself — avoids shell
- * argument splitting and Unicode corruption from Tee-Object piping.
+ * Passes @file references for both the agent profile and the message so
+ * Copilot CLI reads each file — avoids shell argument splitting and Unicode
+ * corruption from Tee-Object piping.
  *
  * Resume behaviour:
  *   - sessionId provided  → --resume <id>  (specific session from probe)
  *   - neither             → fresh session
  */
 export function buildCopilotCliCommand(
-  promptFile: string,
+  agentProfileFile: string,
+  messageFile: string,
   sessionId?: string,
 ): string {
   const resumeFlag = sessionId ? ` --resume ${sessionId}` : '';
-  const promptRefArg = `-p ${JSON.stringify(`@${promptFile}`)}`;
-  return `copilot --autopilot --yolo --no-ask-user --allow-all --no-auto-update --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --no-color --max-autopilot-continues 2000${resumeFlag} ${promptRefArg}`;
+  const profileRef = JSON.stringify(`@${agentProfileFile}`);
+  const msgRef = JSON.stringify(`@${messageFile}`);
+  return `copilot --autopilot --yolo --no-ask-user --allow-all --no-auto-update --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --no-color --max-autopilot-continues 2000${resumeFlag} -p ${profileRef} ${msgRef}`;
 }
 
 /**

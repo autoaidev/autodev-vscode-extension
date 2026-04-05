@@ -342,7 +342,7 @@ class TaskLoopRunner {
       this._setState('running', task.text);
 
       // Do NOT mark in-progress from JS — the prompt instructs the LLM to do it
-      const prompt = buildPrompt(task, path.dirname(todoPath), autodevPath);
+      const prompt = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath);
       const remaining = countRemaining(parseTodo(todoPath));
 
       this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);

@@ -208,10 +208,16 @@ export function readClaudeOutputSince(workspacePath: string, fromByte: number): 
 // ---------------------------------------------------------------------------
 
 /** Build the shell command string for the claude-cli provider. */
-export function buildClaudeCliCommand(promptFile: string, sessionId?: string): string {
+export function buildClaudeCliCommand(
+  agentProfileFile: string,
+  messageFile: string,
+  sessionId?: string,
+): string {
   const resume = sessionId ? ` --resume ${sessionId}` : '';
-  const fileArg = JSON.stringify(`@${promptFile}`);
-  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${fileArg}`;
+  // Pass both files as @-references in a single -p arg so Claude reads both
+  const profileRef = JSON.stringify(`@${agentProfileFile}`);
+  const msgRef = JSON.stringify(`@${messageFile}`);
+  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${profileRef} ${msgRef}`;
 }
 
 /**

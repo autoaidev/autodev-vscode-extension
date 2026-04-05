@@ -114,3 +114,53 @@ export async function openSettingsFile(): Promise<void> {
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
   await vscode.window.showTextDocument(doc);
 }
+
+// ---------------------------------------------------------------------------
+// Built-in profile list
+// ---------------------------------------------------------------------------
+
+export interface ProfileOption {
+  title: string;
+  description: string;
+  filePath: string;
+}
+
+function parseFrontmatterMeta(content: string): { title?: string; description?: string } {
+  if (!content.startsWith('---')) { return {}; }
+  const end = content.indexOf('\n---', 3);
+  if (end === -1) { return {}; }
+  const block = content.slice(3, end);
+  const result: { title?: string; description?: string } = {};
+  for (const line of block.split('\n')) {
+    const m = line.match(/^(\w+):\s*"?(.+?)"?\s*$/);
+    if (!m) { continue; }
+    const clean = m[2].replace(/^"|"$/g, '');
+    if (m[1] === 'title') { result.title = clean; }
+    if (m[1] === 'description') { result.description = clean; }
+  }
+  return result;
+}
+
+/** Return the list of built-in agent profiles from the extension media folder. */
+export function getBuiltinProfiles(): ProfileOption[] {
+  try {
+    const mediaDir = path.join(__dirname, '..', 'media');
+    if (!fs.existsSync(mediaDir)) { return []; }
+    const files = fs.readdirSync(mediaDir)
+      .filter(f => f.endsWith('.md'))
+      .sort(); // alphabetical so Default comes before No Commit
+    const profiles: ProfileOption[] = [];
+    for (const file of files) {
+      const filePath = path.join(mediaDir, file);
+      const content = fs.readFileSync(filePath, 'utf8');
+      const { title, description } = parseFrontmatterMeta(content);
+      if (title) {
+        profiles.push({ title, description: description ?? '', filePath });
+      }
+    }
+    return profiles;
+  } catch {
+    return [];
+  }
+}
+

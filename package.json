@@ -1,9 +1,9 @@
 {
-  "name": "autodev",
-  "displayName": "AutoDev",
+  "name": "autoaidev",
+  "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude or Copilot (UI or CLI), tracks progress, supports session resume, Discord, and webhooks",
   "version": "1.0.0",
-  "publisher": "autoaidev",
+  "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
     "type": "git",

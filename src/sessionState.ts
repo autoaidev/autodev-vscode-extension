@@ -19,8 +19,14 @@ export const SESSION_STATE_FILE = '.autodev/session-state.json';
 /** .autodev/TEMP_SESSION_OUT.txt — CLI stdout tee for session ID extraction */
 export const SESSION_OUT_FILE = '.autodev/TEMP_SESSION_OUT.txt';
 
-/** .autodev/TEMP_PROMPT.md — prompt written for CLI providers */
+/** .autodev/TEMP_PROMPT.md — prompt written for CLI providers (legacy) */
 export const PROMPT_FILE = '.autodev/TEMP_PROMPT.md';
+
+/** .autodev/AGENT_PROFILE.md — profile instructions written per task */
+export const AGENT_PROFILE_FILE = '.autodev/AGENT_PROFILE.md';
+
+/** .autodev/MESSAGE.md — task message written per task */
+export const MESSAGE_FILE = '.autodev/MESSAGE.md';
 
 /** .autodev/output/<providerId>.txt — stdout capture per provider */
 export function stdoutFilePath(root: string, providerId: string): string {

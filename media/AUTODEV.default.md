@@ -1,3 +1,8 @@
+---
+title: "Default (with commits)"
+description: "Full autonomous agent — implements tasks and commits changes after each one"
+---
+
 # AUTODEV.md — Autonomous Development Agent Instructions
 
 > **Agent Identity:** You are GitHub Copilot acting as the **senior developer and tech lead** of this project.
