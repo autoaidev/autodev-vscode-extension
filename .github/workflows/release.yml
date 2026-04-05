@@ -34,31 +34,25 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "filename=${NAME}-${VERSION}.vsix" >> $GITHUB_OUTPUT
 
-      - name: Upload to FTP
+      - name: Upload via SFTP
         env:
           FTP_SERVER: ${{ secrets.FTP_SERVER }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
           FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
           VSIX_FILE: ${{ steps.meta.outputs.filename }}
         run: |
-          curl --fail \
-            --ftp-create-dirs \
-            -T "$VSIX_FILE" \
-            "ftp://$FTP_SERVER/releases/$VSIX_FILE" \
-            --user "$FTP_USERNAME:$FTP_PASSWORD"
+          sudo apt-get install -y lftp
 
-      - name: Upload as latest
-        env:
-          FTP_SERVER: ${{ secrets.FTP_SERVER }}
-          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
-          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
-          VSIX_FILE: ${{ steps.meta.outputs.filename }}
-          NAME: ${{ steps.meta.outputs.filename }}
-        run: |
           NAME_BASE=$(node -p "require('./package.json').name")
           cp "$VSIX_FILE" "${NAME_BASE}-latest.vsix"
-          curl --fail \
-            --ftp-create-dirs \
-            -T "${NAME_BASE}-latest.vsix" \
-            "ftp://$FTP_SERVER/releases/${NAME_BASE}-latest.vsix" \
-            --user "$FTP_USERNAME:$FTP_PASSWORD"
+          PORT=${FTP_PORT:-22}
+
+          lftp -u "$FTP_USERNAME,$FTP_PASSWORD" sftp://"$FTP_SERVER":$PORT <<EOF
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          mkdir -p releases
+          put $VSIX_FILE -o releases/$VSIX_FILE
+          put ${NAME_BASE}-latest.vsix -o releases/${NAME_BASE}-latest.vsix
+          bye
+          EOF
