@@ -94,7 +94,15 @@ export async function sendPromptToAi(
       // Force UTF-8 output so Node can read the file without encoding issues.
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
-      cmd = buildCopilotCliCommand(agentProfileFile, messageFile, resolvedSessionId);
+      // Write combined prompt to a project-local temp file so we can pass a
+      // single `@path` argument — avoids all PowerShell multi-line quoting issues.
+      const msgsDir = path.join(root, '.autodev', 'messages');
+      if (!fs.existsSync(msgsDir)) { fs.mkdirSync(msgsDir, { recursive: true }); }
+      const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
+      const msgContent = fs.readFileSync(messageFile, 'utf8');
+      const combinedFile = path.join(msgsDir, `temp_${Date.now()}.md`);
+      fs.writeFileSync(combinedFile, `${profileContent}\n\n${msgContent}`, 'utf8');
+      cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
     } else {
       // opencode: session ID is captured via the probe (--format json ".").
       // Main run uses normal output mode — no JSON parsing needed.
@@ -102,8 +110,11 @@ export async function sendPromptToAi(
     }
 
     const termName = `AutoDev: ${providerCfg.label}`;
-    const terminal = vscode.window.terminals.find(t => t.name === termName)
-      ?? vscode.window.createTerminal({ name: termName, cwd: root });
+    // Dispose any existing terminal with this name — CLI tools (copilot, opencode)
+    // write TUI/ANSI sequences that corrupt the shell state. A fresh terminal
+    // every task guarantees a clean prompt.
+    vscode.window.terminals.find(t => t.name === termName)?.dispose();
+    const terminal = vscode.window.createTerminal({ name: termName, cwd: root });
     terminal.show(true);
     terminal.sendText(cmd);
     log(`Sent to ${termName}: ${cmd}`);

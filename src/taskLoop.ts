@@ -320,16 +320,22 @@ class TaskLoopRunner {
 
       if (!task) {
         const remaining = countRemaining(tasks);
-        if (remaining === 0 && !allTasksDoneNotified) {
-          allTasksDoneNotified = true;
-          this._cb?.log('All tasks completed ✓');
-          this._notifyWebhook('all_tasks_done', {
-            workDir:   this._workspaceRoot,
-            gitRepo:   this._gitRepo,
-            gitBranch: this._gitBranch,
-          });
-          this._notifyDiscord('✅ All tasks done!');
+        if (remaining === 0) {
+          if (!allTasksDoneNotified) {
+            allTasksDoneNotified = true;
+            this._cb?.log('All tasks completed ✓ — stopping loop.');
+            this._notifyWebhook('all_tasks_done', {
+              workDir:   this._workspaceRoot,
+              gitRepo:   this._gitRepo,
+              gitBranch: this._gitBranch,
+            });
+            this._notifyDiscord('✅ All tasks done!');
+          }
+          // Stop the loop — do not poll again until the user manually restarts
+          this._setState('stopping');
+          return;
         }
+        // There are uncompleted tasks but none are pending (e.g. all [~] in-progress)
         this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
         await sleep(settings.loopInterval * 1000);
         continue;

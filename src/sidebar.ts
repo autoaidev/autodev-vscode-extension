@@ -96,6 +96,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   setProvider(id: ProviderId): void {
     this._selectedProvider = id;
     this._context.globalState.update(PROVIDER_KEY, id);
+    const current = loadSettings();
+    saveSettings({ ...current, provider: id });
     this._push();
   }
 

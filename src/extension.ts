@@ -6,6 +6,7 @@ import { openSettingsFile } from './settings';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
 import { ConfigManager } from './configManager';
+import { PROVIDERS } from './providers';
 
 let _out: vscode.OutputChannel;
 export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
@@ -61,6 +62,10 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showInformationMessage('AutoDev: Task loop is not running.');
         return;
       }
+      // Send Ctrl+C to the provider terminal to interrupt the running CLI process
+      const termName = `AutoDev: ${PROVIDERS[sidebar.selectedProvider]?.label ?? sidebar.selectedProvider}`;
+      const term = vscode.window.terminals.find(t => t.name === termName);
+      if (term) { term.sendText('\x03', false); }
       taskLoopRunner.stop();
       vscode.window.showInformationMessage('AutoDev: Task loop stopping');
     }),
