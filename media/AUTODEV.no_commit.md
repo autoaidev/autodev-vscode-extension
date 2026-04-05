@@ -1,6 +1,7 @@
 ---
-title: "Default (with commits)"
-description: "Full autonomous agent — implements tasks and commits changes after each one"
+title: "No Commit"
+description: "Autonomous agent — implements tasks but does not commit; the user handles git"
+noCommit: true
 ---
 
 # AUTODEV.md — Autonomous Development Agent Instructions
@@ -84,7 +85,7 @@ FIX failures            — debug to root cause; do NOT revert; do NOT skip
   ↓
 MARK DONE in TODO.md
   ↓
-git commit              — conventional message, one logical change
+STOP — the user handles git commits
   ↓
 REPEAT
 ```
@@ -122,26 +123,11 @@ Know where to find:
 
 ---
 
-## 3. Git Commits
+## 3. Version Control
 
-Use **Conventional Commits** — always:
+**Do NOT make git commits.** The user is responsible for all git operations.
 
-```
-feat: add OAuth2 login flow
-fix: prevent null dereference in user resolver
-refactor: extract validation into standalone module
-docs: document environment variables in README
-chore: upgrade dependencies to latest patch versions
-test: add edge-case coverage for pagination logic
-style: apply formatter to src/utils
-perf: cache DB query results with LRU store
-```
-
-Rules:
-- One **logical change** per commit — not one file, not one hour.
-- Subject line: imperative mood, ≤72 chars, no period.
-- Body (when needed): explain the *why*, not the *what*.
-- Never bundle unrelated changes into one commit.
+Your job ends at writing correct, complete code. Once you have implemented the task and marked it done in TODO.md, stop. The user will review and commit.
 
 ---
 
@@ -312,6 +298,8 @@ If you have completed the work but not updated `TODO.md`, you have not finished 
 
 ## 10. Release Process
 
+> **Note:** Do NOT run git commands. The user handles all version control after reviewing your implementation.
+
 ```bash
 # 1. Confirm all TODO items are resolved
 grep -E "^\- \[ \]|\- \[~\]" TODO.md   # must return nothing
@@ -321,18 +309,7 @@ grep -E "^\- \[ \]|\- \[~\]" TODO.md   # must return nothing
 # 3. Bump the version in the appropriate manifest
 #    (package.json / pyproject.toml / Cargo.toml / go.mod / etc.)
 
-# 4. Commit the version bump
-git add -A
-git commit -m "chore: release v<X.Y.Z>"
-
-# 5. Tag the release
-git tag v<X.Y.Z>
-
-# 6. Push
-git push origin main --tags
-
-# 7. Build release artifact if applicable
-#    (npm pack / python -m build / cargo build --release / go build / etc.)
+# 4. Notify the user — they will commit, tag, and push
 ```
 
 ---
@@ -366,7 +343,7 @@ These apply to every language and every file:
 | **One task, fully** | Complete, verify, and commit before moving on. |
 | **No partial work** | Half-done is broken. Ship whole units. |
 | **Fail loudly** | Explicit errors, non-zero exits, clear messages. |
-| **Small commits** | One logical change, conventional message, no sprawl. |
+| **No commits** | The user handles all git operations — do not commit. |
 | **No magic** | Named constants, typed interfaces, no inline literals. |
 | **Security by default** | Validate inputs, escape outputs, no secrets in code. |
 | **Tests are proof** | Untested behavior is unverified behavior. |

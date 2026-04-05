@@ -8,8 +8,6 @@ import { loadSettings } from './settings';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, probeOpenCodeSession } from './providers/opencodeCliProvider';
-import { sendClaudeUi } from './providers/claudeUiProvider';
-import { sendCopilotUi } from './providers/copilotUiProvider';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -24,14 +22,6 @@ export {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const ACCEPT_CMDS = [
-  'chatEditor.action.acceptAllHunks',
-  'workbench.action.chat.editing.acceptAllFiles',
-  'workbench.action.chat.editing.acceptAll',
-  'github.copilot.chat.acceptAllEdits',
-  'chat.acceptAllEdits',
-];
 
 function teeCommand(cmd: string, outFile: string): string {
   if (os.platform() === 'win32') {
@@ -126,24 +116,4 @@ export async function sendPromptToAi(
     }
     return;
   }
-
-  // ── UI providers — drive the VS Code extension ─────────────────────────
-  if (!vscode.extensions.getExtension(providerCfg.extensionId)) {
-    throw new Error(`"${providerCfg.label}" extension is not installed`);
-  }
-
-  if (providerId === 'claude') {
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-    const settings = loadSettings();
-    const uiSessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
-    await sendClaudeUi(prompt, root, uiSessionId, log);
-  } else {
-    await sendCopilotUi(prompt, log);
-  }
-
-  // Periodically accept AI edits for 10 minutes
-  const interval = setInterval(() => {
-    ACCEPT_CMDS.forEach(c => vscode.commands.executeCommand(c).then(() => {}, () => {}));
-  }, 800);
-  setTimeout(() => clearInterval(interval), 10 * 60 * 1000);
 }

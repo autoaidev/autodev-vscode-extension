@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// AI provider definitions
+// AI provider definitions — CLI-only providers
 // ---------------------------------------------------------------------------
 
-export type ProviderId = 'claude' | 'claude-cli' | 'copilot' | 'copilot-cli' | 'opencode-cli';
+export type ProviderId = 'claude-cli' | 'copilot-cli' | 'opencode-cli';
 
 export interface ProviderConfig {
   label: string;
@@ -23,16 +23,8 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     extensionId: '',
     isCli: true,
   },
-  claude: {
-    label: 'Claude UI (beta)',
-    extensionId: 'anthropic.claude-code',
-  },
-  copilot: {
-    label: 'Copilot UI (beta)',
-    extensionId: 'GitHub.copilot-chat',
-  },
   'opencode-cli': {
-    label: 'OpenCode CLI (beta)',
+    label: 'OpenCode CLI',
     extensionId: '',
     isCli: true,
   },

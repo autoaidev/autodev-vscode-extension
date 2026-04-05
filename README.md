@@ -6,6 +6,26 @@
 
 ---
 
+## Installation
+
+### Method 1: VS Code Marketplace
+
+Search for **AutoAIDev** in the Extensions panel (`Ctrl+Shift+X`) and click **Install**.
+
+### Method 2: Command line from a `.vsix` file
+
+```bash
+# VS Code
+code --install-extension autoaidev-1.0.0.vsix
+
+# Cursor
+cursor --install-extension autoaidev-1.0.0.vsix
+```
+
+Download the latest `.vsix` from the [GitHub Releases](https://github.com/autoaidev/autodev-vscode-extension/releases) page, then run the command above from the folder containing the file.
+
+---
+
 ## How It Works
 
 1. Write tasks in `TODO.md` as `- [ ] task description`
@@ -18,15 +38,13 @@
 
 ## Providers
 
-AutoDev supports five providers — switch between them in the sidebar:
+AutoDev supports three CLI providers — switch between them in the sidebar:
 
-| Provider | Mode | Requires |
-|---|---|---|
-| **Claude** | UI (chat panel) | [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) |
-| **Claude CLI** | Terminal | `claude` CLI installed & authenticated |
-| **Copilot** | UI (chat panel) | [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) |
-| **Copilot CLI** | Terminal | `gh copilot` CLI installed |
-| **OpenCode** | Terminal | [opencode](https://opencode.ai) installed |
+| Provider | Requires |
+|---|---|
+| **Claude CLI** | `claude` CLI installed & authenticated ([Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code)) |
+| **Copilot CLI** | `gh copilot` CLI installed |
+| **OpenCode** | [opencode](https://opencode.ai) installed |
 
 ### Session Resume
 CLI providers save the session ID after each run. The next task **resumes the same session** so the agent retains full context. Use the **↻ New** button next to "Resume session" to start a fresh session.

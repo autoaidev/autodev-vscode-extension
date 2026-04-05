@@ -32,7 +32,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     private readonly _context: vscode.ExtensionContext
   ) {
     this._selectedProvider =
-      this._context.globalState.get<ProviderId>(PROVIDER_KEY) ?? 'claude';
+      this._context.globalState.get<ProviderId>(PROVIDER_KEY) ?? 'claude-cli';
   }
 
   get selectedProvider(): ProviderId { return this._selectedProvider; }
