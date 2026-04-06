@@ -323,20 +323,19 @@ class TaskLoopRunner {
         if (remaining === 0) {
           if (!allTasksDoneNotified) {
             allTasksDoneNotified = true;
-            this._cb?.log('All tasks completed ✓ — stopping loop.');
+            this._cb?.log('All tasks completed ✓ — polling for new tasks…');
             this._notifyWebhook('all_tasks_done', {
               workDir:   this._workspaceRoot,
               gitRepo:   this._gitRepo,
               gitBranch: this._gitBranch,
             });
-            this._notifyDiscord('✅ All tasks done!');
+            this._notifyDiscord('✅ All tasks done — waiting for more…');
           }
-          // Stop the loop — do not poll again until the user manually restarts
-          this._setState('stopping');
-          return;
+        } else {
+          // There are uncompleted tasks but none are pending (e.g. all [~] in-progress)
+          this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
         }
-        // There are uncompleted tasks but none are pending (e.g. all [~] in-progress)
-        this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
+        // Keep polling forever — never stop automatically
         await sleep(settings.loopInterval * 1000);
         continue;
       }
