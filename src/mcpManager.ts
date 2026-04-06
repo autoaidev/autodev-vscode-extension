@@ -22,6 +22,12 @@ import * as path from 'path';
  */
 export const DEFAULT_MCP_SERVERS: McpServerEntry[] = [
   {
+    name: 'memory',
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-memory'],
+    tools: ['*'],
+  },
+  {
     name: 'playwright',
     command: 'npx',
     args: ['-y', '@playwright/mcp@latest'],

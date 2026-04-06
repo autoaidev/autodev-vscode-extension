@@ -39,6 +39,10 @@ interface LogDetail {
 
 export class WebhookPoller {
   private lastProcessedId = 0;
+  private _etag: string | undefined;
+  private _polling = false;
+  private _lastPollTime = 0;
+  private static readonly MIN_INTERVAL_MS = 3_000;
 
   constructor(
     private readonly baseUrl: string,
@@ -49,8 +53,18 @@ export class WebhookPoller {
   /**
    * Poll once for the next pending task and append it to TODO.md.
    * Returns true if a task was appended; false otherwise.
+   * Skips if a previous poll is still in-flight, or if minimum interval hasn't elapsed.
    */
   async pollAndAppend(todoPath: string): Promise<boolean> {
+    // Skip if a previous request is still in progress
+    if (this._polling) { return false; }
+
+    // Enforce minimum 3-second gap between requests
+    const elapsed = Date.now() - this._lastPollTime;
+    if (this._lastPollTime > 0 && elapsed < WebhookPoller.MIN_INTERVAL_MS) { return false; }
+
+    this._polling = true;
+    this._lastPollTime = Date.now();
     try {
       const qs = new URLSearchParams({
         status: 'pending',
@@ -58,9 +72,15 @@ export class WebhookPoller {
         endpoint_slug: this.slug,
       }).toString();
 
-      const listData = await this._get<{ data?: LogListItem[] } | LogListItem[]>(
+      const { data: listData, etag, notModified } = await this._getWithEtag<{ data?: LogListItem[] } | LogListItem[]>(
         `/v1/logs?${qs}`,
       );
+
+      // Server says nothing changed — skip processing
+      if (notModified) { return false; }
+
+      // Store ETag for next request
+      if (etag) { this._etag = etag; }
 
       // Handle both wrapped { data: [...] } and bare [...] responses
       const logs: LogListItem[] = Array.isArray(listData)
@@ -90,10 +110,16 @@ export class WebhookPoller {
       return true;
     } catch {
       return false;
+    } finally {
+      this._polling = false;
     }
   }
 
   // ---------------------------------------------------------------------------
+
+  private _getWithEtag<T>(path: string): Promise<{ data: T; etag?: string; notModified: boolean }> {
+    return jsonRequestWithEtag('GET', this.baseUrl, path, this.apiKey, this._etag);
+  }
 
   private _get<T>(path: string): Promise<T> {
     return jsonRequest('GET', this.baseUrl, path, this.apiKey, undefined);
@@ -107,6 +133,54 @@ export class WebhookPoller {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function jsonRequestWithEtag<T>(
+  method: string,
+  baseUrl: string,
+  path: string,
+  apiKey: string,
+  etag: string | undefined,
+): Promise<{ data: T; etag?: string; notModified: boolean }> {
+  return new Promise((resolve, reject) => {
+    const rawUrl = baseUrl.replace(/\/$/, '') + path;
+    const parsed = url.parse(rawUrl);
+
+    const headers: Record<string, string> = {
+      'X-API-Key': apiKey,
+      'Accept': 'application/json',
+      'User-Agent': 'AutoDev-VSCode/1.0',
+    };
+    if (etag) { headers['If-None-Match'] = etag; }
+
+    const options: http.RequestOptions = {
+      hostname: parsed.hostname ?? '',
+      port: parsed.port,
+      path: parsed.path ?? '/',
+      method,
+      headers,
+    };
+
+    const transport = rawUrl.startsWith('https') ? https : http;
+    const req = transport.request(options, (res: import('http').IncomingMessage) => {
+      if (res.statusCode === 304) {
+        resolve({ data: {} as T, etag, notModified: true });
+        return;
+      }
+      const responseEtag = res.headers['etag'] as string | undefined;
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        if (!data.trim()) { resolve({ data: {} as T, etag: responseEtag, notModified: false }); return; }
+        try { resolve({ data: JSON.parse(data) as T, etag: responseEtag, notModified: false }); }
+        catch { reject(new Error('Invalid JSON')); }
+      });
+    });
+
+    req.on('error', reject);
+    req.setTimeout(15_000, () => { req.destroy(new Error('Request timed out')); });
+    req.end();
+  });
+}
 
 function jsonRequest<T>(
   method: string,
