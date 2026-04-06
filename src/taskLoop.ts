@@ -9,7 +9,7 @@ import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook 
 import { loadSettings, AutodevSettings } from './settings';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
-import { captureAndSaveSessionId, saveSessionId, stdoutFilePath } from './sessionState';
+import { captureAndSaveSessionId, saveSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
@@ -535,6 +535,7 @@ class TaskLoopRunner {
       let poller: NodeJS.Timeout | undefined;
       let timer: NodeJS.Timeout | undefined;
       let stdoutWatcherRef: vscode.Disposable | undefined;
+      let exitWatcherRef: vscode.Disposable | undefined;
 
       const cleanup = (watcher: vscode.Disposable) => {
         this._taskCompletionAbort = null;
@@ -543,6 +544,8 @@ class TaskLoopRunner {
         watcher.dispose();
         stdoutWatcherRef?.dispose();
         stdoutWatcherRef = undefined;
+        exitWatcherRef?.dispose();
+        exitWatcherRef = undefined;
         this._cb?.onActivityChange?.(undefined);
       };
 
@@ -620,6 +623,62 @@ class TaskLoopRunner {
       stdoutWatcherRef = stdoutWatcher;
       stdoutWatcher.onDidChange(checkStdout);
       stdoutWatcher.onDidCreate(checkStdout);
+
+      // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
+      // process finishes.  When it appears with a non-empty value and the task is not
+      // yet marked done, send ONE reminder prompt so the AI can update TODO.md.
+      let exitReminderSent = false;
+      const onCliExit = async () => {
+        if (this._state !== 'running') { return; }
+        // Give TODO.md a short moment to be flushed before we check it
+        await sleep(1_500);
+        if (found()) { return; } // task already marked done — nothing to do
+        if (exitReminderSent) { return; } // only send once
+        exitReminderSent = true;
+        const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
+        const msg = `⏳ CLI finished but task not yet marked done (${elapsedMin}m): ${discordLabel(task.text)}`;
+        this._cb?.log(msg);
+        this._notifyDiscord(msg);
+        this._notifyWebhook('task_checkin', {
+          iteration:      this._iterations,
+          task:           { text: task.text },
+          elapsedMinutes: elapsedMin,
+          workDir:        this._workspaceRoot,
+          gitRepo:        this._gitRepo,
+          gitBranch:      this._gitBranch,
+        });
+        const date = new Date().toISOString().slice(0, 10);
+        const reminder = [
+          `Your process has finished.  If you have completed the task, mark it done in TODO.md now.`,
+          ``,
+          `Change the line:`,
+          `  - [~] ${task.text}`,
+          `to exactly:`,
+          `  - [x] ${date}  ${task.text}`,
+          ``,
+          `(two spaces between the date and task text, lowercase x, save the file)`,
+          `If you haven't finished yet, continue and mark it done when you are.`,
+        ].join('\n');
+        this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
+        try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
+      };
+
+      if (this._workspaceRoot) {
+        const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
+        const exitWatcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(stdoutDir, `${activeProvider}-exit.txt`)
+        );
+        exitWatcherRef = exitWatcher;
+        const handleExitFile = () => {
+          try {
+            const content = fs.readFileSync(exitFile, 'utf8').trim();
+            if (content === '') { return; } // file cleared at task start — ignore
+          } catch { return; }
+          void onCliExit();
+        };
+        exitWatcher.onDidChange(handleExitFile);
+        exitWatcher.onDidCreate(handleExitFile);
+      }
 
       // File watcher — fires on change/create events
       watcher.onDidChange(check);

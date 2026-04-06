@@ -35,6 +35,13 @@ export function stdoutFilePath(root: string, providerId: string): string {
   return path.join(dir, `${providerId}.txt`);
 }
 
+/** .autodev/output/<providerId>-exit.txt — written with exit code when CLI process finishes */
+export function exitFilePath(root: string, providerId: string): string {
+  const dir = path.join(autodevDir(root), 'output');
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  return path.join(dir, `${providerId}-exit.txt`);
+}
+
 type SessionMap = Partial<Record<string, string>>;
 
 function readMap(root: string): SessionMap {

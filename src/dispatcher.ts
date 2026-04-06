@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
-import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, MESSAGE_FILE, stdoutFilePath, autodevDir } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, MESSAGE_FILE, stdoutFilePath, exitFilePath, autodevDir } from './sessionState';
 import { loadSettings } from './settings';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -29,6 +29,20 @@ function teeCommand(cmd: string, outFile: string): string {
   }
   // bash/zsh: tee writes stdout+stderr to file while still printing to terminal
   return `{ ${cmd}; } 2>&1 | tee ${JSON.stringify(outFile)}`;
+}
+
+/**
+ * Append a shell snippet that writes the CLI exit code to `exitFile` after the
+ * command finishes.  Works for both PowerShell (Windows) and bash/zsh (Unix).
+ */
+function withExitFile(cmd: string, exitFile: string): string {
+  const q = JSON.stringify(exitFile);
+  if (os.platform() === 'win32') {
+    // PowerShell: run cmd, capture $LASTEXITCODE, write to file
+    return `${cmd}; [System.IO.File]::WriteAllText(${q}, $LASTEXITCODE.ToString())`;
+  }
+  // bash/zsh
+  return `{ ${cmd}; echo $? > ${q}; }`;
 }
 
 
@@ -108,6 +122,16 @@ export async function sendPromptToAi(
       // Main run uses normal output mode — no JSON parsing needed.
       cmd = buildOpenCodeCliCommand(agentProfileFile, messageFile, resolvedSessionId);
     }
+
+    // Clear the exit file before launching so a stale value from a previous run
+    // is never mistaken for the current task completing.
+    const exitFile = exitFilePath(root, providerId);
+    try { fs.writeFileSync(exitFile, '', 'utf8'); } catch { /* ignore */ }
+
+    // Wrap every CLI command so the shell writes the process exit code to the
+    // exit file once it finishes.  taskLoop.ts watches this file to detect
+    // when the provider has exited (for all providers, not just claude-cli).
+    cmd = withExitFile(cmd, exitFile);
 
     const termName = `AutoDev: ${providerCfg.label}`;
     // Dispose any existing terminal with this name — CLI tools (copilot, opencode)
