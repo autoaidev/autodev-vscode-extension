@@ -1,114 +1,103 @@
-# AutoDev
+# AutoDev — Autonomous AI Development Agent for VS Code
 
-**Autonomous AI task loop for VS Code.** Reads your `TODO.md`, dispatches each task to Claude, Copilot, or OpenCode, waits for the agent to mark it done, then moves to the next — continuously, without human intervention. Works on Windows and Linux.
+**AutoDev** runs a continuous autonomous task loop inside VS Code. It reads a `TODO.md` file, dispatches each task to an AI CLI tool (Claude, Copilot, or OpenCode) running in the integrated terminal, waits for the agent to mark the task done, then moves on — continuously, without human intervention.
 
 **GitHub:** https://github.com/autoaidev/autodev-vscode-extension
 
 ---
 
-## Installation
+## Table of Contents
 
-### Method 1: VS Code Marketplace
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Task Loop — In Detail](#task-loop--in-detail)
+- [TODO.md Format](#todomd-format)
+- [AI Providers](#ai-providers)
+- [Session Resuming](#session-resuming)
+- [Agent Profile (AUTODEV.md)](#agent-profile-autodevmd)
+- [Prompt Structure](#prompt-structure)
+- [MCP Servers](#mcp-servers)
+- [Discord Integration](#discord-integration)
+- [Webhook / Server Integration](#webhook--server-integration)
+- [Settings Reference](#settings-reference)
+- [File Layout](#file-layout)
+- [Sidebar UI](#sidebar-ui)
+- [Permissions & Auto-Accept](#permissions--auto-accept)
+- [Output Logs](#output-logs)
+- [Development](#development)
 
-Search for **AutoAIDev** in the Extensions panel (`Ctrl+Shift+X`) and click **Install**.
+---
 
-### Method 2: One-line install from autoaidev.com
+## Quick Start
 
-```bash
-# VS Code
-curl -L -o autoaidev.vsix "https://autoaidev.com/releases/autoaidev-latest.vsix" && code --install-extension autoaidev.vsix
+1. Install [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) and sign in (`claude login`)
+2. Install this extension
+3. Open a workspace, create a `TODO.md` with some `- [ ] tasks`
+4. Click the **AutoDev** icon in the Activity Bar → **Start**
 
-# Cursor
-curl -L -o autoaidev.vsix "https://autoaidev.com/releases/autoaidev-latest.vsix" && cursor --install-extension autoaidev.vsix
-```
-
-### Method 3: Command line from a `.vsix` file
-
-```bash
-# VS Code
-code --install-extension autoaidev-1.0.0.vsix
-
-# Cursor
-cursor --install-extension autoaidev-1.0.0.vsix
-```
-
-Download the latest `.vsix` from [autoaidev.com/releases](https://autoaidev.com/releases) or the [GitHub Releases](https://github.com/autoaidev/autodev-vscode-extension/releases) page, then run the command above from the folder containing the file.
+The loop runs until all tasks are done, then waits for new ones.
 
 ---
 
 ## How It Works
 
-1. Write tasks in `TODO.md` as `- [ ] task description`
-2. AutoDev picks the first pending task and sends it to your chosen AI provider
-3. The agent edits files and marks the task `- [x] YYYY-MM-DD  task text` when done
-4. AutoDev detects the `[x]` marker and starts the next task automatically
-5. New tasks can be added any time via the sidebar, Discord, or by editing `TODO.md` directly
+```
+TODO.md  →  pick task  →  build prompt  →  run AI in terminal
+                                                   ↓
+                                     AI edits files + marks [x]
+                                                   ↓
+                                          detect [x] on line
+                                                   ↓
+                                         save session ID
+                                                   ↓
+                                           next task  →  ...
+```
+
+1. AutoDev picks the first `[ ]` task and marks it `[~]` (in progress)
+2. It writes the agent profile + task instruction to `.autodev/`
+3. It spawns the AI CLI in a VS Code terminal with the prompt files as arguments
+4. It watches `TODO.md` for `[x]` on that exact line number
+5. When done, it captures the session ID, fires webhooks/Discord, and picks the next task
+6. If no tasks remain, it waits `loopInterval` seconds and polls again
 
 ---
 
-## Providers
+## Task Loop — In Detail
 
-AutoDev supports three CLI providers — switch between them in the sidebar:
+`src/taskLoop.ts`
 
-| Provider | Requires |
+### States
+
+| State | Meaning |
 |---|---|
-| **Claude CLI** | `claude` CLI installed & authenticated ([Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code)) |
-| **Copilot CLI** | `gh copilot` CLI installed |
-| **OpenCode** | [opencode](https://opencode.ai) installed |
+| `idle` | Not started |
+| `running` | Active — polling / dispatching |
+| `paused` | Waiting for rate-limit reset or manual resume |
+| `stopping` | Stop requested, cleaning up |
 
-### Session Resume
-CLI providers save the session ID after each run. The next task **resumes the same session** so the agent retains full context. Use the **↻ New** button next to "Resume session" to start a fresh session.
+### Completion detection
 
----
+AutoDev watches `TODO.md` via the VS Code file system watcher. It looks for the specific **line number** it marked `[~]` to change to `[x]`. This is robust against the AI rephrasing the task text.
 
-## Features
+- If the CLI exits (exit code file written) before `[x]` appears → one-time reminder: *"Please mark the task done in TODO.md"*
+- If no Claude JSONL activity for **15 minutes** → check-in reminder sent
+- **Hard timeout** (default 30 min): either retries the task or moves on, based on `retryOnTimeout`
 
-### Autonomous Task Loop
-- Runs forever with no iteration limit
-- Resets any `[~]` in-progress tasks to `[ ]` on start (configurable)
-- Sends a check-in reminder to the AI if a task exceeds the check-in interval without being marked done
-- Configurable task timeout — retry or mark failed on timeout
-- Rate-limit detection: auto-pauses and resumes when the AI reports a rate limit
+### Rate limit handling
 
-### Sidebar Panel
-Click the **AutoDev** icon in the Activity Bar.
+When a rate-limit error is detected in the JSONL stream or stdout capture:
+1. Task is reset from `[~]` back to `[ ]`
+2. Loop enters `paused` state
+3. Resume timer fires at the parsed reset time (e.g. `"resets 9pm (Europe/Sofia)"`)
+4. **Retry Now** button in the sidebar forces immediate resume
 
-- **Tasks tab** — live list showing `✓` / `◑` / `○` status, click any task to jump to its line in `TODO.md`
-- **Settings tab** — configure all options without editing JSON
-- **Add task** input — append a new task instantly
-- **Start / Stop** loop button
-- Session ID badge — shows the active session, with a **↻ New** button to reset it
+### Background pollers
 
-### MCP Server Auto-Sync
-On activation, AutoDev automatically registers the **Playwright MCP server** into Claude CLI (`~/.claude/settings.json`), Copilot CLI (`~/.copilot/mcp-config.json`), and OpenCode (`~/.config/opencode/config.json` on Linux, `%APPDATA%\opencode\config.json` on Windows).
+While an AI task is running, two pollers continue on 3-second intervals:
+- **Discord poller** — pulls new task messages from the configured channel
+- **Webhook poller** — pulls pending tasks from the AutoDev server API
 
-### Task Notifications
-AutoDev posts updates to Discord and/or an A2A webhook server:
-
-| Event | Notification |
-|---|---|
-| Loop started | 🚀 |
-| Task started | ▶️ label + remaining count |
-| Check-in | ⏳ elapsed time + reminder |
-| Task done | ✅ |
-| Task failed / timed out | ❌ |
-| All done | ✅ All tasks done! |
-| Loop ended | 👋 |
-
-### Discord Bot
-AutoDev can **receive** new tasks from Discord. Messages from allowed owners in the configured channel are appended to `TODO.md` as new `[ ]` tasks.
-
-### A2A Webhook Server
-AutoDev polls an autodev server (`/v1/logs`) for incoming tasks and posts `StreamResponse` events to `/webhook/{slug}` matching the autodev server protocol.
-
-### Auto-Accept Edits
-On activation, AutoDev sets:
-
-| VS Code Setting | Value |
-|---|---|
-| `chat.editing.autoAcceptDelay` | 800 ms |
-| `chat.editing.autoAccept` | `true` |
-| `github.copilot.chat.agent.runTasks` | `true` |
+New tasks appended during an active run are picked up on the next loop iteration.
 
 ---
 
@@ -116,88 +105,380 @@ On activation, AutoDev sets:
 
 ```markdown
 ## Todo
-- [ ] build the login page
-- [ ] add unit tests for auth module
+
+- [ ] Build a music game
+- [ ] Add high score table
+
+## In Progress
+
+- [~] Implement login page
 
 ## Done
-- [x] 2026-04-01  set up project scaffold
+
+- [x] 2025-04-07  Create project structure
 ```
 
-Tasks move through: `[ ]` → `[~]` (AutoDev marks in-progress) → `[x] YYYY-MM-DD` (AI marks done).
+| Marker | Set by | Meaning |
+|---|---|---|
+| `[ ]` | You / Discord / webhook | Pending |
+| `[~]` | AutoDev (loop start) | In progress |
+| `[x] YYYY-MM-DD  text` | AI agent | Done |
 
-> **The AI must mark tasks done with two spaces between the date and text:**
-> `- [x] 2026-04-02  task text`
+> Two spaces between date and text is required for correct parsing.
+
+Tasks can be added via the sidebar input, Discord messages, the webhook API, or by editing `TODO.md` directly.
 
 ---
 
-## Settings
+## AI Providers
 
-Stored in `.vscode/autodev.json` in your workspace. Edit via the **⚙ Settings** tab or the raw JSON file.
+All three providers run as CLI tools in a VS Code integrated terminal. Switch via the dropdown in the sidebar.
+
+### claude-cli
+
+Runs Claude Code CLI with full permissions:
+
+```
+claude --dangerously-skip-permissions --enable-auto-mode \
+  -p "@.autodev/AGENT_PROFILE.md" "@.autodev/MESSAGE.md"
+```
+
+**Completion detection:** JSONL file (`~/.claude/projects/<encoded>/*.jsonl`) is polled every 3 s for `stop_reason: end_turn` or `subtype: turn_duration`.
+
+**Live activity:** Tool use is parsed from JSONL and shown in the sidebar in real time — e.g. `Editing: src/game.ts`, `Searching: *.ts`, `Fetching: https://...`
+
+**Stdout capture:** via `Tee-Object` (Windows) / `tee` (Unix) → `.autodev/output/claude-cli.txt`
+
+**Requirements:** `claude` CLI installed and authenticated
+
+### copilot-cli
+
+```
+copilot --autopilot --yolo --no-ask-user --allow-all \
+  --max-autopilot-continues 2000 -p "@.autodev/messages/<timestamp>.md"
+```
+
+The agent profile and task message are combined into a single timestamped file (Copilot CLI does not support two `-p` arguments).
+
+**Requirements:** `gh copilot` or `copilot` CLI installed
+
+### opencode-cli
+
+```
+# Windows
+$msg = (Get-Content AGENT_PROFILE.md -Raw) + "`n`n" + (Get-Content MESSAGE.md -Raw)
+opencode run [-s <sessionId> | -c] $msg
+
+# Unix
+opencode run [-s <id> | -c] "$(cat AGENT_PROFILE.md)\n\n$(cat MESSAGE.md)"
+```
+
+`-c` starts a new session; `-s <id>` resumes an existing one.
+
+**Requirements:** [opencode](https://opencode.ai) installed
+
+---
+
+## Session Resuming
+
+Enable **Resume Session** checkbox in the sidebar (CLI providers only).
+
+After each completed task, the session ID is extracted from provider output and stored in `.autodev/session-state.json`:
+
+```json
+{
+  "claude-cli": "abc123def456",
+  "copilot-cli": "ses_xyz789",
+  "opencode-cli": "ses_abc123"
+}
+```
+
+On the next task, the stored ID is passed as `--resume <id>` (claude-cli / copilot-cli) or `-s <id>` (opencode-cli). The AI continues in the same conversation with full prior context.
+
+Click **New** in the sidebar to clear the session ID and start fresh.
+
+### How session IDs are found
+
+| Provider | Source | Field |
+|---|---|---|
+| claude-cli | `~/.claude/projects/<encoded>/*.jsonl` | `"session_id"` |
+| copilot-cli | Stdout capture file | `"sessionId"` |
+| opencode-cli | `opencode session list --format json` | `"id"` (filtered by cwd) |
+
+If no stored session exists, the extension probes for a live session before the first task.
+
+---
+
+## Agent Profile (AUTODEV.md)
+
+The agent profile gives the AI project-specific context: coding standards, architecture notes, tool preferences, commit conventions, etc.
+
+**Resolution order:**
+1. `profilePath` setting (absolute path)
+2. `AUTODEV.md` in the same directory as `TODO.md`
+3. Built-in default (`media/AUTODEV.default.md`)
+
+### Frontmatter
+
+```markdown
+---
+title: My Project Agent
+description: Custom agent for this repo
+noCommit: true
+---
+
+# Agent Instructions
+...
+```
+
+- `noCommit: true` — omits the "commit your changes" step from task instructions
+
+The profile body (frontmatter stripped) is written to `.autodev/AGENT_PROFILE.md` before each task.
+
+---
+
+## Prompt Structure
+
+`src/messageBuilder.ts`
+
+Each task dispatch writes two files:
+
+**`.autodev/AGENT_PROFILE.md`** — agent profile body (roles, standards, conventions)
+
+**`.autodev/MESSAGE.md`** — task instruction:
+
+```markdown
+# Current TODO.md
+
+- [x] 2025-04-07  Create project structure
+- [~] Build a music game
+- [ ] Add high score table
+
+# Active Task
+
+Build a music game
+
+## Instructions
+
+0. Immediately mark the task [~] in TODO.md
+1. Read and understand the full codebase
+2. Implement the task completely, including tests
+3. When done, mark as [x] 2025-04-07  Build a music game in TODO.md
+4. Commit your changes with git
+5. Stop — do not work on any other task
+```
+
+The AI receives both files via `-p "@profile" "@message"` (claude-cli) or combined into one file (copilot-cli / opencode-cli).
+
+---
+
+## MCP Servers
+
+Applied automatically at extension activation. Three MCP servers are written to all project-level config files:
+
+| Server | Package | Purpose |
+|---|---|---|
+| `memory` | `@modelcontextprotocol/server-memory` | Persistent key-value memory (stored in `.autodev/MEMORY.jsonl`) |
+| `playwright` | `@playwright/mcp@latest` | Browser automation and UI testing |
+| `sequential-thinking` | `@modelcontextprotocol/server-sequential-thinking` | Structured multi-step reasoning |
+
+Config files updated:
+
+| File | Used by |
+|---|---|
+| `.claude/settings.local.json` | Claude CLI (project-local) |
+| `.vscode/mcp.json` | VS Code Claude extension |
+| `opencode.json` | OpenCode CLI |
+| `.mcp.json` | Copilot CLI |
+
+---
+
+## Discord Integration
+
+Configure **Discord Bot Token**, **Channel ID**, and **Allowed Owners** in Settings.
+
+### Receiving tasks
+
+The `DiscordPoller` polls the channel every 3 s (`GET /channels/{id}/messages?after={cursor}`). Messages from allowed owners (matched by username or user ID) are appended to `TODO.md` as `- [ ]` tasks. File attachments are read and used as task text. The bot reacts with ✅ to each accepted message.
+
+History before the loop started is ignored (cursor is seeded at activation).
+
+### Sending status updates
+
+| Event | Message |
+|---|---|
+| Loop start | Agent online |
+| Task start | ▶ Working on: `<task>` |
+| Task done | ✅ Completed: `<task>` |
+| Task failed | ❌ Failed: `<task>` — `<error>` |
+| Rate limited | ⏳ Rate limited — resuming at `<time>` |
+| All done | All tasks completed |
+| Loop stopped | Agent offline |
+
+Alternatively, configure a **Discord Webhook URL** (no bot token required) for send-only status posting.
+
+---
+
+## Webhook / Server Integration
+
+Configure **Server Base URL**, **API Key**, and **Webhook Slug** in Settings.
+
+### Outgoing — A2A protocol
+
+All loop events are POSTed as `application/a2a+json` to `<baseUrl>/v1/stream`, following the Agent-to-Agent streaming protocol with envelope types `task`, `statusUpdate`, `artifactUpdate`, and `message`.
+
+### Incoming — task polling
+
+The `WebhookPoller` polls `GET <baseUrl>/v1/logs?status=pending&endpoint_slug=<slug>` every 3 s (with `ETag` caching). New `user_message` events are extracted and appended to `TODO.md`, then acknowledged via `PATCH /v1/logs/{id}`.
+
+---
+
+## Settings Reference
+
+Stored in `.vscode/autodev.json` (auto-added to `.gitignore`). Edit via the Settings tab or the raw JSON file.
 
 ### Server
+
 | Key | Description |
 |---|---|
-| `serverBaseUrl` | Base URL of your autodev server (e.g. `https://myserver.com`) |
-| `serverApiKey` | API key (`Authorization: Bearer`) |
-| `webhookSlug` | Slug for `/webhook/{slug}` events and `/v1/logs` polling |
+| `serverBaseUrl` | AutoDev server base URL (e.g. `https://myserver.com`) |
+| `serverApiKey` | Bearer API key for server auth |
+| `webhookSlug` | Endpoint slug for outgoing events and incoming task polling |
 
 ### Discord
+
 | Key | Description |
 |---|---|
 | `discordToken` | Bot token (`Bot xxxx`) |
-| `discordChannelId` | Channel ID to post messages to and poll for task input |
-| `discordWebhookUrl` | Webhook URL (simpler, send-only alternative) |
-| `discordOwners` | Comma-separated usernames or user IDs allowed to send tasks |
+| `discordChannelId` | Channel to watch for tasks and post status to |
+| `discordWebhookUrl` | Webhook URL (simpler send-only alternative, no bot) |
+| `discordOwners` | Comma-separated usernames or user IDs allowed to submit tasks |
 
 ### Loop
+
 | Key | Default | Description |
 |---|---|---|
-| `loopInterval` | `30` | Seconds to wait when no tasks are pending |
-| `taskTimeoutMinutes` | `30` | Minutes before a running task is timed out |
-| `taskCheckInMinutes` | `20` | Minutes between AI check-in reminders |
-| `retryOnTimeout` | `false` | Retry timed-out tasks instead of marking failed |
-| `autoResetPendingTasks` | `true` | Reset `[~]` tasks to `[ ]` on loop start |
-| `resumeSession` | `true` | Resume the last CLI session for context continuity |
+| `loopInterval` | `30` | Seconds to wait between polls when TODO is empty |
+| `taskTimeoutMinutes` | `30` | Hard timeout per task |
+| `taskCheckInMinutes` | `20` | Minutes of AI silence before sending a check-in reminder |
+| `retryOnTimeout` | `false` | Re-queue timed-out tasks (vs. skipping them) |
+| `autoResetPendingTasks` | `true` | Reset `[~]` tasks to `[ ]` when the loop starts |
+| `resumeSession` | `false` | Pass session ID to CLI providers for conversation continuity |
 
 ### Paths
+
 | Key | Default | Description |
 |---|---|---|
-| `todoPath` | `TODO.md` in workspace root | Path to the task file |
-| `profilePath` | `AUTODEV.md` in workspace root | Path to agent instructions |
+| `todoPath` | `TODO.md` in workspace root | Path to task file |
+| `profilePath` | `AUTODEV.md` in workspace root | Path to agent profile |
 
 ---
 
-## Agent Instructions (AUTODEV.md)
+## File Layout
 
-Place an `AUTODEV.md` in your workspace root to give the agent project-specific context — coding standards, architecture notes, tool preferences. If none exists, a built-in default is used.
-
-The most critical built-in instruction:
-
-> Mark each task done in `TODO.md` as `- [x] YYYY-MM-DD  task text` (two spaces, lowercase x) before stopping.
+```
+<workspace>/
+├── TODO.md                         ← task list (read/written by the loop)
+├── AUTODEV.md                      ← agent profile (optional, per-project)
+├── .vscode/
+│   ├── autodev.json                ← AutoDev settings
+│   ├── mcp.json                    ← MCP servers for VS Code
+│   └── settings.json               ← VS Code settings (auto-accept, permissions)
+├── .claude/
+│   ├── settings.json               ← Claude CLI permissions (allow: *)
+│   └── settings.local.json         ← Claude CLI MCP servers (project-local)
+├── .mcp.json                       ← Copilot CLI MCP servers
+├── opencode.json                   ← OpenCode config + MCP servers
+└── .autodev/                       ← runtime files (all gitignored)
+    ├── AGENT_PROFILE.md            ← resolved profile (written before each task)
+    ├── MESSAGE.md                  ← task instruction (written before each task)
+    ├── session-state.json          ← stored session IDs per provider
+    ├── MEMORY.jsonl                ← MCP memory server storage
+    ├── messages/                   ← combined prompt files for Copilot CLI
+    └── output/
+        ├── claude-cli.txt          ← stdout capture
+        ├── claude-cli-exit.txt     ← exit code
+        ├── copilot-cli.txt
+        ├── copilot-cli-exit.txt
+        ├── opencode-cli.txt
+        └── opencode-cli-exit.txt
+```
 
 ---
 
-## Requirements
+## Sidebar UI
 
-- VS Code 1.99 or later
-- At least one provider installed and signed in (see [Providers](#providers) table above)
+Click the **AutoDev** icon in the Activity Bar.
+
+### Tasks tab
+
+| Element | Purpose |
+|---|---|
+| Provider dropdown | Switch between `claude-cli`, `copilot-cli`, `opencode-cli` |
+| Resume Session checkbox | Enable session ID reuse across tasks |
+| New button | Clear stored session ID (start fresh conversation) |
+| Session ID badge | Shows the currently stored session ID |
+| Start / Stop / Retry Now | Control the loop |
+| Loop status | Current state + active task + live tool activity |
+| Add task input | Type a task + Enter to append `- [ ]` to TODO.md |
+| Task list | Pending tasks (click to jump to line in editor) + completed tasks |
+
+### Settings tab
+
+- Grouped fields for Server, Discord, Loop, and Paths
+- **Save** — writes `.vscode/autodev.json`
+- **Edit raw JSON** — opens settings file in editor
+- **Profile** dropdown — built-in profiles from `media/*.md`
+
+---
+
+## Permissions & Auto-Accept
+
+Written automatically at activation so the AI can operate without interactive prompts.
+
+**`~/.claude/settings.json`** (Claude CLI global):
+```json
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "skipDangerousModePermissionPrompt": true
+  }
+}
+```
+
+**`.claude/settings.json`** (project-local):
+```json
+{ "permissions": { "allow": ["*"] } }
+```
+
+**`.vscode/settings.json`** (workspace):
+```json
+{
+  "chat.editing.autoAccept": true,
+  "claudeCode.initialPermissionMode": "bypassPermissions",
+  "claudeCode.allowDangerouslySkipPermissions": true
+}
+```
 
 ---
 
 ## Output Logs
 
-Open **Output → AutoDev** to see live logs:
+Open **Output → AutoDev** for live logs:
 
 ```
-[AutoDev] Task loop starting — TODO: /workspace/TODO.md
+[AutoDev] Extension activated
+[AutoDev] Task loop starting — TODO: h:\project\TODO.md
 [AutoDev] Auto-reset in-progress tasks to [ ]
-[AutoDev] ▶ Task [1]: build the login page
-[AutoDev] Dispatching task: build the login page
-[AutoDev] ✅ Task done: build the login page
-[AutoDev] ▶ Task [2]: add unit tests for auth module
+[AutoDev] Loop: running
+[AutoDev] ▶ Task [1]: Build a music game
+[AutoDev] Dispatching task: Build a music game
+[AutoDev] ✅ Task done: Build a music game
+[AutoDev] ▶ Task [2]: Add high score table
 [AutoDev] ⚠️ Check-in: reminding AI to mark TODO.md if done
-[AutoDev] ✅ Task done: add unit tests for auth module
+[AutoDev] ✅ Task done: Add high score table
 [AutoDev] All tasks completed ✓
+[AutoDev] No pending tasks — waiting 30s…
 ```
 
 ---
@@ -216,237 +497,42 @@ Press `F5` to launch the Extension Development Host. Use `npm run watch` for inc
 ### Project Structure
 
 ```
-autodev-vscode-extension/
-├── media/
-│   ├── icon.svg              # Activity bar icon
-│   └── AUTODEV.default.md   # Built-in agent instructions
-├── src/
-│   ├── extension.ts          # Activation, commands, settings watcher
-│   ├── taskLoop.ts           # Core task loop logic
-│   ├── dispatcher.ts         # Routes tasks to the correct provider
-│   ├── sidebar.ts            # Webview sidebar panel
-│   ├── mcpManager.ts         # MCP server config sync
-│   ├── sessionState.ts       # Session ID persistence
-│   ├── settings.ts           # Settings load/save
-│   ├── todo.ts               # TODO.md parser
-│   ├── prompt.ts             # Prompt builder
-│   ├── discordPoller.ts      # Discord bot input
-│   ├── webhookPoller.ts      # A2A webhook polling
-│   ├── webhook.ts            # Discord/webhook output
-│   └── providers/
-│       ├── claudeCliProvider.ts
-│       ├── claudeUiProvider.ts
-│       ├── copilotCliProvider.ts
-│       ├── copilotUiProvider.ts
-│       └── opencodeCliProvider.ts
-├── package.json
-└── tsconfig.json
+src/
+├── extension.ts          # Activation, commands, auto-accept settings
+├── taskLoop.ts           # Core task loop engine
+├── dispatcher.ts         # Routes tasks to the correct provider terminal
+├── sidebar.ts            # Webview sidebar panel (HTML + message handling)
+├── configManager.ts      # MCP + permission config sync
+├── sessionState.ts       # Session ID persistence + file paths
+├── settings.ts           # Settings load/save (.vscode/autodev.json)
+├── todo.ts               # TODO.md parser and writer
+├── messageBuilder.ts     # Prompt builder (profile + task instruction)
+├── webhook.ts            # Discord REST + A2A webhook client
+├── webhookPoller.ts      # Incoming task polling from AutoDev server
+├── discordPoller.ts      # Incoming task polling from Discord
+├── mcpManager.ts         # MCP server config read/write
+└── providers/
+    ├── claudeCliProvider.ts    # JSONL parsing, command builder, session probe
+    ├── copilotCliProvider.ts   # Command builder, session probe
+    └── opencodeCliProvider.ts  # Command builder, session list query
+media/
+├── icon.svg
+└── AUTODEV.default.md    # Built-in agent profile
 ```
-
----
-
-## License
-
-MIT
-
-
----
-
-## How it works
-
-1. You write tasks in `TODO.md` using the `- [ ] task text` format
-2. AutoDev picks the first pending task and sends it to Claude or Copilot
-3. The agent works, edits files, and marks the task `- [x] YYYY-MM-DD  task text` when done
-4. AutoDev detects the `[x]` marker and moves to the next task
-5. New tasks can be added at any time via the sidebar, Discord, or directly editing `TODO.md`
-
----
-
-## Features
-
-### Autonomous Task Loop
-- Runs forever — no max iteration limit
-- At startup, resets any `[~]` in-progress tasks back to `[ ]` (configurable)
-- Sends a periodic reminder to the AI if a task has been running longer than the check-in interval without being marked done
-- Configurable task timeout — on timeout, either mark failed or retry the task
-
-### Sidebar Panel
-Click the AutoDev icon in the Activity Bar to open the panel.
-
-- **Tasks tab** — live list of all tasks from `TODO.md` with ✓ / ◑ / ○ status
-- **Settings tab** — configure all options without editing JSON directly
-- **Add task** input — append a new `[ ]` task to `TODO.md` instantly
-- **Start / Stop** loop button
-
-### Provider Support
-
-| Provider | Extension required |
-|---|---|
-| **Claude** (default) | [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) |
-| **Copilot** | [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) |
-
-Switch providers from the sidebar. AutoDev applies Claude Code permission bypass settings on activation so no permission prompts interrupt the loop.
-
-### Task Notifications
-AutoDev posts messages to Discord and/or an A2A webhook server as the loop runs:
-
-| Event | Discord / Webhook |
-|---|---|
-| Loop started | 🚀 |
-| Task started | ▶️ task label + remaining count |
-| Check-in (long task) | ⏳ elapsed time + AI reminder to mark TODO.md |
-| Task done | ✅ |
-| Task failed / timed out | ❌ |
-| All tasks done | ✅ All tasks done! |
-| Loop ended | 👋 |
-
-### Discord Bot Poller
-AutoDev can receive new tasks from Discord. Messages from allowed owners in the configured channel are appended to `TODO.md` as new `[ ]` tasks. History before the loop started is ignored.
-
-### A2A Webhook Server
-AutoDev can poll an autodev server (`/v1/logs`) for incoming tasks and post structured `StreamResponse` events to `/webhook/{slug}` matching the autodev server protocol.
-
-### Auto-Accept Edits
-On activation, AutoDev sets:
-
-| VS Code Setting | Value |
-|---|---|
-| `chat.editing.autoAcceptDelay` | 800 ms |
-| `chat.editing.autoAccept` | `true` |
-| `github.copilot.chat.agent.runTasks` | `true` |
-
----
-
-## TODO.md Format
-
-```markdown
-## Todo
-- [ ] build the login page
-- [ ] add unit tests for auth module
-
-## In Progress
-- [~] refactor database layer
-
-## Done
-- [x] 2026-04-01  set up project scaffold
-```
-
-Tasks move through: `[ ]` → `[~]` (AutoDev marks in-progress) → `[x] YYYY-MM-DD` (AI marks done).
-
-> **The AI must mark tasks done with two spaces between the date and text:**
-> `- [x] 2026-04-02  task text`
-
----
-
-## Settings
-
-Stored in `.vscode/autodev.json` in your workspace. Edit via the **⚙ Settings** tab or the raw JSON file.
-
-### Server
-| Key | Description |
-|---|---|
-| `serverBaseUrl` | Base URL of your autodev server (e.g. `https://myserver.com`) |
-| `serverApiKey` | API key (`Authorization: Bearer`) |
-| `webhookSlug` | Slug for `/webhook/{slug}` events and `/v1/logs?endpoint_slug={slug}` polling |
-
-### Discord
-| Key | Description |
-|---|---|
-| `discordToken` | Bot token (`Bot xxxx`) |
-| `discordChannelId` | Channel ID to post messages to and poll for task input |
-| `discordWebhookUrl` | Webhook URL alternative (simpler, no bot required, send-only) |
-| `discordOwners` | Comma-separated usernames or user IDs allowed to send tasks |
-
-### Loop
-| Key | Default | Description |
-|---|---|---|
-| `provider` | `claude` | `claude` or `copilot` |
-| `loopInterval` | `30` | Seconds to wait when no tasks are pending |
-| `taskTimeoutMinutes` | `30` | Minutes before a running task is timed out |
-| `taskCheckInMinutes` | `20` | Minutes between check-in reminders to the AI |
-| `retryOnTimeout` | `false` | Retry timed-out tasks instead of marking failed |
-| `autoResetPendingTasks` | `true` | Reset `[~]` tasks to `[ ]` on loop start |
-
-### Paths
-| Key | Default | Description |
-|---|---|---|
-| `todoPath` | `TODO.md` in workspace root | Path to the task file |
-| `profilePath` | `AUTODEV.md` in workspace root | Path to the agent instructions file |
-
----
-
-## Agent Instructions (AUTODEV.md)
-
-Place an `AUTODEV.md` file in your workspace root to give the agent project-specific context — coding standards, architecture notes, tool preferences. If none exists, a built-in default is used.
-
-The most critical instruction is already in the default profile:
-
-> Mark each task done in `TODO.md` as `- [x] YYYY-MM-DD  task text` (two spaces, lowercase x) before stopping.
 
 ---
 
 ## Requirements
 
 - VS Code 1.99 or later
-- At least one of:
-  - [Claude Code](https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code) — signed in
-  - [GitHub Copilot Chat](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot-chat) — signed in
-- **Linux only:** `xdotool` for auto-submit (`sudo apt install xdotool`)
+- At least one provider installed and authenticated:
+  - **claude-cli**: `claude` CLI ([Claude Code](https://claude.ai/code))
+  - **copilot-cli**: `copilot` or `gh copilot` CLI
+  - **opencode-cli**: `opencode` ([opencode.ai](https://opencode.ai))
+- **Linux only**: `xdotool` for keyboard automation (`sudo apt install xdotool`)
 
 ---
 
-## Output Logs
+## License
 
-Open **Output → AutoDev** to see live logs:
-
-```
-[AutoDev] Task loop starting — TODO: /workspace/TODO.md
-[AutoDev] Auto-reset in-progress tasks to [ ]
-[AutoDev] ▶ Task [1]: build the login page
-[AutoDev] Dispatching task: build the login page
-[AutoDev] ✅ Task done: build the login page
-[AutoDev] ▶ Task [2]: add unit tests for auth module
-[AutoDev] ⚠️ Check-in: reminding AI to mark TODO.md if done
-[AutoDev] ✅ Task done: add unit tests for auth module
-[AutoDev] All tasks completed ✓
-```
-
----
-
-## Development
-
-```bash
-git clone https://github.com/autoaidev/autodev-vscode-extension
-cd autodev-vscode-extension
-npm install
-npm run compile
-```
-
-Press `F5` to launch the Extension Development Host. Use `npm run watch` for incremental rebuilds.
-
-## Project Structure
-
-```
-autodev-vscode-extension/
-├── media/
-│   └── icon.svg          # Activity bar icon
-├── src/
-│   └── extension.ts      # All extension logic
-├── .vscode/
-│   ├── launch.json       # F5 debug config
-│   └── tasks.json        # Compile / watch tasks
-├── package.json
-└── tsconfig.json
-```
-
----
-
-## How Completion Detection Works
-
-AutoDev uses the **VS Code Language Model API** (`vscode.lm`) to send requests directly to the AI model rather than delegating to a chat panel. This means:
-
-1. AutoDev owns the stream — it knows **exactly** when the last token arrives.
-2. The moment the stream ends, the sidebar entry flips from **⚡ Thinking** to **✓ Done**.
-3. No heuristics, no timers, no clicking required.
-
-**Fallback mode** (when the LM API returns no models for the selected provider): AutoDev opens the chat panel directly and uses a `activeTextEditor` focus-change heuristic — the entry marks Done when you click back into a code file after reading the response.
+MIT
