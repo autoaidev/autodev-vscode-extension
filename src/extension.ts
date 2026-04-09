@@ -5,6 +5,7 @@ import { taskLoopRunner } from './taskLoop';
 import { openSettingsFile } from './settings';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
+import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
 import { PROVIDERS } from './providers';
 
@@ -23,7 +24,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   applyAutoAcceptSettings();
   ConfigManager.applyAll(root, log);
-  log('Extension activated');
+  const extVersion = context.extension.packageJSON?.version ?? 'unknown';
+  log(`Extension activated v${extVersion}`);
 
   context.subscriptions.push(
     _out,
@@ -40,10 +42,14 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       vscode.window.showInformationMessage('AutoDev: Starting task loop');
+      const loopRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      const launcher = new VsProcessLauncher();
       void taskLoopRunner.start({
-        sendToAi: (prompt, taskLabel, focusOnly) => {
+        workspaceRoot: loopRoot,
+        fileWatcher: new VsFileWatcher(),
+        sendToAi: (prompt, taskLabel) => {
           log(`Dispatching task: ${taskLabel}`);
-          return sendPromptToAi(sidebar.selectedProvider, prompt, log, focusOnly);
+          return sendPromptToAi(sidebar.selectedProvider, prompt, log, launcher, loopRoot);
         },
         log,
         onStatusChange: (state, task) => {

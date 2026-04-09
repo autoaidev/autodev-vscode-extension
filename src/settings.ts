@@ -1,65 +1,15 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ProviderId } from './providers';
+
+// Re-export the pure settings type and loader so VS Code extension code can
+// import from a single place.
+export { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/settingsLoader';
+import { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/settingsLoader';
 
 // ---------------------------------------------------------------------------
-// AutoDev settings — stored in .vscode/autodev.json inside each workspace
+// VS Code-aware settings helpers
 // ---------------------------------------------------------------------------
-
-export interface AutodevSettings {
-  /** Active AI provider */
-  provider: ProviderId;
-  /** Base URL of the autodev server (e.g. https://myserver.com) */
-  serverBaseUrl: string;
-  /** API key (X-API-Key) for the autodev server */
-  serverApiKey: string;
-  /** Webhook endpoint slug — events POST to {serverBaseUrl}/webhook/{slug}, logs polled from {serverBaseUrl}/v1/logs */
-  webhookSlug: string;
-  /** Discord bot token */
-  discordToken: string;
-  /** Discord channel ID to post messages to */
-  discordChannelId: string;
-  /** Discord webhook URL (simpler alternative to bot — just POSTs embeds) */
-  discordWebhookUrl: string;
-  /** Comma-separated list of Discord usernames or user IDs allowed to send tasks to the bot */
-  discordOwners: string;
-  /** Seconds to wait between loop ticks when TODO is empty */
-  loopInterval: number;
-  /** Minutes before a running task is considered timed out */
-  taskTimeoutMinutes: number;
-  /** Minutes between periodic check-in notifications while a task is running */
-  taskCheckInMinutes: number;
-  /** If true, retry timed-out tasks instead of marking them failed */
-  retryOnTimeout: boolean;
-  /** If true, reset any [~] in-progress tasks to [ ] when the loop starts */
-  autoResetPendingTasks: boolean;
-  /** Path to the agent instructions file (defaults to AUTODEV.md in workspace root) */
-  profilePath: string;
-  /** Path to TODO.md (defaults to TODO.md in workspace root) */
-  todoPath: string;
-  /** If true, pass --resume / --session flag to CLI providers to continue the last session */
-  resumeSession: boolean;
-}
-
-const DEFAULTS: AutodevSettings = {
-  provider: 'claude-cli' as ProviderId,
-  serverBaseUrl: '',
-  serverApiKey: '',
-  webhookSlug: '',
-  discordToken: '',
-  discordChannelId: '',
-  discordWebhookUrl: '',
-  discordOwners: '',
-  loopInterval: 30,
-  taskTimeoutMinutes: 30,
-  taskCheckInMinutes: 20,
-  retryOnTimeout: false,
-  autoResetPendingTasks: true,
-  profilePath: '',
-  todoPath: '',
-  resumeSession: false,
-};
 
 function settingsPath(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
@@ -67,15 +17,11 @@ function settingsPath(): string | undefined {
   return path.join(folders[0].uri.fsPath, '.vscode', 'autodev.json');
 }
 
+/** Load settings using the VS Code workspace root (falls back to defaults). */
 export function loadSettings(): AutodevSettings {
-  const file = settingsPath();
-  if (!file || !fs.existsSync(file)) { return { ...DEFAULTS }; }
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<AutodevSettings>;
-    return { ...DEFAULTS, ...raw };
-  } catch {
-    return { ...DEFAULTS };
-  }
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) { return { ...SETTINGS_DEFAULTS }; }
+  return loadSettingsForRoot(folders[0].uri.fsPath);
 }
 
 export function saveSettings(settings: AutodevSettings): void {
@@ -94,7 +40,6 @@ function ensureGitignore(root: string, entry: string): void {
     let content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : '';
     const lines = content.split('\n').map(l => l.trim());
     if (lines.includes(entry)) { return; }
-    // Append with a trailing newline
     if (content.length > 0 && !content.endsWith('\n')) { content += '\n'; }
     content += `${entry}\n`;
     fs.writeFileSync(gitignorePath, content, 'utf8');
@@ -109,7 +54,7 @@ export async function openSettingsFile(): Promise<void> {
     return;
   }
   if (!fs.existsSync(file)) {
-    saveSettings(DEFAULTS);
+    saveSettings(SETTINGS_DEFAULTS);
   }
   const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
   await vscode.window.showTextDocument(doc);
@@ -148,7 +93,7 @@ export function getBuiltinProfiles(): ProfileOption[] {
     if (!fs.existsSync(mediaDir)) { return []; }
     const files = fs.readdirSync(mediaDir)
       .filter(f => f.endsWith('.md'))
-      .sort(); // alphabetical so Default comes before No Commit
+      .sort();
     const profiles: ProfileOption[] = [];
     for (const file of files) {
       const filePath = path.join(mediaDir, file);
@@ -163,4 +108,3 @@ export function getBuiltinProfiles(): ProfileOption[] {
     return [];
   }
 }
-

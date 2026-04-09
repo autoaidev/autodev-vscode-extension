@@ -25,26 +25,52 @@ export class WebhookClient {
   private currentTaskId: string | null = null;
   private currentArtifactId: string | null = null;
   private meta: Record<string, unknown> = {};
+  private _wsSender: ((frame: unknown) => boolean) | null = null;
 
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
+    contextId?: string,
   ) {
-    this.contextId = uuid();
+    this.contextId = contextId ?? uuid();
   }
 
   setMeta(meta: Record<string, unknown>): void { this.meta = meta; }
 
+  /**
+   * Provide a WebSocket sender function. When set and connected, events will
+   * be sent over the WS connection instead of HTTP POST — avoiding the
+   * mismatch of POSTing to a ws:// URL.
+   */
+  setWsSender(sender: (frame: unknown) => boolean): void {
+    this._wsSender = sender;
+  }
+
   send(event: WebhookEvent, payload: Record<string, unknown> = {}): void {
-    if (!this.baseUrl) { return; }
-    const merged: Record<string, unknown> = { ...this.meta, ...payload };
+    const merged: Record<string, unknown> = { ...this.meta, event, ...payload };
     const body = this.toStreamResponse(event, merged);
+
+    // Prefer WS delivery if a sender is wired up and connected
+    if (this._wsSender) {
+      const sent = this._wsSender(body);
+      if (sent) { return; }
+      // Fall through to HTTP if WS is not yet connected
+    }
+
+    if (!this.baseUrl) { return; }
+
+    // Convert ws:// → http:// and wss:// → https:// for the HTTP fallback.
+    // The WS server on port 6001 also accepts HTTP POST on /webhook/{slug}.
+    const httpUrl = this.baseUrl
+      .replace(/^ws:\/\//, 'http://')
+      .replace(/^wss:\/\//, 'https://');
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/a2a+json',
       'User-Agent': 'AutoDev-VSCode/1.0',
     };
     if (this.apiKey) { headers['Authorization'] = `Bearer ${this.apiKey}`; }
-    postJson(this.baseUrl, body, headers).catch(() => {});
+    postJson(httpUrl, body, headers).catch(() => {});
   }
 
   private toStreamResponse(event: WebhookEvent, payload: Record<string, unknown>): unknown {

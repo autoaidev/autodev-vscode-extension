@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -6,7 +5,8 @@ import { execSync } from 'child_process';
 import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
 import { buildPrompt } from './prompt';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
-import { loadSettings, AutodevSettings } from './settings';
+import { loadSettingsForRoot, AutodevSettings } from './settings';
+import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { captureAndSaveSessionId, saveSessionId, stdoutFilePath, exitFilePath } from './sessionState';
@@ -80,7 +80,7 @@ class RetryScheduler {
 
 export interface LoopCallbacks {
   /** Send a raw prompt string to the active AI provider */
-  sendToAi: (prompt: string, taskLabel: string, focusOnly?: boolean) => Promise<void>;
+  sendToAi: (prompt: string, taskLabel: string) => Promise<void>;
   /** Append a message to the extension's output channel */
   log: (msg: string) => void;
   /** Called whenever the loop state changes so the sidebar can refresh */
@@ -89,6 +89,10 @@ export interface LoopCallbacks {
   onActivityChange?: (activity: string | undefined) => void;
   /** Returns the currently selected provider ID (live, not from settings file) */
   getActiveProvider: () => ProviderId;
+  /** Absolute path to the workspace root directory */
+  workspaceRoot: string;
+  /** File watcher used to monitor TODO.md and output files */
+  fileWatcher: IFileWatcher;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -112,10 +116,10 @@ function resolveGitInfo(workDir: string): { gitRepo: string; gitBranch: string }
   };
 }
 
-class TaskLoopRunner {
+export class TaskLoopRunner {
   private _state: LoopState = 'idle';
   private _currentTask: string | undefined;
-  private _taskWatcher: vscode.Disposable | undefined;
+  private _taskWatcher: IDisposable | undefined;
   private _iterations = 0;
   private _cb: LoopCallbacks | undefined;
   private _webhook: WebhookClient | null = null;
@@ -160,8 +164,8 @@ class TaskLoopRunner {
     this._iterations = 0;
     this._setState('running');
 
-    const settings = loadSettings();
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const settings = loadSettingsForRoot(callbacks.workspaceRoot);
+    const root = callbacks.workspaceRoot;
     if (!root) {
       callbacks.log('No workspace folder open');
       this._setState('idle');
@@ -182,6 +186,7 @@ class TaskLoopRunner {
       ? new WebhookClient(
           settings.serverBaseUrl.replace(/\/$/, '') + '/webhook/' + settings.webhookSlug,
           settings.serverApiKey,
+          settings.webhookSlug,  // use slug as contextId so server can find the agent
         )
       : null;
     this._webhook?.setMeta({ provider: settings.provider, workDir: root, hostname: this._hostname, gitRepo: this._gitRepo, gitBranch: this._gitBranch });
@@ -194,12 +199,23 @@ class TaskLoopRunner {
       ? new WebhookPoller(settings.serverBaseUrl, settings.serverApiKey, settings.webhookSlug)
       : null;
 
+    // When the poller is WebSocket-backed, route outbound events through the
+    // same WS connection instead of HTTP POST (which fails for ws:// URLs).
+    if (this._webhook && this._webhookPoller?.isWebSocket) {
+      this._webhook.setWsSender((frame) => this._webhookPoller!.sendFrame(frame));
+    }
+
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
     const autodevPath = settings.profilePath || path.join(root, 'AUTODEV.md');
 
     // Seed Discord cursor to ignore history before the loop started
     if (this._discordPoller) {
       await this._discordPoller.initialize();
+    }
+
+    // Start WebSocket connection (no-op for HTTP pollers)
+    if (this._webhookPoller) {
+      this._webhookPoller.start(todoPath, (msg) => callbacks.log(msg));
     }
 
     // Start independent background polling loops — run even while AI is processing a task
@@ -304,6 +320,8 @@ class TaskLoopRunner {
   private _stopPollers(): void {
     for (const id of this._pollerIntervals) { clearInterval(id); }
     this._pollerIntervals = [];
+    // Tear down any persistent WebSocket connection
+    if (this._webhookPoller) { this._webhookPoller.destroy(); }
   }
 
   private async _runLoop(todoPath: string, autodevPath: string, settings: AutodevSettings): Promise<void> {
@@ -533,14 +551,15 @@ class TaskLoopRunner {
 
       let poller: NodeJS.Timeout | undefined;
       let timer: NodeJS.Timeout | undefined;
-      let stdoutWatcherRef: vscode.Disposable | undefined;
-      let exitWatcherRef: vscode.Disposable | undefined;
+      let stdoutWatcherRef: IDisposable | undefined;
+      let exitWatcherRef: IDisposable | undefined;
+      let todoWatcher: IDisposable | undefined;
 
-      const cleanup = (watcher: vscode.Disposable) => {
+      const cleanup = () => {
         this._taskCompletionAbort = null;
         clearTimeout(timer);
         clearInterval(poller);
-        watcher.dispose();
+        todoWatcher?.dispose();
         stdoutWatcherRef?.dispose();
         stdoutWatcherRef = undefined;
         exitWatcherRef?.dispose();
@@ -548,15 +567,13 @@ class TaskLoopRunner {
         this._cb?.onActivityChange?.(undefined);
       };
 
-      const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(path.dirname(todoPath), path.basename(todoPath))
-      );
-      this._taskWatcher = watcher;
-
       const check = () => {
-        if (this._state !== 'running') { cleanup(watcher); resolve(); return; }
-        if (found()) { cleanup(watcher); resolve(); }
+        if (this._state !== 'running') { cleanup(); resolve(); return; }
+        if (found()) { cleanup(); resolve(); }
       };
+
+      todoWatcher = this._cb!.fileWatcher.watch(todoPath, check);
+      this._taskWatcher = todoWatcher;
 
       // Per-provider stdout capture file (only used for CLI providers)
       const activeProvider = this._cb?.getActiveProvider() ?? 'unknown';
@@ -604,24 +621,21 @@ class TaskLoopRunner {
 
         // Rate limit detection
         if (content.includes('hit your limit') || content.toLowerCase().includes('rate limit')) {
-          cleanup(watcher);
+          cleanup();
           reject(new RateLimitError(content.trim(), parseRateLimitResetTime(content)));
         }
       };
 
       // Register abort hook so stop() can resolve this immediately
-      this._taskCompletionAbort = () => { cleanup(watcher); resolve(); };
+      this._taskCompletionAbort = () => { cleanup(); resolve(); };
 
       // Watch the per-provider stdout capture file for instant rate-limit detection
       const stdoutDir = this._workspaceRoot
         ? path.join(this._workspaceRoot, '.autodev', 'output')
         : path.dirname(todoPath);
-      const stdoutWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(stdoutDir, `${activeProvider}.txt`)
+      stdoutWatcherRef = this._cb!.fileWatcher.watch(
+        path.join(stdoutDir, `${activeProvider}.txt`), checkStdout
       );
-      stdoutWatcherRef = stdoutWatcher;
-      stdoutWatcher.onDidChange(checkStdout);
-      stdoutWatcher.onDidCreate(checkStdout);
 
       // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
       // process finishes.  When it appears with a non-empty value and the task is not
@@ -629,8 +643,9 @@ class TaskLoopRunner {
       let exitReminderSent = false;
       const onCliExit = async () => {
         if (this._state !== 'running') { return; }
-        // Give TODO.md a short moment to be flushed before we check it
-        await sleep(1_500);
+        // Give TODO.md enough time to be fully flushed and for any final Claude
+        // writes (session ID capture etc.) to settle before we declare it undone.
+        await sleep(3_000);
         if (found()) { return; } // task already marked done — nothing to do
         if (exitReminderSent) { return; } // only send once
         exitReminderSent = true;
@@ -647,11 +662,18 @@ class TaskLoopRunner {
           gitBranch:      this._gitBranch,
         });
         const date = new Date().toISOString().slice(0, 10);
+        // Read the actual current marker from TODO.md so the reminder is accurate.
+        // If Claude never started the task it will be [ ]; if it marked it in-progress
+        // but then exited it will be [~]. Using the wrong marker causes the AI to fail
+        // to locate the line and exit again without making any change.
+        const currentTasks = parseTodo(todoPath);
+        const currentLine  = currentTasks.find(t => t.line === task.line || t.text === task.text);
+        const currentMarker = currentLine?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
           `Your process has finished.  If you have completed the task, mark it done in TODO.md now.`,
           ``,
           `Change the line:`,
-          `  - [~] ${task.text}`,
+          `  - [${currentMarker}] ${task.text}`,
           `to exactly:`,
           `  - [x] ${date}  ${task.text}`,
           ``,
@@ -659,15 +681,11 @@ class TaskLoopRunner {
           `If you haven't finished yet, continue and mark it done when you are.`,
         ].join('\n');
         this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
-        try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
+        try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
       };
 
       if (this._workspaceRoot) {
         const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
-        const exitWatcher = vscode.workspace.createFileSystemWatcher(
-          new vscode.RelativePattern(stdoutDir, `${activeProvider}-exit.txt`)
-        );
-        exitWatcherRef = exitWatcher;
         const handleExitFile = () => {
           try {
             const content = fs.readFileSync(exitFile, 'utf8').trim();
@@ -675,13 +693,8 @@ class TaskLoopRunner {
           } catch { return; }
           void onCliExit();
         };
-        exitWatcher.onDidChange(handleExitFile);
-        exitWatcher.onDidCreate(handleExitFile);
+        exitWatcherRef = this._cb!.fileWatcher.watch(exitFile, handleExitFile);
       }
-
-      // File watcher — fires on change/create events
-      watcher.onDidChange(check);
-      watcher.onDidCreate(check);
 
       // Inactivity-based check-in: track Claude JSONL byte size every 3 s.
       // After 15 minutes of silence (no new bytes), send the TODO.md reminder.
@@ -722,7 +735,7 @@ class TaskLoopRunner {
 
           // Rate limit detection — reject immediately so _runLoop can pause
           if (sessionState.rateLimitMessage) {
-            cleanup(watcher);
+            cleanup();
             reject(new RateLimitError(
               sessionState.rateLimitMessage,
               parseRateLimitResetTime(sessionState.rateLimitMessage),
@@ -764,11 +777,14 @@ class TaskLoopRunner {
           gitBranch:      this._gitBranch,
         });
         const date = new Date().toISOString().slice(0, 10);
+        const currentTasks2 = parseTodo(todoPath);
+        const currentLine2  = currentTasks2.find(t => t.line === task.line || t.text === task.text);
+        const currentMarker2 = currentLine2?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
           `Reminder: when you are done with the task, mark it done in TODO.md.`,
           ``,
           `Change the line:`,
-          `  - [~] ${task.text}`,
+          `  - [${currentMarker2}] ${task.text}`,
           `to exactly:`,
           `  - [x] ${date}  ${task.text}`,
           ``,
@@ -776,12 +792,12 @@ class TaskLoopRunner {
           `If you have already finished, do this now.`,
         ].join('\n');
         this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
-        try { await this._cb!.sendToAi(reminder, task.text, true); } catch { /* ignore */ }
+        try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
       }, 3_000);
 
       // Hard timeout
       timer = setTimeout(() => {
-        cleanup(watcher);
+        cleanup();
         const minutes = settings.taskTimeoutMinutes ?? 30;
         if (settings.retryOnTimeout) {
           try { resetToTodo(todoPath, task); } catch { /* ignore */ }
