@@ -20,8 +20,9 @@ import * as fs from 'fs';
 //   PATCH {baseUrl}/v1/logs/{id}  { status: 'received' }
 //
 // WebSocket: connects to ws(s)://{host}:{port}/?token={apiKey}&endpoint={slug}
-//   Incoming text frames are parsed as JSON; a "webhook" event with a
-//   user_message payload causes the task text to be appended to TODO.md.
+//   Incoming frames are pure A2A StreamResponse JSON.
+//   A task frame with status.state=TASK_STATE_SUBMITTED and metadata.event=user_message
+//   causes the task text to be appended to TODO.md.
 //
 // Auth: X-API-Key header (HTTP) / token query param (WebSocket)
 // ---------------------------------------------------------------------------
@@ -283,45 +284,23 @@ class WebSocketPoller {
     try { msg = JSON.parse(payload.toString('utf8')); }
     catch { return; }
 
-    const type = msg['type'] as string | undefined;
-    const event = msg['event'] as string | undefined;
-
-    // Protocol: { type: 'webhook.received', data: { log_id, payload: { event, task } } }
-    if (type === 'webhook.received') {
-      const data = msg['data'] as Record<string, unknown> | undefined;
-      const inner = data?.['payload'] as Record<string, unknown> | undefined;
-      if (!inner || inner['event'] !== 'user_message') {
-        console.log(`[AutoDev] WS webhook.received skipped — event="${inner?.['event']}" (expected user_message)`);
-        return;
-      }
-      const taskObj = inner['task'] as Record<string, unknown> | undefined;
+    // A2A task frame: { task: { id, contextId, status: { state }, metadata: { event, task } } }
+    if (msg['task']) {
+      const t = msg['task'] as Record<string, unknown>;
+      const state = (t['status'] as Record<string, unknown> | undefined)?.['state'] as string | undefined;
+      if (state !== 'TASK_STATE_SUBMITTED') { return; }
+      const meta = (t['metadata'] as Record<string, unknown> | undefined) ?? {};
+      if (meta['event'] !== 'user_message') { return; }
+      const taskObj = meta['task'] as Record<string, unknown> | undefined;
       const taskText = typeof taskObj?.['text'] === 'string' ? taskObj['text'] : undefined;
-      if (!taskText) {
-        console.log(`[AutoDev] WS webhook.received — no task text found, inner=${JSON.stringify(inner)}`);
-        return;
-      }
-      console.log(`[AutoDev] WS task received: "${taskText}" → writing to ${this._todoPath}`);
+      if (!taskText) { return; }
+      this._log(`WS task received: "${taskText}"`);
       try {
         if (!this._todoPath) { throw new Error('todoPath is empty'); }
         fs.appendFileSync(this._todoPath, `\n- [ ] ${taskText}\n`, 'utf8');
-        console.log(`[AutoDev] Task appended to TODO.md: ${taskText}`);
       } catch (err) {
-        console.error(`[AutoDev] Failed to append task to TODO.md: ${err}`);
+        this._log(`WS failed to append task to TODO.md: ${err}`);
       }
-      return;
-    }
-
-    // Legacy/fallback: { event: 'webhook', data: { payload: { event, task } } }
-    if (event === 'webhook') {
-      const data = msg['data'] as Record<string, unknown> | undefined;
-      if (!data) { return; }
-      const inner = (data['payload'] ?? data) as Record<string, unknown> | undefined;
-      if (!inner || inner['event'] !== 'user_message') { return; }
-      const taskObj = inner['task'] as Record<string, unknown> | undefined;
-      const taskText = typeof taskObj?.['text'] === 'string' ? taskObj['text'] : undefined;
-      if (!taskText) { return; }
-      try { fs.appendFileSync(this._todoPath, `\n- [ ] ${taskText}\n`, 'utf8'); }
-      catch { /* ignore write errors */ }
     }
   }
 

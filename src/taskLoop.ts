@@ -10,6 +10,7 @@ import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { captureAndSaveSessionId, saveSessionId, stdoutFilePath, exitFilePath } from './sessionState';
+import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { WebhookPoller } from './webhookPoller';
@@ -80,7 +81,7 @@ class RetryScheduler {
 
 export interface LoopCallbacks {
   /** Send a raw prompt string to the active AI provider */
-  sendToAi: (prompt: string, taskLabel: string) => Promise<void>;
+  sendToAi: (prompt: string, taskLabel: string, includeProfile?: boolean) => Promise<void>;
   /** Append a message to the extension's output channel */
   log: (msg: string) => void;
   /** Called whenever the loop state changes so the sidebar can refresh */
@@ -97,6 +98,27 @@ export interface LoopCallbacks {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Read a CLI stdout file and return its content as a UTF-8 string.
+ * Handles all BOM variants that PowerShell may write:
+ *   \xFF\xFE → UTF-16 LE (Tee-Object default on PS5)
+ *   \xEF\xBB\xBF → UTF-8 with BOM (Out-File -Encoding UTF8 on PS5)
+ *   no BOM → plain UTF-8 (PS7)
+ */
+function readOutputFile(filePath: string): string {
+  const raw = fs.readFileSync(filePath);
+  if (raw.length === 0) { return ''; }
+  if (raw[0] === 0xFF && raw[1] === 0xFE) {
+    // UTF-16 LE
+    return raw.subarray(2).toString('utf16le').trim();
+  }
+  if (raw[0] === 0xEF && raw[1] === 0xBB && raw[2] === 0xBF) {
+    // UTF-8 BOM
+    return raw.subarray(3).toString('utf8').trim();
+  }
+  return raw.toString('utf8').trim();
 }
 
 /** First line of task text, capped at 200 chars — safe to post to Discord. */
@@ -366,7 +388,8 @@ export class TaskLoopRunner {
       this._setState('running', task.text);
 
       // Do NOT mark in-progress from JS — the prompt instructs the LLM to do it
-      const prompt = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath);
+      // Only include the AUTODEV profile on the first task — subsequent tasks only need the TODO
+      const prompt = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath, this._iterations === 1);
       const remaining = countRemaining(parseTodo(todoPath));
 
       this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
@@ -385,17 +408,35 @@ export class TaskLoopRunner {
       const claudeCursor = getClaudeSessionCursor(this._workspaceRoot!);
       try {
         // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
-        await this._cb!.sendToAi(prompt, task.text);
+        await this._cb!.sendToAi(prompt, task.text, this._iterations === 1);
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
 
-        // Let the OS fully flush Claude's final write before we re-read TODO.md.
-        // Uses the task-completion abort hook so Stop clears this immediately.
-        await this._sleepAbortable(2_000);
+        // Wait for the CLI process to fully exit before reading its stdout.
+        // The exit-code file is written only after the shell command completes,
+        // so a non-empty file guarantees the stdout file is fully flushed.
+        const activeProvider = this._cb?.getActiveProvider();
+        if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+          const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
+          // Clear the exit file so we don't read a stale value from a prior task
+          try { fs.writeFileSync(exitFile, '', 'utf8'); } catch { /* ignore */ }
+          // Poll up to 30 s for the exit file to be non-empty
+          const deadline = Date.now() + 30_000;
+          while (Date.now() < deadline) {
+            await this._sleepAbortable(500);
+            if (this._state !== 'running') { break; }
+            try {
+              const content = fs.readFileSync(exitFile, 'utf8').trim();
+              if (content.length > 0) { break; }
+            } catch { /* not written yet */ }
+          }
+        } else {
+          // Non-CLI providers: just wait for OS flush
+          await this._sleepAbortable(2_000);
+        }
 
         // Capture and persist CLI session ID so the next task can resume it
-        const activeProvider = this._cb?.getActiveProvider();
         if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           if (activeProvider === 'opencode-cli') {
             // opencode run doesn't output JSON, so read the session list directly
@@ -416,16 +457,36 @@ export class TaskLoopRunner {
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
         const totalKnown = this._iterations + afterRemaining;
+
+        // Read the AI's output from the stdout file (most reliable — it's the raw CLI output)
+        let taskOutput = '';
+        if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+          const outFile = stdoutFilePath(this._workspaceRoot, activeProvider);
+          try {
+            if (fs.existsSync(outFile)) {
+              taskOutput = readOutputFile(outFile);
+            }
+          } catch { /* ignore */ }
+        }
+        // Fallback: JSONL session for claude-cli
+        if (!taskOutput && this._workspaceRoot && activeProvider === 'claude-cli') {
+          taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
+        }
+
         this._cb?.log(`\u2705 Task done: ${task.text}`);
         this._notifyWebhook('task_done', {
           iteration: this._iterations,
           task:      { text: task.text },
+          output:    taskOutput || undefined,
           duration,
           workDir:   this._workspaceRoot,
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`\u2705 **Task done** (${afterRemaining} remaining):\n${discordLabel(task.text)}`);
+        const discordOutput = taskOutput
+          ? `\n\`\`\`\n${taskOutput.slice(0, 1800)}\n\`\`\``
+          : '';
+        this._notifyDiscord(`\u2705 **Task done** (${afterRemaining} remaining):\n${discordLabel(task.text)}${discordOutput}`);
         if (afterRemaining > 0) {
           this._notifyDiscord(`\ud83d\udcca Progress: ${this._iterations}/${totalKnown}`);
           this._notifyWebhook('task_progress', {
@@ -533,7 +594,6 @@ export class TaskLoopRunner {
 
       const settings = this._settings!;
       const timeoutMs  = (settings.taskTimeoutMinutes  ?? 30) * 60 * 1_000;
-      const checkInMs  = (settings.taskCheckInMinutes  ?? 20) * 60 * 1_000;
       const taskStartTime = Date.now();
 
       const found = () => {

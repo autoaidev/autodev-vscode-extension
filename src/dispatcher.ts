@@ -27,7 +27,12 @@ export {
 
 function teeCommand(cmd: string, outFile: string): string {
   if (os.platform() === 'win32') {
-    return `$OutputEncoding=[System.Text.Encoding]::UTF8; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(outFile)}`;
+    // $OutputEncoding controls pipe encoding; Console.OutputEncoding controls the subprocess.
+    // Use UTF8Encoding($false) = UTF-8 without BOM on both.
+    // Tee-Object writes the file in the system default encoding (UTF-16 LE on PS5,
+    // UTF-8 on PS7) — the Node.js reader detects the BOM and decodes accordingly.
+    const utf8NoBom = 'New-Object System.Text.UTF8Encoding($false)';
+    return `$OutputEncoding=${utf8NoBom}; [Console]::OutputEncoding=${utf8NoBom}; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(outFile)}`;
   }
   return `{ ${cmd}; } 2>&1 | tee ${JSON.stringify(outFile)}`;
 }
@@ -62,10 +67,11 @@ function ensureProjectGitignore(root: string, entry: string): void {
  */
 export async function sendPromptToAi(
   providerId: ProviderId,
-  prompt: string,
+  _prompt: string,
   log: (msg: string) => void,
   launcher: IProcessLauncher,
   workspaceRoot: string,
+  includeProfile = true,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
 
@@ -97,20 +103,24 @@ export async function sendPromptToAi(
 
     let cmd: string;
     if (providerId === 'claude-cli') {
-      cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId);
+      cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
       const msgsDir = path.join(root, '.autodev', 'messages');
       if (!fs.existsSync(msgsDir)) { fs.mkdirSync(msgsDir, { recursive: true }); }
-      const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
       const msgContent = fs.readFileSync(messageFile, 'utf8');
+      let combined = msgContent;
+      if (includeProfile) {
+        const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
+        combined = `${profileContent}\n\n${msgContent}`;
+      }
       const combinedFile = path.join(msgsDir, `temp_${Date.now()}.md`);
-      fs.writeFileSync(combinedFile, `${profileContent}\n\n${msgContent}`, 'utf8');
+      fs.writeFileSync(combinedFile, combined, 'utf8');
       cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
     } else {
-      cmd = buildOpenCodeCliCommand(agentProfileFile, messageFile, resolvedSessionId);
+      cmd = buildOpenCodeCliCommand(agentProfileFile, includeProfile ? messageFile : messageFile, resolvedSessionId);
     }
 
     const exitFile = exitFilePath(root, providerId);

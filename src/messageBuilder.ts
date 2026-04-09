@@ -107,10 +107,11 @@ export function buildMessage(
   root: string,
   todoDir: string,
   profilePath?: string,
+  includeProfile = true,
 ): string {
   autodevDir(root);
 
-  // Resolve and read profile
+  // Resolve and read profile (always needed for meta even if not included in output)
   const resolvedProfile = profilePath || path.join(todoDir, 'AUTODEV.md');
   let rawProfile = readOrEmpty(resolvedProfile);
   if (!rawProfile) { rawProfile = readOrEmpty(defaultProfilePath()); }
@@ -124,12 +125,14 @@ export function buildMessage(
   const taskMessage = buildTaskInstruction(task.text, todoContent, meta.noCommit);
 
   // Write split files
-  fs.writeFileSync(path.join(root, AGENT_PROFILE_FILE), profileBody, 'utf8');
+  if (includeProfile) {
+    fs.writeFileSync(path.join(root, AGENT_PROFILE_FILE), profileBody, 'utf8');
+  }
   fs.writeFileSync(path.join(root, MESSAGE_FILE), taskMessage, 'utf8');
 
   // Combined string for UI providers
   const parts: string[] = [];
-  if (profileBody.trim()) {
+  if (includeProfile && profileBody.trim()) {
     parts.push(`# Project Instructions (AUTODEV.md)\n\n${profileBody.trim()}`);
   }
   parts.push(taskMessage);

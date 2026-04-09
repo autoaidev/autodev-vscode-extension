@@ -20,7 +20,8 @@ export function buildPrompt(
   root: string,
   todoDir: string,
   autodevPath?: string,
+  includeProfile = true,
 ): string {
-  return buildMessage(task, root, todoDir, autodevPath);
+  return buildMessage(task, root, todoDir, autodevPath, includeProfile);
 }
 

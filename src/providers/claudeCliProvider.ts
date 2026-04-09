@@ -212,12 +212,15 @@ export function buildClaudeCliCommand(
   agentProfileFile: string,
   messageFile: string,
   sessionId?: string,
+  includeProfile = true,
 ): string {
   const resume = sessionId ? ` --resume ${sessionId}` : '';
-  // Pass both files as @-references in a single -p arg so Claude reads both
-  const profileRef = JSON.stringify(`@${agentProfileFile}`);
   const msgRef = JSON.stringify(`@${messageFile}`);
-  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${profileRef} ${msgRef}`;
+  if (includeProfile) {
+    const profileRef = JSON.stringify(`@${agentProfileFile}`);
+    return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${profileRef} ${msgRef}`;
+  }
+  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${msgRef}`;
 }
 
 /**
