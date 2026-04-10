@@ -325,6 +325,14 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_retryOnTimeout"> Retry on timeout</label></div>
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoResetPendingTasks"> Auto-reset pending tasks on start</label></div>
   </div>
+  <div class="cfg-section">VNC</div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_vncEnabled"> Enable VNC</label></div>
+  </div>
+  <div class="cfg-row" id="vncFields">
+    <div class="cfg-field"><label class="cfg-label">VNC Port</label><input class="cfg-input" id="cfg_vncPort" type="number" min="1" max="65535"></div>
+    <div class="cfg-field"><label class="cfg-label">VNC Password</label><input class="cfg-input" id="cfg_vncPassword" type="password" placeholder="(leave empty for no-auth)"></div>
+  </div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <div class="cfg-field">
@@ -468,6 +476,12 @@ function populateSettings(s){
   if(rot) rot.checked=!!s.retryOnTimeout;
   const arp=document.getElementById('cfg_autoResetPendingTasks');
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
+  const vnce=document.getElementById('cfg_vncEnabled');
+  if(vnce) vnce.checked=!!s.vncEnabled;
+  const vncprt=document.getElementById('cfg_vncPort');
+  if(vncprt) vncprt.value=s.vncPort!==undefined?s.vncPort:5900;
+  const vncpw=document.getElementById('cfg_vncPassword');
+  if(vncpw) vncpw.value=s.vncPassword||'';
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
@@ -529,6 +543,9 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
+    vncEnabled:document.getElementById('cfg_vncEnabled').checked,
+    vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
+    vncPassword:document.getElementById('cfg_vncPassword').value,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,

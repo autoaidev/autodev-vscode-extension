@@ -26,6 +26,9 @@ export interface AutodevSettings {
   profilePath: string;
   todoPath: string;
   resumeSession: boolean;
+  vncEnabled: boolean;
+  vncPort: number;
+  vncPassword: string;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -45,6 +48,9 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   profilePath: '',
   todoPath: '',
   resumeSession: false,
+  vncEnabled: false,
+  vncPort: 5900,
+  vncPassword: '',
 };
 
 /**

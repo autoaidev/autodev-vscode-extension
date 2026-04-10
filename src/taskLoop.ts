@@ -228,6 +228,11 @@ export class TaskLoopRunner {
       this._webhook.setWsSender((frame) => this._webhookPoller!.sendFrame(frame));
     }
 
+    // Pass VNC password so the poller can authenticate incoming vnc_session requests.
+    if (this._webhookPoller && settings.vncEnabled && settings.vncPassword) {
+      this._webhookPoller.setVncPassword(settings.vncPassword);
+    }
+
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
     const autodevPath = settings.profilePath || path.join(root, 'AUTODEV.md');
 
@@ -252,10 +257,12 @@ export class TaskLoopRunner {
       gitBranch: this._gitBranch,
     });
     this._notifyWebhook('agent_online', {
-      hostname:  this._hostname,
-      workDir:   root,
-      gitRepo:   this._gitRepo,
-      gitBranch: this._gitBranch,
+      hostname:   this._hostname,
+      workDir:    root,
+      gitRepo:    this._gitRepo,
+      gitBranch:  this._gitBranch,
+      vncEnabled: settings.vncEnabled ?? false,
+      vncPort:    settings.vncEnabled ? (settings.vncPort ?? 5900) : undefined,
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
 

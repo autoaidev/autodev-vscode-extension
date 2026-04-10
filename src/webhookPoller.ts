@@ -5,6 +5,7 @@ import * as tls from 'tls';
 import * as crypto from 'crypto';
 import * as url from 'url';
 import * as fs from 'fs';
+import { VncSession } from './vncBridge';
 
 // ---------------------------------------------------------------------------
 // WebhookPoller — mirrors PHP AutodevWebhookTaskProvider
@@ -60,6 +61,9 @@ class WebSocketPoller {
   private _log: (msg: string) => void = () => {};
   private static readonly RECONNECT_DELAY_MS = 5_000;
 
+  private _vncPassword: string | undefined;
+  private _vncSessions: Map<string, VncSession> = new Map();
+
   constructor(
     private readonly wsUrl: string,
     private readonly apiKey: string,
@@ -77,6 +81,7 @@ class WebSocketPoller {
   /** Tear down the connection permanently. */
   destroy(): void {
     this._destroyed = true;
+    this._stopAllVncSessions();
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     this._closeSocket();
   }
@@ -206,6 +211,7 @@ class WebSocketPoller {
   }
 
   private _scheduleReconnect(): void {
+    this._stopAllVncSessions();
     if (this._destroyed) { return; }
     this._socket = null;
     this._connected = false;
@@ -284,6 +290,50 @@ class WebSocketPoller {
     try { msg = JSON.parse(payload.toString('utf8')); }
     catch { return; }
 
+    const msgType = msg['type'] as string | undefined;
+
+    // ── VNC frames from pixel-office ─────────────────────────────────────────
+
+    if (msgType === 'vnc_session') {
+      const action = msg['action'] as string | undefined;
+      if (action === 'start') {
+        const sessionId = msg['sessionId'] as string;
+        const port      = Number(msg['port'] ?? 5900);
+        this._log(`VNC session start: ${sessionId} → port ${port}`);
+
+        const session = new VncSession(sessionId, (frame) => this.sendFrame(frame));
+        this._vncSessions.set(sessionId, session);
+
+        session.start(port, this._vncPassword).catch((err: Error) => {
+          this._log(`VNC session ${sessionId} failed to start: ${err.message}`);
+          this._vncSessions.delete(sessionId);
+          this.sendFrame({ type: 'vnc_close', sessionId, reason: err.message });
+        });
+      }
+      return;
+    }
+
+    if (msgType === 'vnc_input') {
+      const sessionId = msg['sessionId'] as string | undefined;
+      const event     = msg['event'] as Record<string, unknown> | undefined;
+      if (sessionId && event) {
+        this._vncSessions.get(sessionId)?.handleInput(event);
+      }
+      return;
+    }
+
+    if (msgType === 'vnc_close') {
+      const sessionId = msg['sessionId'] as string | undefined;
+      if (sessionId) {
+        this._log(`VNC session closed: ${sessionId}`);
+        this._vncSessions.get(sessionId)?.stop();
+        this._vncSessions.delete(sessionId);
+      }
+      return;
+    }
+
+    // ── A2A task frame ────────────────────────────────────────────────────────
+
     // A2A task frame: { task: { id, contextId, status: { state }, metadata: { event, task } } }
     if (msg['task']) {
       const t = msg['task'] as Record<string, unknown>;
@@ -302,6 +352,20 @@ class WebSocketPoller {
         this._log(`WS failed to append task to TODO.md: ${err}`);
       }
     }
+  }
+
+  /** Stop all active VNC sessions (called on destroy/reconnect). */
+  private _stopAllVncSessions(): void {
+    for (const [id, session] of this._vncSessions) {
+      this._log(`VNC session terminated (disconnect): ${id}`);
+      session.stop();
+    }
+    this._vncSessions.clear();
+  }
+
+  /** Update the VNC password used for incoming vnc_session requests. */
+  setVncPassword(password?: string): void {
+    this._vncPassword = password;
   }
 
   /**
@@ -403,6 +467,13 @@ export class WebhookPoller {
       return this._impl.sendFrame(payload);
     }
     return false;
+  }
+
+  /** Pass the VNC password to use when a vnc_session start arrives. */
+  setVncPassword(password?: string): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setVncPassword(password);
+    }
   }
 
   /** True when backed by a WebSocket connection (vs HTTP polling). */
