@@ -5,7 +5,7 @@ import * as tls from 'tls';
 import * as crypto from 'crypto';
 import * as url from 'url';
 import * as fs from 'fs';
-import { VncSession } from './vncBridge';
+import { VncSession } from './vnc';
 
 // ---------------------------------------------------------------------------
 // WebhookPoller — mirrors PHP AutodevWebhookTaskProvider
