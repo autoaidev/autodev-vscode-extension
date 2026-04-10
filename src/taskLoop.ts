@@ -262,6 +262,7 @@ export class TaskLoopRunner {
       gitRepo:    this._gitRepo,
       gitBranch:  this._gitBranch,
       vncEnabled: settings.vncEnabled ?? false,
+      vncHost:    settings.vncEnabled ? (settings.vncHost || undefined) : undefined,
       vncPort:    settings.vncEnabled ? (settings.vncPort ?? 5900) : undefined,
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
