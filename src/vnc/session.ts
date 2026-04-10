@@ -13,7 +13,11 @@ import type { VncRect } from './types';
 export class VncSession {
   private _bridge: VncBridge | null = null;
   private _active     = false;
-  private _pendingFuq = false; // true while we're waiting for a frame reply
+  private _pendingFuq = false; // true while a VNC FBU reply is in flight
+
+  // 1-deep pipeline buffer: a fuq that arrived while _pendingFuq was true.
+  // Dispatched immediately when the outstanding FBU reply arrives.
+  private _bufferedFuq: { x: number; y: number; w?: number; h?: number; inc: number } | null = null;
 
   constructor(
     private readonly sessionId: string,
@@ -36,29 +40,59 @@ export class VncSession {
       }
     });
 
-    bridge.on('frame', (rect: VncRect) => {
+    bridge.on('fbu', (rects: VncRect[]) => {
       this._pendingFuq = false;
 
-      // Compress Raw frames with deflate-raw for bandwidth savings.
-      // Level 1 (Z_BEST_SPEED) gives ~3-5x size reduction with minimal CPU cost.
+      // Pipeline: if the browser already queued a fuq while we were waiting
+      // for this VNC reply, dispatch the next VNC request immediately so the
+      // VNC server is processing it while we encode and ship the current batch.
+      if (this._active && this._bufferedFuq) {
+        const bfq = this._bufferedFuq;
+        this._bufferedFuq = null;
+        bridge.requestUpdate(bfq.x, bfq.y, bfq.w, bfq.h, bfq.inc);
+        this._pendingFuq = true;
+      }
+
+      // Concatenate all rect payloads and compress in a SINGLE deflate pass.
+      // Batching gives the compressor cross-rect spatial context and avoids
+      // per-rect setup overhead — significantly better compression ratio.
+      const rectMetas: Array<{
+        x: number; y: number; w: number; h: number;
+        encoding: string; offset: number; len: number;
+      }> = [];
+      const parts: Buffer[] = [];
+      let dataOffset = 0;
+
+      for (const rect of rects) {
+        rectMetas.push({
+          x: rect.x, y: rect.y, w: rect.w, h: rect.h,
+          encoding: rect.encoding,
+          offset: dataOffset, len: rect.data.length,
+        });
+        parts.push(rect.data);
+        dataOffset += rect.data.length;
+      }
+
+      const combined = parts.length === 1 ? parts[0] : Buffer.concat(parts);
+
       let data: string;
       let compressed = false;
-      if (rect.encoding === 'Raw' && rect.data.length > 512) {
-        const deflated = zlib.deflateRawSync(rect.data, { level: 1 });
-        if (deflated.length < rect.data.length) {
+      if (combined.length > 512) {
+        const deflated = zlib.deflateRawSync(combined, { level: 1 });
+        if (deflated.length < combined.length) {
           data = deflated.toString('base64');
           compressed = true;
         } else {
-          data = rect.data.toString('base64');
+          data = combined.toString('base64');
         }
       } else {
-        data = rect.data.toString('base64');
+        data = combined.toString('base64');
       }
 
       this.wsSender({
-        type:       'vnc_frame',
-        sessionId:  this.sessionId,
-        rect:       { x: rect.x, y: rect.y, w: rect.w, h: rect.h, encoding: rect.encoding },
+        type:      'vnc_fbu',
+        sessionId: this.sessionId,
+        rects:     rectMetas,
         data,
         compressed,
       });
@@ -85,16 +119,22 @@ export class VncSession {
     const t = event['type'] as string;
 
     if (t === 'fuq') {
-      // Demand-driven: browser asks for the next frame
+      const fuqData = {
+        x:   Number(event['x']   ?? 0),
+        y:   Number(event['y']   ?? 0),
+        w:   event['w'] ? Number(event['w']) : undefined,
+        h:   event['h'] ? Number(event['h']) : undefined,
+        inc: Number(event['incremental'] ?? 1),
+      };
+
       if (!this._pendingFuq) {
-        this._bridge.requestUpdate(
-          Number(event['x'] ?? 0),
-          Number(event['y'] ?? 0),
-          event['w'] ? Number(event['w']) : undefined,
-          event['h'] ? Number(event['h']) : undefined,
-          Number(event['incremental'] ?? 1),
-        );
+        // Nothing in flight — send to VNC immediately
+        this._bridge.requestUpdate(fuqData.x, fuqData.y, fuqData.w, fuqData.h, fuqData.inc);
         this._pendingFuq = true;
+      } else {
+        // Buffer it: the fbu handler will dispatch it as soon as the
+        // outstanding VNC reply arrives (1-deep pipeline).
+        this._bufferedFuq = fuqData;
       }
 
     } else if (t === 'pe') {

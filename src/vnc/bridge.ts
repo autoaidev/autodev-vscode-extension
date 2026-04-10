@@ -399,6 +399,11 @@ export class VncBridge extends EventEmitter {
     const rectCount = this._recvBuf.readUInt16BE(2);
     let offset = 4;
 
+    // Accumulate all rects from this FBU before emitting so the session can
+    // compress them all in a single deflate operation (better ratio) and send
+    // them in one WebSocket message (far fewer round-trips on busy screens).
+    const rects: VncRect[] = [];
+
     for (let i = 0; i < rectCount; i++) {
       if (this._recvBuf.length < offset + 12) return false;
       const x   = this._recvBuf.readUInt16BE(offset);
@@ -413,13 +418,13 @@ export class VncBridge extends EventEmitter {
         if (this._recvBuf.length < offset + pixelBytes) return false;
         const data = Buffer.from(this._recvBuf.slice(offset, offset + pixelBytes));
         offset += pixelBytes;
-        this.emit('frame', { x, y, w, h, encoding: 'Raw', data } as VncRect);
+        rects.push({ x, y, w, h, encoding: 'Raw', data });
 
       } else if (enc === ENC_COPYRECT) {
         if (this._recvBuf.length < offset + 4) return false;
         const data = Buffer.from(this._recvBuf.slice(offset, offset + 4));
         offset += 4;
-        this.emit('frame', { x, y, w, h, encoding: 'CopyRect', data } as VncRect);
+        rects.push({ x, y, w, h, encoding: 'CopyRect', data });
 
       } else {
         this.emit('error', new Error(`Unsupported FBU encoding: ${enc}`));
@@ -429,6 +434,7 @@ export class VncBridge extends EventEmitter {
     }
 
     this._recvBuf = this._recvBuf.slice(offset);
+    if (rects.length > 0) this.emit('fbu', rects);
     return true;
   }
 }
