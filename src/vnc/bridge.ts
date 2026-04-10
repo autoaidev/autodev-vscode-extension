@@ -131,7 +131,7 @@ export class VncBridge extends EventEmitter {
                 state = 'auth_result38'; // 3.8 sends a result even for None auth
               } else {
                 // RFB 3.7 + None: no result sent, jump straight to ClientInit
-                sock.write(Buffer.from([0])); // shared flag
+                sock.write(Buffer.from([1])); // shared flag (1 = shared session)
                 state = 'server_init';
               }
             } else if (chosen === AUTH_VNC) {
@@ -153,7 +153,7 @@ export class VncBridge extends EventEmitter {
 
             if (authType === 0) { reject(new Error('VNC server rejected connection')); sock.destroy(); return; }
             if (authType === AUTH_NONE) {
-              sock.write(Buffer.from([0])); // shared flag
+              sock.write(Buffer.from([1])); // shared flag (1 = shared session)
               state = 'server_init';
             } else if (authType === AUTH_VNC) {
               state = 'auth_challenge';
@@ -175,7 +175,7 @@ export class VncBridge extends EventEmitter {
             const result = this._recvBuf.readUInt32BE(0);
             this._recvBuf = this._recvBuf.slice(4);
             if (result !== 0) { reject(new Error('VNC authentication failed')); sock.destroy(); return; }
-            sock.write(Buffer.from([0])); // shared flag
+            sock.write(Buffer.from([1])); // shared flag (1 = shared session)
             state = 'server_init';
 
           } else if (state === 'auth_result38') {
@@ -192,7 +192,7 @@ export class VncBridge extends EventEmitter {
               this._recvBuf = this._recvBuf.slice(4 + rlen);
               reject(new Error(`VNC authentication failed: ${reason}`)); sock.destroy(); return;
             }
-            sock.write(Buffer.from([0])); // shared flag
+            sock.write(Buffer.from([1])); // shared flag (1 = shared session)
             state = 'server_init';
 
           } else if (state === 'server_init') {
@@ -323,8 +323,8 @@ export class VncBridge extends EventEmitter {
     const result = resultBuf.readUInt32BE(0);
     if (result !== 0) throw new Error('VeNCrypt authentication failed');
 
-    // Send ClientInit (shared flag = 0)
-    (stream as net.Socket).write(Buffer.from([0]));
+    // Send ClientInit (shared flag = 1 = allow multiple viewers)
+    (stream as net.Socket).write(Buffer.from([1]));
   }
 
   private _runRunning(): void {
