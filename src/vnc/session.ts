@@ -7,6 +7,7 @@
 
 import { VncBridge } from './bridge';
 import { KEYSYM } from './constants';
+import * as zlib from 'zlib';
 import type { VncRect } from './types';
 
 export class VncSession {
@@ -37,11 +38,29 @@ export class VncSession {
 
     bridge.on('frame', (rect: VncRect) => {
       this._pendingFuq = false;
+
+      // Compress Raw frames with deflate-raw for bandwidth savings.
+      // Level 1 (Z_BEST_SPEED) gives ~3-5x size reduction with minimal CPU cost.
+      let data: string;
+      let compressed = false;
+      if (rect.encoding === 'Raw' && rect.data.length > 512) {
+        const deflated = zlib.deflateRawSync(rect.data, { level: 1 });
+        if (deflated.length < rect.data.length) {
+          data = deflated.toString('base64');
+          compressed = true;
+        } else {
+          data = rect.data.toString('base64');
+        }
+      } else {
+        data = rect.data.toString('base64');
+      }
+
       this.wsSender({
-        type:      'vnc_frame',
-        sessionId: this.sessionId,
-        rect:      { x: rect.x, y: rect.y, w: rect.w, h: rect.h, encoding: rect.encoding },
-        data:      rect.data.toString('base64'),
+        type:       'vnc_frame',
+        sessionId:  this.sessionId,
+        rect:       { x: rect.x, y: rect.y, w: rect.w, h: rect.h, encoding: rect.encoding },
+        data,
+        compressed,
       });
     });
 

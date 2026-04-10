@@ -343,14 +343,15 @@ export class VncBridge extends EventEmitter {
     // 3 padding bytes
     buf[4] = 32;             // bits-per-pixel
     buf[5] = 24;             // depth
-    buf[6] = 0;              // big-endian flag
+    buf[6] = 0;              // big-endian flag (little-endian)
     buf[7] = 1;              // true-colour flag
     buf.writeUInt16BE(255, 8);   // red-max
     buf.writeUInt16BE(255, 10);  // green-max
     buf.writeUInt16BE(255, 12);  // blue-max
-    buf[14] = 16;            // red-shift
-    buf[15] = 8;             // green-shift
-    buf[16] = 0;             // blue-shift
+    buf[14] = 0;             // red-shift   → byte 0 = R
+    buf[15] = 8;             // green-shift → byte 1 = G
+    buf[16] = 16;            // blue-shift  → byte 2 = B
+    //                          byte 3 = padding (0)
     this._sock.write(buf);
     this._bypp = 4;
   }
