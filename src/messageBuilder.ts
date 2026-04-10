@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Task } from './todo';
@@ -12,6 +13,9 @@ export const AGENT_PROFILE_FILE = '.autodev/AGENT_PROFILE.md';
 
 /** Directory where per-task message files are stored */
 export const MESSAGES_DIR = '.autodev/messages';
+
+/** Directory where attachments are saved, grouped by timestamp+hash */
+export const ATTACHMENTS_DIR = '.autodev/messages/attachments';
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -72,6 +76,29 @@ function timestamp(): string {
   const d = new Date();
   const pad = (n: number, w = 2) => String(n).padStart(w, '0');
   return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/**
+ * Save an attachment to `.autodev/messages/attachments/<groupId>/filename`.
+ * If `groupId` is omitted a new `<timestamp>_<hex>` folder is created.
+ * Returns the workspace-relative forward-slash path (suitable for embedding in .md).
+ */
+export function saveAttachment(
+  workspaceRoot: string,
+  filename: string,
+  data: Buffer | string,
+  groupId?: string,
+): string {
+  const group = groupId ?? `${timestamp()}_${crypto.randomBytes(4).toString('hex')}`;
+  const dir = path.join(workspaceRoot, ATTACHMENTS_DIR, group);
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  const filePath = path.join(dir, filename);
+  if (Buffer.isBuffer(data)) {
+    fs.writeFileSync(filePath, data);
+  } else {
+    fs.writeFileSync(filePath, data, 'utf8');
+  }
+  return path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
 }
 
 /**

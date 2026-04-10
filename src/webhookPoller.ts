@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import * as url from 'url';
 import * as fs from 'fs';
 import { VncSession } from './vnc';
+import { saveAttachment } from './messageBuilder';
 
 // ---------------------------------------------------------------------------
 // WebhookPoller — mirrors PHP AutodevWebhookTaskProvider
@@ -32,18 +33,26 @@ interface LogListItem {
   id: number;
 }
 
+interface A2APart {
+  kind: string;
+  text?: string;
+  file?: { name?: string; mimeType?: string; bytes?: string; uri?: string };
+}
+
 interface LogDetail {
   id: number;
   data?: {
     payload?: {
       event?: string;
       task?: { text?: string };
+      parts?: A2APart[];
     };
   };
   // Some servers embed payload directly
   payload?: {
     event?: string;
     task?: { text?: string };
+    parts?: A2APart[];
   };
 }
 
@@ -56,6 +65,7 @@ class WebSocketPoller {
   private _connected = false;
   private _buffer = Buffer.alloc(0);
   private _todoPath = '';
+  private _workspaceRoot: string | undefined;
   private _destroyed = false;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _log: (msg: string) => void = () => {};
@@ -71,8 +81,9 @@ class WebSocketPoller {
   ) {}
 
   /** Start the WebSocket connection (call once). */
-  start(todoPath: string, log?: (msg: string) => void): void {
+  start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
     this._todoPath = todoPath;
+    this._workspaceRoot = workspaceRoot;
     if (log) { this._log = log; }
     this._log(`WS connecting → ${this.wsUrl} (slug: ${this.slug})`);
     this._connect();
@@ -91,7 +102,7 @@ class WebSocketPoller {
    * connection is event-driven; tasks are appended directly in _onFrame().
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  pollAndAppend(_todoPath: string): Promise<boolean> {
+  pollAndAppend(_todoPath: string, _workspaceRoot?: string): Promise<boolean> {
     return Promise.resolve(false);
   }
 
@@ -336,7 +347,7 @@ class WebSocketPoller {
 
     // ── A2A task frame ────────────────────────────────────────────────────────
 
-    // A2A task frame: { task: { id, contextId, status: { state }, metadata: { event, task } } }
+    // A2A task frame: { task: { id, contextId, status: { state }, metadata: { event, task, parts } } }
     if (msg['task']) {
       const t = msg['task'] as Record<string, unknown>;
       const state = (t['status'] as Record<string, unknown> | undefined)?.['state'] as string | undefined;
@@ -344,12 +355,40 @@ class WebSocketPoller {
       const meta = (t['metadata'] as Record<string, unknown> | undefined) ?? {};
       if (meta['event'] !== 'user_message') { return; }
       const taskObj = meta['task'] as Record<string, unknown> | undefined;
-      const taskText = typeof taskObj?.['text'] === 'string' ? taskObj['text'] : undefined;
+      let taskText = typeof taskObj?.['text'] === 'string' ? taskObj['text'] : '';
+
+      // Handle A2A parts — extract text parts and save file parts as attachments
+      const rawParts = meta['parts'] as Array<Record<string, unknown>> | undefined;
+      const attRefs: string[] = [];
+      if (rawParts) {
+        for (const part of rawParts) {
+          if (part['kind'] === 'text' && !taskText) {
+            taskText = (part['text'] as string | undefined) ?? '';
+          } else if (part['kind'] === 'file' && this._workspaceRoot) {
+            const file = part['file'] as Record<string, unknown> | undefined;
+            if (file) {
+              const name = (file['name'] as string | undefined) ?? 'attachment';
+              const bytesB64 = file['bytes'] as string | undefined;
+              if (bytesB64) {
+                const buf = Buffer.from(bytesB64, 'base64');
+                const rel = saveAttachment(this._workspaceRoot, name, buf);
+                attRefs.push(rel);
+              } else if (typeof file['uri'] === 'string') {
+                attRefs.push(file['uri'] as string);
+              }
+            }
+          }
+        }
+      }
+
       if (!taskText) { return; }
-      this._log(`WS task received: "${taskText}"`);
+      const fullText = attRefs.length > 0
+        ? taskText + '\n' + attRefs.map(p => `[attachment: ${p}]`).join('\n')
+        : taskText;
+      this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
       try {
         if (!this._todoPath) { throw new Error('todoPath is empty'); }
-        fs.appendFileSync(this._todoPath, `\n- [ ] ${taskText}\n`, 'utf8');
+        fs.appendFileSync(this._todoPath, `\n- [ ] ${fullText}\n`, 'utf8');
       } catch (err) {
         this._log(`WS failed to append task to TODO.md: ${err}`);
       }
@@ -439,9 +478,9 @@ export class WebhookPoller {
   }
 
   /** Start the WebSocket connection (no-op for HTTP pollers). */
-  start(todoPath: string, log?: (msg: string) => void): void {
+  start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
     if (this._impl instanceof WebSocketPoller) {
-      this._impl.start(todoPath, log);
+      this._impl.start(todoPath, log, workspaceRoot);
     }
   }
 
@@ -456,8 +495,8 @@ export class WebhookPoller {
    * Poll once for the next pending task and append it to TODO.md.
    * For WebSocket mode: always returns false (tasks arrive via push).
    */
-  pollAndAppend(todoPath: string): Promise<boolean> {
-    return this._impl.pollAndAppend(todoPath);
+  pollAndAppend(todoPath: string, workspaceRoot?: string): Promise<boolean> {
+    return this._impl.pollAndAppend(todoPath, workspaceRoot);
   }
 
   /**
@@ -506,7 +545,7 @@ class HttpWebhookPoller {
    * Returns true if a task was appended; false otherwise.
    * Skips if a previous poll is still in-flight, or if minimum interval hasn't elapsed.
    */
-  async pollAndAppend(todoPath: string): Promise<boolean> {
+  async pollAndAppend(todoPath: string, workspaceRoot?: string): Promise<boolean> {
     // Skip if a previous request is still in progress
     if (this._polling) { return false; }
 
@@ -554,10 +593,31 @@ class HttpWebhookPoller {
       const payload = detail.data?.payload ?? detail.payload;
       if (!payload || payload.event !== 'user_message') { return false; }
 
-      const taskText = payload.task?.text;
+      let taskText = payload.task?.text ?? '';
+      const attRefs: string[] = [];
+      if (payload.parts && workspaceRoot) {
+        for (const part of payload.parts) {
+          if (part.kind === 'text' && !taskText) {
+            taskText = part.text ?? '';
+          } else if (part.kind === 'file' && part.file) {
+            const name = part.file.name ?? 'attachment';
+            const bytesB64 = part.file.bytes;
+            if (bytesB64) {
+              const buf = Buffer.from(bytesB64, 'base64');
+              const rel = saveAttachment(workspaceRoot, name, buf);
+              attRefs.push(rel);
+            } else if (part.file.uri) {
+              attRefs.push(part.file.uri);
+            }
+          }
+        }
+      }
       if (!taskText) { return false; }
+      const fullText = attRefs.length > 0
+        ? taskText + '\n' + attRefs.map(p => `[attachment: ${p}]`).join('\n')
+        : taskText;
 
-      fs.appendFileSync(todoPath, `\n- [ ] ${taskText}\n`, 'utf8');
+      fs.appendFileSync(todoPath, `\n- [ ] ${fullText}\n`, 'utf8');
       return true;
     } catch {
       return false;

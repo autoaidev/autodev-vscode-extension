@@ -243,7 +243,7 @@ export class TaskLoopRunner {
 
     // Start WebSocket connection (no-op for HTTP pollers)
     if (this._webhookPoller) {
-      this._webhookPoller.start(todoPath, (msg) => callbacks.log(msg));
+      this._webhookPoller.start(todoPath, (msg) => callbacks.log(msg), root);
     }
 
     // Start independent background polling loops — run even while AI is processing a task
@@ -333,7 +333,7 @@ export class TaskLoopRunner {
     if (this._discordPoller) {
       const discordInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
-        try { await this._discordPoller!.pollAndAppend(todoPath); } catch { }
+        try { await this._discordPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(discordInterval);
     }
@@ -341,7 +341,7 @@ export class TaskLoopRunner {
     if (this._webhookPoller) {
       const webhookInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
-        try { await this._webhookPoller!.pollAndAppend(todoPath); } catch { }
+        try { await this._webhookPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(webhookInterval);
     }

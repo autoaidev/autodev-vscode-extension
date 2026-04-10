@@ -2,6 +2,7 @@ import * as https from 'https';
 import * as http from 'http';
 import * as url from 'url';
 import * as fs from 'fs';
+import { saveAttachment } from './messageBuilder';
 
 // ---------------------------------------------------------------------------
 // DiscordPoller — mirrors PHP DiscordTaskProvider (poll / drainQueue / react)
@@ -66,14 +67,14 @@ export class DiscordPoller {
    * Poll the channel for new messages and append the first queued task to TODO.md.
    * Returns true if a task was appended (caller should break out of its wait sleep).
    */
-  async pollAndAppend(todoPath: string): Promise<boolean> {
-    await this._fetchNewMessages();
+  async pollAndAppend(todoPath: string, workspaceRoot?: string): Promise<boolean> {
+    await this._fetchNewMessages(workspaceRoot);
     return this._drainQueue(todoPath);
   }
 
   // ---------------------------------------------------------------------------
 
-  private async _fetchNewMessages(): Promise<void> {
+  private async _fetchNewMessages(workspaceRoot?: string): Promise<void> {
     try {
       const qs = this.lastMessageId
         ? `?after=${this.lastMessageId}&limit=${POLL_LIMIT}`
@@ -104,11 +105,17 @@ export class DiscordPoller {
         const text = (msg.content ?? '').trim();
         if (text) { parts.push(text); }
 
-        // Fetch content of any attached files
+        // Save any attached files to disk; reference by path in the task text
         for (const att of (msg.attachments ?? [])) {
-          const attContent = await fetchAttachment(att.url, this.botToken);
-          if (attContent !== null) {
-            parts.push(`--- attachment: ${att.filename} ---\n${attContent}`);
+          const data = await fetchAttachmentBuffer(att.url, this.botToken);
+          if (data !== null) {
+            if (workspaceRoot) {
+              const relPath = saveAttachment(workspaceRoot, att.filename, data);
+              parts.push(`[attachment: ${relPath}]`);
+            } else {
+              // fallback: inline as text when no workspace root
+              parts.push(`--- attachment: ${att.filename} ---\n${data.toString('utf8')}`);
+            }
           }
         }
 
@@ -167,11 +174,29 @@ function apiGet(rawUrl: string, botToken: string): Promise<unknown> {
   });
 }
 
-async function fetchAttachment(attUrl: string, botToken: string): Promise<string | null> {
-  try {
-    const body = await apiGet(attUrl, botToken);
-    return typeof body === 'string' ? body : JSON.stringify(body);
-  } catch { return null; }
+async function fetchAttachmentBuffer(attUrl: string, botToken: string): Promise<Buffer | null> {
+  return new Promise(resolve => {
+    const parsed = url.parse(attUrl);
+    const options: http.RequestOptions = {
+      hostname: parsed.hostname ?? '',
+      port: parsed.port,
+      path: parsed.path ?? '/',
+      method: 'GET',
+      headers: {
+        'Authorization': `Bot ${botToken}`,
+        'User-Agent': 'AutoDev-VSCode/1.0',
+      },
+    };
+    const transport = attUrl.startsWith('https') ? https : http;
+    const req = transport.request(options, res => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', () => resolve(null));
+    req.setTimeout(30_000, () => { req.destroy(); resolve(null); });
+    req.end();
+  });
 }
 
 function reactToMessage(botToken: string, channelId: string, messageId: string, emoji: string): Promise<void> {
