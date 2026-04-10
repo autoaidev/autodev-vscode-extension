@@ -226,6 +226,19 @@ export class TaskLoopRunner {
     // same WS connection instead of HTTP POST (which fails for ws:// URLs).
     if (this._webhook && this._webhookPoller?.isWebSocket) {
       this._webhook.setWsSender((frame) => this._webhookPoller!.sendFrame(frame));
+      // Re-send agent_online once the WS connection is actually established so
+      // the server can record the VNC host/port from the live connection context.
+      this._webhookPoller.setOnConnect(() => {
+        this._notifyWebhook('agent_online', {
+          hostname:   this._hostname,
+          workDir:    this._workspaceRoot ?? '',
+          gitRepo:    this._gitRepo,
+          gitBranch:  this._gitBranch,
+          vncEnabled: this._settings?.vncEnabled ?? false,
+          vncHost:    this._settings?.vncEnabled ? (this._settings?.vncHost || undefined) : undefined,
+          vncPort:    this._settings?.vncEnabled ? (this._settings?.vncPort ?? 5900) : undefined,
+        });
+      });
     }
 
     // Pass VNC password so the poller can authenticate incoming vnc_session requests.

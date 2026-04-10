@@ -73,12 +73,17 @@ class WebSocketPoller {
 
   private _vncPassword: string | undefined;
   private _vncSessions: Map<string, VncSession> = new Map();
+  private _onConnect: (() => void) | null = null;
+  private _pendingFrames: unknown[] = [];
 
   constructor(
     private readonly wsUrl: string,
     private readonly apiKey: string,
     private readonly slug: string,
   ) {}
+
+  /** Called once when the WS connection is first established (and on each reconnect). */
+  setOnConnect(cb: () => void): void { this._onConnect = cb; }
 
   /** Start the WebSocket connection (call once). */
   start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
@@ -175,6 +180,15 @@ class WebSocketPoller {
         headersDone = true;
         this._connected = true;
         this._log(`WS connected → ${host}:${port} (slug: ${this.slug})`);
+
+        // Flush any frames queued before the connection was established
+        const pending = this._pendingFrames.splice(0);
+        for (const frame of pending) {
+          this._sendTextFrame(JSON.stringify(frame));
+        }
+
+        // Notify listener so caller can resend agent_online on reconnect
+        if (this._onConnect) { this._onConnect(); }
 
         // Subscribe to the deliveries channel so the server pushes webhook events
         this._sendTextFrame(JSON.stringify({ type: 'subscribe', data: { channels: ['deliveries'] } }));
@@ -410,11 +424,14 @@ class WebSocketPoller {
   }
 
   /**
-   * Send a JSON payload to the server over the live WebSocket connection.
-   * Returns true if the frame was queued, false if not currently connected.
+   * Send a JSON payload to the server over the WebSocket connection.
+   * Queues the frame if not yet connected — always returns true (accepted).
    */
   sendFrame(payload: unknown): boolean {
-    if (!this._connected || !this._socket) { return false; }
+    if (!this._connected || !this._socket) {
+      this._pendingFrames.push(payload);
+      return true;  // accepted into queue
+    }
     this._sendTextFrame(JSON.stringify(payload));
     return true;
   }
@@ -514,6 +531,13 @@ export class WebhookPoller {
   setVncPassword(password?: string): void {
     if (this._impl instanceof WebSocketPoller) {
       this._impl.setVncPassword(password);
+    }
+  }
+
+  /** Register a callback to fire each time the WS connection is established. */
+  setOnConnect(cb: () => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnConnect(cb);
     }
   }
 

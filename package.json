@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {

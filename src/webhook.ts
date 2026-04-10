@@ -50,11 +50,10 @@ export class WebhookClient {
     const merged: Record<string, unknown> = { ...this.meta, event, ...payload };
     const body = this.toStreamResponse(event, merged);
 
-    // Prefer WS delivery if a sender is wired up and connected
+    // Prefer WS delivery if a sender is wired up (frames are queued if not yet connected)
     if (this._wsSender) {
-      const sent = this._wsSender(body);
-      if (sent) { return; }
-      // Fall through to HTTP if WS is not yet connected
+      this._wsSender(body);
+      return;
     }
 
     if (!this.baseUrl) { return; }
