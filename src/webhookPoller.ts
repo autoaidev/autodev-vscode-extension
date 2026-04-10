@@ -299,12 +299,14 @@ class WebSocketPoller {
       if (action === 'start') {
         const sessionId = msg['sessionId'] as string;
         const port      = Number(msg['port'] ?? 5900);
+        // Prefer password from server frame; fall back to locally-configured password
+        const password  = (msg['password'] as string | undefined) || this._vncPassword;
         this._log(`VNC session start: ${sessionId} → port ${port}`);
 
         const session = new VncSession(sessionId, (frame) => this.sendFrame(frame));
         this._vncSessions.set(sessionId, session);
 
-        session.start(port, this._vncPassword).catch((err: Error) => {
+        session.start(port, password).catch((err: Error) => {
           this._log(`VNC session ${sessionId} failed to start: ${err.message}`);
           this._vncSessions.delete(sessionId);
           this.sendFrame({ type: 'vnc_close', sessionId, reason: err.message });
