@@ -330,6 +330,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_vncEnabled"> Enable VNC</label></div>
   </div>
   <div class="cfg-row" id="vncFields">
+    <div class="cfg-field"><label class="cfg-label">VNC Host</label><input class="cfg-input" id="cfg_vncHost" placeholder="(auto-detect from IP)"></div>
     <div class="cfg-field"><label class="cfg-label">VNC Port</label><input class="cfg-input" id="cfg_vncPort" type="number" min="1" max="65535"></div>
     <div class="cfg-field"><label class="cfg-label">VNC Password</label><input class="cfg-input" id="cfg_vncPassword" type="password" placeholder="(leave empty for no-auth)"></div>
   </div>
@@ -478,6 +479,8 @@ function populateSettings(s){
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
   const vnce=document.getElementById('cfg_vncEnabled');
   if(vnce) vnce.checked=!!s.vncEnabled;
+  const vnch=document.getElementById('cfg_vncHost');
+  if(vnch) vnch.value=s.vncHost||'';
   const vncprt=document.getElementById('cfg_vncPort');
   if(vncprt) vncprt.value=s.vncPort!==undefined?s.vncPort:5900;
   const vncpw=document.getElementById('cfg_vncPassword');
@@ -544,6 +547,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
     vncEnabled:document.getElementById('cfg_vncEnabled').checked,
+    vncHost:document.getElementById('cfg_vncHost').value.trim(),
     vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
     vncPassword:document.getElementById('cfg_vncPassword').value,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
