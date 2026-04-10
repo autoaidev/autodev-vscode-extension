@@ -7,8 +7,8 @@ import { buildMessage } from './messageBuilder';
 
 /**
  * Build the prompt string for a task, and write the split files:
- *   .autodev/AGENT_PROFILE.md  — profile instructions
- *   .autodev/MESSAGE.md        — task + current TODO
+ *   .autodev/AGENT_PROFILE.md                  — profile instructions
+ *   .autodev/messages/MESSAGE_<timestamp>.md    — task + current TODO
  *
  * @param task        The task to implement
  * @param root        Workspace root (used to write .autodev/ files)
@@ -21,7 +21,6 @@ export function buildPrompt(
   todoDir: string,
   autodevPath?: string,
   includeProfile = true,
-): string {
+): { prompt: string; messageFile: string } {
   return buildMessage(task, root, todoDir, autodevPath, includeProfile);
 }
-

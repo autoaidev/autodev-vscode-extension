@@ -9,12 +9,14 @@ import { ProviderId } from '../providers';
 
 export interface AutodevSettings {
   provider: ProviderId;
+  /** Full WS URL with token+endpoint encoded: wss://host/ws?token=xxx&endpoint=slug */
+  wsUrl: string;
+  /** Derived from wsUrl (or set directly for backward compat). */
   serverBaseUrl: string;
   serverApiKey: string;
   webhookSlug: string;
   discordToken: string;
   discordChannelId: string;
-  discordWebhookUrl: string;
   discordOwners: string;
   loopInterval: number;
   taskTimeoutMinutes: number;
@@ -28,12 +30,12 @@ export interface AutodevSettings {
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
   provider: 'claude-cli' as ProviderId,
+  wsUrl: '',
   serverBaseUrl: '',
   serverApiKey: '',
   webhookSlug: '',
   discordToken: '',
   discordChannelId: '',
-  discordWebhookUrl: '',
   discordOwners: '',
   loopInterval: 30,
   taskTimeoutMinutes: 30,
@@ -45,13 +47,38 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   resumeSession: false,
 };
 
+/**
+ * Parse a full WS URL (wss://host/ws?token=xxx&endpoint=slug) into the three
+ * legacy fields.  Returns null if the URL is empty or not a WS scheme.
+ */
+export function parseWsUrl(wsUrl: string): { serverBaseUrl: string; serverApiKey: string; webhookSlug: string } | null {
+  if (!wsUrl || (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://'))) { return null; }
+  try {
+    const u = new URL(wsUrl);
+    const token    = u.searchParams.get('token')    ?? '';
+    const endpoint = u.searchParams.get('endpoint') ?? '';
+    u.search = '';
+    return { serverBaseUrl: u.toString(), serverApiKey: token, webhookSlug: endpoint };
+  } catch {
+    return null;
+  }
+}
+
 /** Load settings from `<root>/.vscode/autodev.json`, falling back to defaults. */
 export function loadSettingsForRoot(root: string): AutodevSettings {
   try {
     const file = path.join(root, '.vscode', 'autodev.json');
     if (!fs.existsSync(file)) { return { ...SETTINGS_DEFAULTS }; }
     const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<AutodevSettings>;
-    return { ...SETTINGS_DEFAULTS, ...raw };
+    const merged = { ...SETTINGS_DEFAULTS, ...raw };
+    // If wsUrl is set, derive the three legacy fields from it (wsUrl takes priority).
+    const parsed = parseWsUrl(merged.wsUrl);
+    if (parsed) {
+      merged.serverBaseUrl = parsed.serverBaseUrl;
+      merged.serverApiKey  = parsed.serverApiKey;
+      merged.webhookSlug   = parsed.webhookSlug;
+    }
+    return merged;
   } catch {
     return { ...SETTINGS_DEFAULTS };
   }

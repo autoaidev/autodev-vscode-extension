@@ -26,8 +26,8 @@ class LoopApi {
     await this._runner.start({
       workspaceRoot: root,
       fileWatcher: new NodeFileWatcher(),
-      sendToAi: (prompt, _label, includeProfile) =>
-        sendPromptToAi(options.provider ?? 'claude-cli', prompt, log, launcher, root, includeProfile),
+      sendToAi: (prompt, _label, includeProfile, messageFile) =>
+        sendPromptToAi(options.provider ?? 'claude-cli', prompt, log, launcher, root, includeProfile, messageFile),
       log,
       getActiveProvider: () => options.provider ?? 'claude-cli',
       onStatusChange: () => {},

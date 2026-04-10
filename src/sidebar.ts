@@ -310,14 +310,11 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 </div>
 <div id="panelSettings" style="display:none">
   <div class="cfg-section">Server</div>
-  <div class="cfg-field"><label class="cfg-label">Server Base URL</label><input class="cfg-input" id="cfg_serverBaseUrl" placeholder="https://myserver.com"></div>
-  <div class="cfg-field"><label class="cfg-label">Server API Key</label><input class="cfg-input" id="cfg_serverApiKey" type="password" placeholder="api-key"></div>
-  <div class="cfg-field"><label class="cfg-label">Webhook Slug</label><input class="cfg-input" id="cfg_webhookSlug" placeholder="my-slug"></div>
+  <div class="cfg-field"><label class="cfg-label">WebSocket URL</label><input class="cfg-input" id="cfg_wsUrl" placeholder="wss://host/ws?token=agt_xxx&amp;endpoint=my-slug"></div>
   <div class="cfg-section">Discord</div>
   <div class="cfg-field"><label class="cfg-label">Bot Token</label><input class="cfg-input" id="cfg_discordToken" type="password" placeholder="Bot token"></div>
   <div class="cfg-field"><label class="cfg-label">Channel ID</label><input class="cfg-input" id="cfg_discordChannelId" placeholder="123456789"></div>
-  <div class="cfg-field"><label class="cfg-label">Webhook URL</label><input class="cfg-input" id="cfg_discordWebhookUrl" placeholder="https://discord.com/api/webhooks/..."></div>
-  <div class="cfg-field"><label class="cfg-label">Allowed Owners</label><input class="cfg-input" id="cfg_discordOwners" placeholder="user1,user2"></div>
+<div class="cfg-field"><label class="cfg-label">Allowed Owners</label><input class="cfg-input" id="cfg_discordOwners" placeholder="user1,user2"></div>
   <div class="cfg-section">Loop</div>
   <div class="cfg-row">
     <div class="cfg-field"><label class="cfg-label">Idle Interval (s)</label><input class="cfg-input" id="cfg_loopInterval" type="number" min="1" max="3600"></div>
@@ -456,8 +453,8 @@ function renderTasks(){
 }
 
 function populateSettings(s){
-  ['serverBaseUrl','serverApiKey','webhookSlug','discordToken','discordChannelId',
-   'discordWebhookUrl','discordOwners','todoPath'].forEach(function(k){
+  ['wsUrl','discordToken','discordChannelId',
+   'discordOwners','todoPath'].forEach(function(k){
     const el=document.getElementById('cfg_'+k);
     if(el) el.value=s[k]||'';
   });
@@ -523,13 +520,10 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     :(profileSel?profileSel.value:'');
   const s={
     provider:state.selectedProvider,
-    serverBaseUrl:document.getElementById('cfg_serverBaseUrl').value,
-    serverApiKey:document.getElementById('cfg_serverApiKey').value,
-    webhookSlug:document.getElementById('cfg_webhookSlug').value,
+    wsUrl:document.getElementById('cfg_wsUrl').value,
     discordToken:document.getElementById('cfg_discordToken').value,
     discordChannelId:document.getElementById('cfg_discordChannelId').value,
-    discordWebhookUrl:document.getElementById('cfg_discordWebhookUrl').value,
-    discordOwners:document.getElementById('cfg_discordOwners').value,
+discordOwners:document.getElementById('cfg_discordOwners').value,
     loopInterval:parseInt(document.getElementById('cfg_loopInterval').value)||30,
     taskTimeoutMinutes:parseInt(document.getElementById('cfg_taskTimeoutMinutes').value)||30,
     taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,

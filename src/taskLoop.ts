@@ -4,7 +4,8 @@ import * as os from 'os';
 import { execSync } from 'child_process';
 import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
 import { buildPrompt } from './prompt';
-import { WebhookClient, WebhookEvent, sendDiscordBotMessage, sendDiscordWebhook } from './webhook';
+import { writeMessageFile } from './messageBuilder';
+import { WebhookClient, WebhookEvent, sendDiscordBotMessage } from './webhook';
 import { loadSettingsForRoot, AutodevSettings } from './settings';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
@@ -80,8 +81,8 @@ class RetryScheduler {
 }
 
 export interface LoopCallbacks {
-  /** Send a raw prompt string to the active AI provider */
-  sendToAi: (prompt: string, taskLabel: string, includeProfile?: boolean) => Promise<void>;
+  /** Send a prompt to the active AI provider. messageFile is the absolute path of the written .md file for CLI providers. */
+  sendToAi: (prompt: string, taskLabel: string, includeProfile?: boolean, messageFile?: string) => Promise<void>;
   /** Append a message to the extension's output channel */
   log: (msg: string) => void;
   /** Called whenever the loop state changes so the sidebar can refresh */
@@ -389,7 +390,7 @@ export class TaskLoopRunner {
 
       // Do NOT mark in-progress from JS — the prompt instructs the LLM to do it
       // Only include the AUTODEV profile on the first task — subsequent tasks only need the TODO
-      const prompt = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath, this._iterations === 1);
+      const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath, this._iterations === 1);
       const remaining = countRemaining(parseTodo(todoPath));
 
       this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
@@ -408,7 +409,7 @@ export class TaskLoopRunner {
       const claudeCursor = getClaudeSessionCursor(this._workspaceRoot!);
       try {
         // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
-        await this._cb!.sendToAi(prompt, task.text, this._iterations === 1);
+        await this._cb!.sendToAi(prompt, task.text, this._iterations === 1, messageFile);
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
@@ -741,7 +742,10 @@ export class TaskLoopRunner {
           `If you haven't finished yet, continue and mark it done when you are.`,
         ].join('\n');
         this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
-        try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
+        try {
+          const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
+          await this._cb!.sendToAi(reminder, task.text, undefined, reminderFile);
+        } catch { /* ignore */ }
       };
 
       if (this._workspaceRoot) {
@@ -852,7 +856,10 @@ export class TaskLoopRunner {
           `If you have already finished, do this now.`,
         ].join('\n');
         this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
-        try { await this._cb!.sendToAi(reminder, task.text); } catch { /* ignore */ }
+        try {
+          const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
+          await this._cb!.sendToAi(reminder, task.text, undefined, reminderFile);
+        } catch { /* ignore */ }
       }, 3_000);
 
       // Hard timeout
@@ -901,8 +908,6 @@ export class TaskLoopRunner {
     if (!s) { return; }
     if (s.discordToken && s.discordChannelId) {
       sendDiscordBotMessage(s.discordToken, s.discordChannelId, message);
-    } else if (s.discordWebhookUrl) {
-      sendDiscordWebhook(s.discordWebhookUrl, message);
     }
   }
 }

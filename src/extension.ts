@@ -47,9 +47,9 @@ export function activate(context: vscode.ExtensionContext): void {
       void taskLoopRunner.start({
         workspaceRoot: loopRoot,
         fileWatcher: new VsFileWatcher(),
-        sendToAi: (prompt, taskLabel, includeProfile) => {
+        sendToAi: (prompt, taskLabel, includeProfile, messageFile) => {
           log(`Dispatching task: ${taskLabel}`);
-          return sendPromptToAi(sidebar.selectedProvider, prompt, log, launcher, loopRoot, includeProfile);
+          return sendPromptToAi(sidebar.selectedProvider, prompt, log, launcher, loopRoot, includeProfile, messageFile);
         },
         log,
         onStatusChange: (state, task) => {

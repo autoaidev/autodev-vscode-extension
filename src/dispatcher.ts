@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
 import { IProcessLauncher } from './core/adapters';
-import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, MESSAGE_FILE, stdoutFilePath, exitFilePath, autodevDir } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, stdoutFilePath, exitFilePath, autodevDir } from './sessionState';
 import { loadSettingsForRoot } from './core/settingsLoader';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -72,6 +72,7 @@ export async function sendPromptToAi(
   launcher: IProcessLauncher,
   workspaceRoot: string,
   includeProfile = true,
+  messageFilePath?: string,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
 
@@ -80,7 +81,7 @@ export async function sendPromptToAi(
     if (!root) { throw new Error('No workspace root provided'); }
 
     const agentProfileFile = path.join(root, AGENT_PROFILE_FILE);
-    const messageFile = path.join(root, MESSAGE_FILE);
+    const messageFile = messageFilePath ?? path.join(root, AGENT_PROFILE_FILE.replace('AGENT_PROFILE.md', 'MESSAGE.md'));
     autodevDir(root);
     ensureProjectGitignore(root, '.autodev/');
 

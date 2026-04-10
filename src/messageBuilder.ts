@@ -10,8 +10,8 @@ import { autodevDir } from './sessionState';
 /** Agent profile instructions written for each task run */
 export const AGENT_PROFILE_FILE = '.autodev/AGENT_PROFILE.md';
 
-/** Task message written for each task run */
-export const MESSAGE_FILE = '.autodev/MESSAGE.md';
+/** Directory where per-task message files are stored */
+export const MESSAGES_DIR = '.autodev/messages';
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -60,6 +60,31 @@ function defaultProfilePath(): string {
   return path.join(__dirname, '..', 'media', 'AUTODEV.default.md');
 }
 
+/** Returns the .autodev/messages directory, creating it if needed. */
+function messagesDir(root: string): string {
+  const dir = path.join(root, MESSAGES_DIR);
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  return dir;
+}
+
+/** Generates a timestamp string like 20250410_143022 for use in filenames. */
+function timestamp(): string {
+  const d = new Date();
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
+/**
+ * Write arbitrary content to a timestamped message file and return the full path.
+ * Used for reminder/check-in messages that bypass buildMessage().
+ */
+export function writeMessageFile(root: string, content: string): string {
+  const dir = messagesDir(root);
+  const filePath = path.join(dir, `MESSAGE_${timestamp()}.md`);
+  fs.writeFileSync(filePath, content, 'utf8');
+  return filePath;
+}
+
 function readOrEmpty(filePath: string): string {
   try {
     return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
@@ -96,11 +121,12 @@ ${commitStep}
 
 /**
  * Builds the agent message for a task, writing two separate files:
- *   - `.autodev/AGENT_PROFILE.md`  — profile instructions (frontmatter stripped)
- *   - `.autodev/MESSAGE.md`        — task + current TODO
+ *   - `.autodev/AGENT_PROFILE.md`                   — profile instructions (frontmatter stripped)
+ *   - `.autodev/messages/MESSAGE_<timestamp>.md`     — task + current TODO
  *
- * Returns the combined prompt string for use by UI providers that cannot
- * read files via @-references.
+ * Returns `{ prompt, messageFile }` where `prompt` is the combined string for UI
+ * providers that cannot read files via @-references, and `messageFile` is the
+ * absolute path of the written message file for CLI providers.
  */
 export function buildMessage(
   task: Task,
@@ -108,7 +134,7 @@ export function buildMessage(
   todoDir: string,
   profilePath?: string,
   includeProfile = true,
-): string {
+): { prompt: string; messageFile: string } {
   autodevDir(root);
 
   // Resolve and read profile (always needed for meta even if not included in output)
@@ -128,7 +154,7 @@ export function buildMessage(
   if (includeProfile) {
     fs.writeFileSync(path.join(root, AGENT_PROFILE_FILE), profileBody, 'utf8');
   }
-  fs.writeFileSync(path.join(root, MESSAGE_FILE), taskMessage, 'utf8');
+  const messageFile = writeMessageFile(root, taskMessage);
 
   // Combined string for UI providers
   const parts: string[] = [];
@@ -136,5 +162,5 @@ export function buildMessage(
     parts.push(`# Project Instructions (AUTODEV.md)\n\n${profileBody.trim()}`);
   }
   parts.push(taskMessage);
-  return parts.join('\n\n---\n\n');
+  return { prompt: parts.join('\n\n---\n\n'), messageFile };
 }
