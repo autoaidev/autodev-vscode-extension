@@ -17,7 +17,7 @@ import {
   VENCRYPT_TLSVNC, VENCRYPT_X509VNC,
   vncDesResponse, pickAuthType, negotiateVeNCrypt,
 } from './auth';
-import { ENC_RAW, ENC_COPYRECT } from './constants';
+import { ENC_RAW, ENC_COPYRECT, ENC_CURSOR } from './constants';
 import type { VncRect, VncInfo } from './types';
 
 export class VncBridge extends EventEmitter {
@@ -212,7 +212,7 @@ export class VncBridge extends EventEmitter {
             state = 'running';
 
             this._sendSetPixelFormat();
-            this._sendSetEncodings([ENC_RAW, ENC_COPYRECT]);
+            this._sendSetEncodings([ENC_RAW, ENC_COPYRECT, ENC_CURSOR]);
             resolve({ name, width: this._width, height: this._height });
 
           } else if (state === 'running') {
@@ -249,6 +249,18 @@ export class VncBridge extends EventEmitter {
     const buf = Buffer.alloc(8);
     buf[0] = 4; buf[1] = down ? 1 : 0;
     buf.writeUInt32BE(keysym, 4);
+    this._sock.write(buf);
+  }
+
+  /** Send a ClientCutText message (push local clipboard to remote). */
+  sendClientCutText(text: string): void {
+    if (!this._sock || this._closed) return;
+    const encoded = Buffer.from(text, 'latin1');
+    const buf = Buffer.alloc(8 + encoded.length);
+    buf[0] = 6; // ClientCutText
+    // buf[1..3] = padding (0)
+    buf.writeUInt32BE(encoded.length, 4);
+    encoded.copy(buf, 8);
     this._sock.write(buf);
   }
 
@@ -380,11 +392,13 @@ export class VncBridge extends EventEmitter {
     }
 
     if (msgType === 3) {
-      // ServerCutText
+      // ServerCutText — remote clipboard changed; forward to frontend
       if (this._recvBuf.length < 8) return false;
       const len = this._recvBuf.readUInt32BE(4);
       if (this._recvBuf.length < 8 + len) return false;
+      const text = this._recvBuf.slice(8, 8 + len).toString('latin1');
       this._recvBuf = this._recvBuf.slice(8 + len);
+      this.emit('clipboard', text);
       return true;
     }
 
@@ -425,6 +439,41 @@ export class VncBridge extends EventEmitter {
         const data = Buffer.from(this._recvBuf.slice(offset, offset + 4));
         offset += 4;
         rects.push({ x, y, w, h, encoding: 'CopyRect', data });
+
+      } else if (enc === ENC_CURSOR) {
+        // Cursor pseudo-encoding: x=hotX, y=hotY, w/h=cursor size.
+        // Payload: [w*h*bypp] pixel bytes + [ceil(w/8)*h] bitmask bytes.
+        const maskRowBytes = Math.ceil(w / 8);
+        const pixelBytes   = w * h * this._bypp;
+        const maskBytes    = maskRowBytes * h;
+        const totalBytes   = pixelBytes + maskBytes;
+        if (this._recvBuf.length < offset + totalBytes) return false;
+
+        const pixelData = this._recvBuf.slice(offset, offset + pixelBytes);
+        const maskData  = this._recvBuf.slice(offset + pixelBytes, offset + totalBytes);
+        offset += totalBytes;
+
+        // Convert to RGBA — our pixel format: R=byte0, G=byte1, B=byte2, pad=byte3.
+        // Alpha comes from the bitmask (MSB first per byte, one bit per pixel).
+        const rgba = Buffer.alloc(w * h * 4);
+        for (let py = 0; py < h; py++) {
+          for (let px = 0; px < w; px++) {
+            const pi  = (py * w + px) * this._bypp;
+            const ri  = (py * w + px) * 4;
+            const bit = (maskData[py * maskRowBytes + Math.floor(px / 8)] >> (7 - (px % 8))) & 1;
+            rgba[ri]     = pixelData[pi];
+            rgba[ri + 1] = pixelData[pi + 1];
+            rgba[ri + 2] = pixelData[pi + 2];
+            rgba[ri + 3] = bit ? 255 : 0;
+          }
+        }
+
+        this.emit('cursor', {
+          hotX: x, hotY: y,
+          width: w, height: h,
+          rgba: rgba.toString('base64'),
+        });
+        // Cursor is a pseudo-encoding — not added to rects[]
 
       } else {
         this.emit('error', new Error(`Unsupported FBU encoding: ${enc}`));

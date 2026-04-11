@@ -40,6 +40,18 @@ export class VncSession {
       }
     });
 
+    // Bidirectional clipboard: remote changed → tell browser
+    bridge.on('clipboard', (text: string) => {
+      this.wsSender({ type: 'vnc_clipboard', sessionId: this.sessionId, text });
+    });
+
+    // Cursor shape: remote changed cursor → tell browser
+    bridge.on('cursor', (cursor: {
+      hotX: number; hotY: number; width: number; height: number; rgba: string;
+    }) => {
+      this.wsSender({ type: 'vnc_cursor', sessionId: this.sessionId, ...cursor });
+    });
+
     bridge.on('fbu', (rects: VncRect[]) => {
       this._pendingFuq = false;
 
@@ -150,6 +162,11 @@ export class VncSession {
       const jsKey  = Number(event['keyCode'] ?? 0);
       const keysym = KEYSYM[jsKey] ?? jsKey;
       this._bridge.sendKey(keysym, Boolean(event['down']));
+
+    } else if (t === 'clipboard') {
+      // Local clipboard pushed to remote: { text }
+      const text = String(event['text'] ?? '');
+      this._bridge.sendClientCutText(text);
     }
   }
 

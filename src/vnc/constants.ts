@@ -7,6 +7,7 @@
 export const ENC_RAW      = 0;
 export const ENC_COPYRECT = 1;
 export const ENC_HEXTILE  = 5;  // parsed but not yet sent to browser
+export const ENC_CURSOR   = -239; // RFB pseudo-encoding: cursor shape
 
 // ── X11 keysym translations (JS keyCode → X11 keysym) ─────────────────────
 
