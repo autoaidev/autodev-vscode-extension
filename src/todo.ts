@@ -23,27 +23,16 @@ export function parseTodo(filePath: string): Task[] {
 
 export function parseTodoContent(content: string): Task[] {
   const tasks: Task[] = [];
-  let section = '';
   const lines = content.split('\n');
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineNo = i + 1;
-
-    // Section headings: ## Todo  ## In Progress  ## Done
-    const headingMatch = line.match(/^\s*#{1,3}\s+(.+)$/u);
-    if (headingMatch) {
-      section = headingMatch[1].toLowerCase().trim();
-      continue;
-    }
-
-    const task = parseLine(line, section, lineNo);
+    const task = parseLine(lines[i], i + 1);
     if (task) { tasks.push(task); }
   }
   return tasks;
 }
 
-function parseLine(line: string, section: string, lineNo: number): Task | null {
+function parseLine(line: string, lineNo: number): Task | null {
   const ln = line.trimEnd();
 
   // Done:        - [x] 2026-02-28  text
@@ -57,15 +46,6 @@ function parseLine(line: string, section: string, lineNo: number): Task | null {
   // Todo:        - [ ] text
   m = ln.match(/^\s*(?:-\s*)?\[\s+\]\s*(.+)$/iu);
   if (m) { return { status: 'todo', text: m[1].trim(), line: lineNo }; }
-
-  // Plain bullet under a known section
-  m = ln.match(/^\s*-\s+(.+)$/u);
-  if (m) {
-    const text = m[1].trim();
-    if (section.includes('done')) { return { status: 'done', text, line: lineNo }; }
-    if (section.includes('progress')) { return { status: 'in-progress', text, line: lineNo }; }
-    if (section.includes('todo')) { return { status: 'todo', text, line: lineNo }; }
-  }
 
   return null;
 }
