@@ -483,7 +483,10 @@ export class VncBridge extends EventEmitter {
     }
 
     this._recvBuf = this._recvBuf.slice(offset);
-    if (rects.length > 0) this.emit('fbu', rects);
+    // Always emit 'fbu' even when rects is empty (cursor-only FBU).
+    // session.ts must receive this event to clear _pendingFuq; skipping it
+    // when rects.length === 0 causes a permanent pipeline deadlock.
+    this.emit('fbu', rects);
     return true;
   }
 }

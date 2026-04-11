@@ -65,6 +65,10 @@ export class VncSession {
         this._pendingFuq = true;
       }
 
+      // Cursor-only FBU (rects is empty) — pipeline is unblocked above;
+      // nothing to send to the browser.
+      if (rects.length === 0) return;
+
       // Concatenate all rect payloads and compress in a SINGLE deflate pass.
       // Batching gives the compressor cross-rect spatial context and avoids
       // per-rect setup overhead — significantly better compression ratio.
