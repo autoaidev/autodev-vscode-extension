@@ -18,9 +18,11 @@ export function buildCopilotCliCommand(
   promptFile: string,
   sessionId?: string,
 ): string {
-  const resumeFlag = sessionId ? ` --resume ${sessionId}` : '';
-  const flags = `--autopilot --yolo --no-ask-user --allow-all --no-auto-update --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --stream on --no-color --max-autopilot-continues 2000${resumeFlag}`;
-  return `copilot ${flags} -p "@${promptFile}"`;
+  const resumeFlag = sessionId ? ` --resume=${sessionId}` : '';
+  const flags = `--autopilot --yolo --no-ask-user --allow-all --no-auto-update --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --no-color --max-autopilot-continues 2000${resumeFlag}`;
+  const fileRef = JSON.stringify(promptFile);
+  return `copilot ${flags} -p "$(cat ${fileRef})"`;
+
 }
 
 /**

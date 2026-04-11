@@ -218,9 +218,9 @@ export function buildClaudeCliCommand(
   const msgRef = JSON.stringify(`@${messageFile}`);
   if (includeProfile) {
     const profileRef = JSON.stringify(`@${agentProfileFile}`);
-    return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${profileRef} ${msgRef}`;
+    return `claude --allow-dangerously-skip-permissions --dangerously-skip-permissions${resume} -p ${profileRef} ${msgRef}`;
   }
-  return `claude --allow-dangerously-skip-permissions --enable-auto-mode --dangerously-skip-permissions${resume} -p ${msgRef}`;
+  return `claude --allow-dangerously-skip-permissions --dangerously-skip-permissions${resume} -p ${msgRef}`;
 }
 
 /**

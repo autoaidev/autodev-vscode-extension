@@ -26,7 +26,7 @@ export function buildOpenCodeCliCommand(
     const concat = `(Get-Content ${profileArg} -Raw) + "\`n\`n" + (Get-Content ${msgArg} -Raw)`;
     return `$autodev_msg=${concat}; opencode run${session} $autodev_msg`;
   }
-  return `opencode run${session} "$(cat ${profileArg})\n\n$(cat ${msgArg})"`;
+  return `opencode run${session} "$(cat ${profileArg}; echo; echo; cat ${msgArg})"`;
 }
 
 /**
