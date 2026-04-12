@@ -6,27 +6,16 @@ import { exec } from 'child_process';
 
 /**
  * Build the shell command string for the opencode-cli provider.
- * `opencode run` takes the message as positional [message..] args — there is
- * no --prompt flag or @file syntax on `run`.
- * We concatenate both files via shell expansion so opencode receives the
- * full combined content as its message argument.
+ * Accepts a pre-combined file written by the dispatcher and passes it as a
+ * single `@file` reference so opencode reads it directly.
  */
 export function buildOpenCodeCliCommand(
-  agentProfileFile: string,
-  messageFile: string,
+  combinedFile: string,
   sessionId?: string,
 ): string {
-  const profileArg = JSON.stringify(agentProfileFile);
-  const msgArg = JSON.stringify(messageFile);
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
-  const isWin = process.platform === 'win32';
-  if (isWin) {
-    // Assign to a local variable first — passing an inline expression directly to opencode
-    // causes PowerShell to split the multi-line result into separate args.
-    const concat = `(Get-Content ${profileArg} -Raw) + "\`n\`n" + (Get-Content ${msgArg} -Raw)`;
-    return `$autodev_msg=${concat}; opencode run${session} $autodev_msg`;
-  }
-  return `opencode run${session} "$(cat ${profileArg}; echo; echo; cat ${msgArg})"`;
+  const fileRef = JSON.stringify(`@${combinedFile}`);
+  return `opencode run${session} ${fileRef}`;
 }
 
 /**
@@ -51,6 +40,26 @@ export function getLatestOpenCodeSessionId(
       } catch {
         resolve(undefined);
       }
+    });
+  });
+}
+
+/**
+ * Run `/compact` on an existing OpenCode session to summarise conversation
+ * history and free up context window space.  Returns a promise that resolves
+ * when the compact command exits (success or failure — caller decides whether
+ * to treat an error as fatal).
+ */
+export function runOpenCodeCompact(
+  sessionId: string,
+  cwd: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cmd = `opencode run -s ${sessionId} /compact`;
+    log(`OpenCode compact: ${cmd}`);
+    exec(cmd, { cwd, encoding: 'utf8', timeout: 120_000 }, (err) => {
+      if (err) { reject(err); } else { resolve(); }
     });
   });
 }
