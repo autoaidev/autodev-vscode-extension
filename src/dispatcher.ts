@@ -109,19 +109,9 @@ export async function sendPromptToAi(
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
-      const msgsDir = path.join(root, '.autodev', 'messages');
-      if (!fs.existsSync(msgsDir)) { fs.mkdirSync(msgsDir, { recursive: true }); }
-      const msgContent = fs.readFileSync(messageFile, 'utf8');
-      let combined = msgContent;
-      if (includeProfile) {
-        const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
-        combined = `${profileContent}\n\n${msgContent}`;
-      }
-      const combinedFile = path.join(msgsDir, `temp_${Date.now()}.md`);
-      fs.writeFileSync(combinedFile, combined, 'utf8');
-      cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
+      cmd = buildCopilotCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
     } else {
-      cmd = buildOpenCodeCliCommand(agentProfileFile, includeProfile ? messageFile : messageFile, resolvedSessionId);
+      cmd = buildOpenCodeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);

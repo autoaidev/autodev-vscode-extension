@@ -6,22 +6,27 @@ import { exec } from 'child_process';
 
 /**
  * Build the shell command string for the copilot-cli provider.
- * The combined prompt has already been written to `promptFile` by the caller.
- * We pass it as `@<path>` so copilot reads the file — one clean line, no
- * shell quoting issues with multi-line content.
+ * Uses `@file` references so the full file content is NOT inlined into the
+ * shell argument — copilot reads the files itself, keeping prompt size small.
  *
  * Resume behaviour:
  *   - sessionId provided  → --resume <id>
  *   - neither             → fresh session
  */
 export function buildCopilotCliCommand(
-  promptFile: string,
+  agentProfileFile: string,
+  messageFile: string,
   sessionId?: string,
+  includeProfile = true,
 ): string {
   const resumeFlag = sessionId ? ` --resume=${sessionId}` : '';
   const flags = `--autopilot --yolo --no-ask-user --allow-all --no-auto-update --allow-all-paths --allow-all-urls --allow-all-tools --enable-all-github-mcp-tools --no-color --max-autopilot-continues 2000${resumeFlag}`;
-  const fileRef = JSON.stringify(promptFile);
-  return `copilot ${flags} -p "$(cat ${fileRef})"`;
+  const msgRef = JSON.stringify(`@${messageFile}`);
+  if (includeProfile) {
+    const profileRef = JSON.stringify(`@${agentProfileFile}`);
+    return `copilot ${flags} -p ${profileRef} ${msgRef}`;
+  }
+  return `copilot ${flags} -p ${msgRef}`;
 
 }
 

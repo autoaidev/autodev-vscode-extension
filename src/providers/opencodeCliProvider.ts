@@ -6,27 +6,24 @@ import { exec } from 'child_process';
 
 /**
  * Build the shell command string for the opencode-cli provider.
- * `opencode run` takes the message as positional [message..] args — there is
- * no --prompt flag or @file syntax on `run`.
- * We concatenate both files via shell expansion so opencode receives the
- * full combined content as its message argument.
+ * Uses `@file` references (like Claude CLI) so the full file content is NOT
+ * inlined into the shell argument — opencode reads the files itself.
+ * When includeProfile is false (subsequent tasks in a resumed session) only
+ * the message file is passed, keeping the prompt small.
  */
 export function buildOpenCodeCliCommand(
   agentProfileFile: string,
   messageFile: string,
   sessionId?: string,
+  includeProfile = true,
 ): string {
-  const profileArg = JSON.stringify(agentProfileFile);
-  const msgArg = JSON.stringify(messageFile);
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
-  const isWin = process.platform === 'win32';
-  if (isWin) {
-    // Assign to a local variable first — passing an inline expression directly to opencode
-    // causes PowerShell to split the multi-line result into separate args.
-    const concat = `(Get-Content ${profileArg} -Raw) + "\`n\`n" + (Get-Content ${msgArg} -Raw)`;
-    return `$autodev_msg=${concat}; opencode run${session} $autodev_msg`;
+  const msgRef = JSON.stringify(`@${messageFile}`);
+  if (includeProfile) {
+    const profileRef = JSON.stringify(`@${agentProfileFile}`);
+    return `opencode run${session} ${profileRef} ${msgRef}`;
   }
-  return `opencode run${session} "$(cat ${profileArg}; echo; echo; cat ${msgArg})"`;
+  return `opencode run${session} ${msgRef}`;
 }
 
 /**
