@@ -83,7 +83,7 @@ export class WebhookClient {
       case 'loop_complete':
         return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
           contextId: this.contextId,
-          status: { state: 'TASK_STATE_COMPLETED', timestamp: now }, metadata: payload } };
+          status: { state: 'TASK_STATE_COMPLETED', timestamp: now }, metadata: { event: 'loop_complete', ...payload } } };
 
       case 'agent_online':
         return this.buildMessage('autodev online', payload, now);
@@ -100,7 +100,7 @@ export class WebhookClient {
         return { statusUpdate: { taskId: this.currentTaskId, contextId: this.contextId,
           status: { state: 'TASK_STATE_WORKING', timestamp: now,
             message: { messageId: uuid(), role: 'ROLE_AGENT', parts: [{ text: taskText }] } },
-          metadata: payload } };
+          metadata: { event: 'task_start', ...payload } } };
       }
 
       case 'task_done': {
@@ -123,7 +123,7 @@ export class WebhookClient {
       case 'task_progress':
         return { statusUpdate: { taskId: this.currentTaskId ?? uuid(),
           contextId: this.contextId,
-          status: { state: 'TASK_STATE_WORKING', timestamp: now }, metadata: payload } };
+          status: { state: 'TASK_STATE_WORKING', timestamp: now }, metadata: { event: 'task_progress', ...payload } } };
 
       case 'task_output': {
         if (!this.currentArtifactId) { this.currentArtifactId = uuid(); }
