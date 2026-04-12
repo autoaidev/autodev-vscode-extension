@@ -230,13 +230,14 @@ export class TaskLoopRunner {
       // the server can record the VNC host/port from the live connection context.
       this._webhookPoller.setOnConnect(() => {
         this._notifyWebhook('agent_online', {
-          hostname:   this._hostname,
-          workDir:    this._workspaceRoot ?? '',
-          gitRepo:    this._gitRepo,
-          gitBranch:  this._gitBranch,
-          vncEnabled: this._settings?.vncEnabled ?? false,
-          vncHost:    this._settings?.vncEnabled ? (this._settings?.vncHost || undefined) : undefined,
-          vncPort:    this._settings?.vncEnabled ? (this._settings?.vncPort ?? 5900) : undefined,
+          hostname:           this._hostname,
+          workDir:            this._workspaceRoot ?? '',
+          gitRepo:            this._gitRepo,
+          gitBranch:          this._gitBranch,
+          vncEnabled:         this._settings?.vncEnabled ?? false,
+          vncHost:            this._settings?.vncEnabled ? (this._settings?.vncHost || undefined) : undefined,
+          vncPort:            this._settings?.vncEnabled ? (this._settings?.vncPort ?? 5900) : undefined,
+          fileBrowserEnabled: this._settings?.enableFileBrowser ?? false,
         });
       });
     }
@@ -270,13 +271,14 @@ export class TaskLoopRunner {
       gitBranch: this._gitBranch,
     });
     this._notifyWebhook('agent_online', {
-      hostname:   this._hostname,
-      workDir:    root,
-      gitRepo:    this._gitRepo,
-      gitBranch:  this._gitBranch,
-      vncEnabled: settings.vncEnabled ?? false,
-      vncHost:    settings.vncEnabled ? (settings.vncHost || undefined) : undefined,
-      vncPort:    settings.vncEnabled ? (settings.vncPort ?? 5900) : undefined,
+      hostname:           this._hostname,
+      workDir:            root,
+      gitRepo:            this._gitRepo,
+      gitBranch:          this._gitBranch,
+      vncEnabled:         settings.vncEnabled ?? false,
+      vncHost:            settings.vncEnabled ? (settings.vncHost || undefined) : undefined,
+      vncPort:            settings.vncEnabled ? (settings.vncPort ?? 5900) : undefined,
+      fileBrowserEnabled: settings.enableFileBrowser ?? false,
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
 

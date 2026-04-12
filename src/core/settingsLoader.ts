@@ -30,6 +30,7 @@ export interface AutodevSettings {
   vncHost: string;
   vncPort: number;
   vncPassword: string;
+  enableFileBrowser: boolean;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -53,6 +54,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   vncHost: '',
   vncPort: 5900,
   vncPassword: '',
+  enableFileBrowser: false,
 };
 
 /**

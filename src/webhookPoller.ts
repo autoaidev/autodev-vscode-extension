@@ -5,6 +5,7 @@ import * as tls from 'tls';
 import * as crypto from 'crypto';
 import * as url from 'url';
 import * as fs from 'fs';
+import * as path from 'path';
 import { VncSession } from './vnc';
 import { saveAttachment } from './messageBuilder';
 
@@ -333,6 +334,20 @@ class WebSocketPoller {
 
     // ── VNC frames from pixel-office ─────────────────────────────────────────
 
+    // ── File browser requests from server ─────────────────────────────────────
+
+    if (msgType === 'fb_request') {
+      const requestId = msg['requestId'] as string | undefined;
+      const action    = msg['action']    as string | undefined;
+      const relPath   = (msg['path']    as string | undefined) ?? '';
+      const content   = msg['content']  as string | undefined;
+      const newPath   = msg['newPath']  as string | undefined;
+      if (requestId && action) {
+        this._handleFbRequest(requestId, action, relPath, content, newPath);
+      }
+      return;
+    }
+
     if (msgType === 'vnc_session') {
       const action = msg['action'] as string | undefined;
       if (action === 'start') {
@@ -434,6 +449,112 @@ class WebSocketPoller {
       } catch (err) {
         this._log(`WS failed to append task to TODO.md: ${err}`);
       }
+    }
+  }
+
+  /** Handle a file-browser request from the server (originated by the browser UI). */
+  private _handleFbRequest(requestId: string, action: string, relPath: string, content?: string, newPath?: string): void {
+    const respond = (ok: boolean, extra?: Record<string, unknown>) => {
+      this.sendFrame({ type: 'fb_response', requestId, ok, ...extra });
+    };
+
+    const root = this._workspaceRoot;
+    if (!root) {
+      respond(false, { error: 'No workspace root configured' });
+      return;
+    }
+
+    // Resolve and validate path is within workspace root
+    const resolveSafe = (rel: string): string | null => {
+      const resolved = path.resolve(root, rel);
+      return resolved.startsWith(root + path.sep) || resolved === root ? resolved : null;
+    };
+
+    const absPath = resolveSafe(relPath);
+    if (!absPath) {
+      respond(false, { error: 'Path outside workspace' });
+      return;
+    }
+
+    try {
+      switch (action) {
+        case 'list': {
+          const entries = fs.readdirSync(absPath, { withFileTypes: true }).map(e => {
+            const stat = (() => { try { return fs.statSync(path.join(absPath, e.name)); } catch { return null; } })();
+            return {
+              name: e.name,
+              type: e.isDirectory() ? 'dir' : 'file',
+              size: stat?.size ?? 0,
+              mtime: stat?.mtimeMs ?? 0,
+            };
+          });
+          // Dirs first, then files; both alphabetical
+          entries.sort((a, b) => {
+            if (a.type !== b.type) { return a.type === 'dir' ? -1 : 1; }
+            return a.name.localeCompare(b.name);
+          });
+          respond(true, { entries });
+          break;
+        }
+
+        case 'read': {
+          const stat = fs.statSync(absPath);
+          const MAX_BYTES = 1_048_576; // 1 MB
+          if (stat.size > MAX_BYTES) {
+            respond(false, { error: `File too large (${stat.size} bytes, limit 1 MB)` });
+            break;
+          }
+          // Binary detection: read first 512 bytes and check for null bytes
+          const sample = Buffer.allocUnsafe(Math.min(512, stat.size));
+          const fd = fs.openSync(absPath, 'r');
+          fs.readSync(fd, sample, 0, sample.length, 0);
+          fs.closeSync(fd);
+          const isBinary = sample.includes(0x00);
+          if (isBinary) {
+            respond(false, { error: 'Binary file — cannot display' });
+            break;
+          }
+          const fileContent = fs.readFileSync(absPath, 'utf8');
+          respond(true, { content: fileContent });
+          break;
+        }
+
+        case 'write': {
+          if (content === undefined) {
+            respond(false, { error: 'No content provided' });
+            break;
+          }
+          fs.writeFileSync(absPath, content, 'utf8');
+          respond(true);
+          break;
+        }
+
+        case 'delete': {
+          fs.rmSync(absPath, { recursive: true, force: true });
+          respond(true);
+          break;
+        }
+
+        case 'rename': {
+          if (!newPath) {
+            respond(false, { error: 'No newPath provided' });
+            break;
+          }
+          const absNewPath = resolveSafe(newPath);
+          if (!absNewPath) {
+            respond(false, { error: 'newPath outside workspace' });
+            break;
+          }
+          fs.renameSync(absPath, absNewPath);
+          respond(true);
+          break;
+        }
+
+        default:
+          respond(false, { error: `Unknown action: ${action}` });
+      }
+    } catch (err) {
+      respond(false, { error: String(err) });
     }
   }
 

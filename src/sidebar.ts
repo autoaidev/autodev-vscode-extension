@@ -334,6 +334,9 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field"><label class="cfg-label">VNC Port</label><input class="cfg-input" id="cfg_vncPort" type="number" min="1" max="65535"></div>
     <div class="cfg-field"><label class="cfg-label">VNC Password</label><input class="cfg-input" id="cfg_vncPassword" type="password" placeholder="(leave empty for no-auth)"></div>
   </div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
+  </div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <div class="cfg-field">
@@ -479,6 +482,8 @@ function populateSettings(s){
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
   const vnce=document.getElementById('cfg_vncEnabled');
   if(vnce) vnce.checked=!!s.vncEnabled;
+  const efb=document.getElementById('cfg_enableFileBrowser');
+  if(efb) efb.checked=!!s.enableFileBrowser;
   const vnch=document.getElementById('cfg_vncHost');
   if(vnch) vnch.value=s.vncHost||'';
   const vncprt=document.getElementById('cfg_vncPort');
@@ -547,6 +552,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
     vncEnabled:document.getElementById('cfg_vncEnabled').checked,
+    enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     vncHost:document.getElementById('cfg_vncHost').value.trim(),
     vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
     vncPassword:document.getElementById('cfg_vncPassword').value,
