@@ -55,6 +55,21 @@ function ensureProjectGitignore(root: string, entry: string): void {
   } catch { /* ignore */ }
 }
 
+/** Combine profile + message into a temp file under .autodev/messages/ and return its path. */
+function writeCombinedFile(root: string, agentProfileFile: string, messageFile: string, includeProfile: boolean): string {
+  const msgsDir = path.join(root, '.autodev', 'messages');
+  if (!fs.existsSync(msgsDir)) { fs.mkdirSync(msgsDir, { recursive: true }); }
+  const msgContent = fs.readFileSync(messageFile, 'utf8');
+  let combined = msgContent;
+  if (includeProfile) {
+    const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
+    combined = `${profileContent}\n\n${msgContent}`;
+  }
+  const combinedFile = path.join(msgsDir, `temp_${Date.now()}.md`);
+  fs.writeFileSync(combinedFile, combined, 'utf8');
+  return combinedFile;
+}
+
 // ---------------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------------
@@ -109,9 +124,11 @@ export async function sendPromptToAi(
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
-      cmd = buildCopilotCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
+      const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
     } else {
-      cmd = buildOpenCodeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
+      const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId);
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);

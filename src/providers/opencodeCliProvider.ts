@@ -6,24 +6,16 @@ import { exec } from 'child_process';
 
 /**
  * Build the shell command string for the opencode-cli provider.
- * Uses `@file` references (like Claude CLI) so the full file content is NOT
- * inlined into the shell argument — opencode reads the files itself.
- * When includeProfile is false (subsequent tasks in a resumed session) only
- * the message file is passed, keeping the prompt small.
+ * Accepts a pre-combined file written by the dispatcher and passes it as a
+ * single `@file` reference so opencode reads it directly.
  */
 export function buildOpenCodeCliCommand(
-  agentProfileFile: string,
-  messageFile: string,
+  combinedFile: string,
   sessionId?: string,
-  includeProfile = true,
 ): string {
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
-  const msgRef = JSON.stringify(`@${messageFile}`);
-  if (includeProfile) {
-    const profileRef = JSON.stringify(`@${agentProfileFile}`);
-    return `opencode run${session} ${profileRef} ${msgRef}`;
-  }
-  return `opencode run${session} ${msgRef}`;
+  const fileRef = JSON.stringify(`@${combinedFile}`);
+  return `opencode run${session} ${fileRef}`;
 }
 
 /**
