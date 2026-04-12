@@ -5,7 +5,6 @@ import * as tls from 'tls';
 import * as crypto from 'crypto';
 import * as url from 'url';
 import * as fs from 'fs';
-import * as zlib from 'zlib';
 import { VncSession } from './vnc';
 import { saveAttachment } from './messageBuilder';
 
@@ -76,8 +75,6 @@ class WebSocketPoller {
   private _vncSessions: Map<string, VncSession> = new Map();
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
-  /** True when the server accepted permessage-deflate in the last handshake. */
-  private _deflateEnabled = false;
 
   constructor(
     private readonly wsUrl: string,
@@ -142,10 +139,6 @@ class WebSocketPoller {
       'Connection: Upgrade',
       `Sec-WebSocket-Key: ${key}`,
       'Sec-WebSocket-Version: 13',
-      // Request per-message deflate. Both no_context_takeover flags keep the
-      // implementation stateless (fresh deflate/inflate context per message),
-      // which is fine here since large vnc_fbu frames are already app-compressed.
-      'Sec-WebSocket-Extensions: permessage-deflate; client_no_context_takeover; server_no_context_takeover',
       '',
       '',
     ].join('\r\n');
@@ -186,13 +179,6 @@ class WebSocketPoller {
 
         headersDone = true;
         this._connected = true;
-
-        // Detect permessage-deflate acceptance in the 101 response headers.
-        const extMatch = /Sec-WebSocket-Extensions:\s*([^\r\n]+)/i.exec(headerBuf);
-        this._deflateEnabled = !!(extMatch && extMatch[1].includes('permessage-deflate'));
-        if (this._deflateEnabled) {
-          this._log(`WS permessage-deflate compression enabled`);
-        }
 
         this._log(`WS connected → ${host}:${port} (slug: ${this.slug})`);
 
@@ -255,7 +241,6 @@ class WebSocketPoller {
     if (this._destroyed) { return; }
     this._socket = null;
     this._connected = false;
-    this._deflateEnabled = false; // re-negotiate on next handshake
     this._buffer = Buffer.alloc(0);
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
@@ -268,34 +253,16 @@ class WebSocketPoller {
     while (true) {
       const frame = this._parseFrame();
       if (!frame) { break; }
-
-      let { opcode, payload } = frame;
-
-      // permessage-deflate: inflate frames that have RSV1 set.
-      if (frame.rsv1 && this._deflateEnabled) {
-        try {
-          // Append the SYNC_FLUSH tail that was stripped by the sender, then inflate.
-          const withTail = Buffer.concat([payload, Buffer.from([0x00, 0x00, 0xff, 0xff])]);
-          payload = zlib.inflateRawSync(withTail);
-        } catch {
-          this._log('WS inflate error — reconnecting');
-          this._connected = false;
-          this._scheduleReconnect();
-          return;
-        }
-      }
-
-      this._onFrame(opcode, payload);
+      this._onFrame(frame.opcode, frame.payload);
     }
   }
 
-  private _parseFrame(): { opcode: number; payload: Buffer; rsv1: boolean } | null {
+  private _parseFrame(): { opcode: number; payload: Buffer } | null {
     if (this._buffer.length < 2) { return null; }
 
     const byte1 = this._buffer[0];
     const byte2 = this._buffer[1];
     const opcode = byte1 & 0x0f;
-    const rsv1   = (byte1 & 0x40) !== 0;
     const isMasked = (byte2 & 0x80) !== 0;
     let payloadLen = byte2 & 0x7f;
     let offset = 2;
@@ -328,7 +295,7 @@ class WebSocketPoller {
     // Consume frame from buffer
     this._buffer = this._buffer.slice(offset + payloadLen);
 
-    return { opcode, payload, rsv1 };
+    return { opcode, payload };
   }
 
   private _onFrame(opcode: number, payload: Buffer): void {
@@ -470,14 +437,9 @@ class WebSocketPoller {
     return true;
   }
 
-  /** Send a masked WebSocket text frame, deflated when permessage-deflate is active. */
+  /** Send a masked WebSocket text frame. */
   private _sendTextFrame(text: string): void {
     if (!this._socket) { return; }
-
-    if (this._deflateEnabled) {
-      this._sendDeflatedTextFrame(text);
-      return;
-    }
 
     const data = Buffer.from(text, 'utf8');
     const len = data.length;
@@ -502,54 +464,6 @@ class WebSocketPoller {
       mask.copy(header, 10);
     }
     const masked = Buffer.from(data);
-    for (let i = 0; i < masked.length; i++) { masked[i] ^= mask[i % 4]; }
-    this._socket.write(Buffer.concat([header, masked]));
-  }
-
-  /**
-   * Send a permessage-deflate compressed masked WebSocket text frame (RFC 7692).
-   *
-   * Uses raw DEFLATE with SYNC_FLUSH so the output always ends with the
-   * 00 00 FF FF tail that permessage-deflate requires to be stripped before
-   * sending (and re-appended by the receiver before inflating).
-   *
-   * Both sides negotiated no_context_takeover so each message is compressed
-   * independently — no shared deflate context state needed.
-   */
-  private _sendDeflatedTextFrame(text: string): void {
-    if (!this._socket) { return; }
-    const raw = Buffer.from(text, 'utf8');
-
-    // Z_SYNC_FLUSH appends the 00 00 FF FF tail; strip it per RFC 7692 §7.2.1.
-    const compressed = zlib.deflateRawSync(raw, {
-      finishFlush: zlib.constants.Z_SYNC_FLUSH,
-    });
-    const payload = compressed.slice(0, compressed.length - 4);
-
-    const len = payload.length;
-    const mask = crypto.randomBytes(4);
-    let header: Buffer;
-    // FIN(1) + RSV1(1) + opcode TEXT(0x1) = 0xC1
-    const firstByte = 0xc1;
-    if (len <= 125) {
-      header = Buffer.alloc(6);
-      header[0] = firstByte;
-      header[1] = len | 0x80;
-      mask.copy(header, 2);
-    } else if (len <= 65535) {
-      header = Buffer.alloc(8);
-      header[0] = firstByte;
-      header[1] = 126 | 0x80;
-      header.writeUInt16BE(len, 2);
-      mask.copy(header, 4);
-    } else {
-      header = Buffer.alloc(14);
-      header[0] = firstByte;
-      header[1] = 127 | 0x80;
-      header.writeBigUInt64BE(BigInt(len), 2);
-      mask.copy(header, 10);
-    }
-    const masked = Buffer.from(payload);
     for (let i = 0; i < masked.length; i++) { masked[i] ^= mask[i % 4]; }
     this._socket.write(Buffer.concat([header, masked]));
   }
