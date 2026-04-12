@@ -239,9 +239,22 @@ class WebSocketPoller {
   private _scheduleReconnect(): void {
     this._stopAllVncSessions();
     if (this._destroyed) { return; }
+    // If a reconnect is already scheduled, don't schedule another.
+    if (this._reconnectTimer) { return; }
+
+    // Detach and destroy the old socket so its stale event listeners (close/error)
+    // can't trigger another _scheduleReconnect() call after we've already queued one.
+    const oldSocket = this._socket;
     this._socket = null;
     this._connected = false;
     this._buffer = Buffer.alloc(0);
+    if (oldSocket) {
+      oldSocket.removeAllListeners('data');
+      oldSocket.removeAllListeners('close');
+      oldSocket.removeAllListeners('error');
+      oldSocket.destroy();
+    }
+
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
       this._connect();
@@ -400,6 +413,20 @@ class WebSocketPoller {
       const fullText = attRefs.length > 0
         ? taskText + '\n' + attRefs.map(p => `[attachment: ${p}]`).join('\n')
         : taskText;
+
+      // Deduplicate: skip if this exact task line is already present in TODO.md.
+      // This prevents double-entries when the server re-delivers tasks on reconnect
+      // (e.g. after a stale-socket delivery that was never actually received).
+      try {
+        if (this._todoPath && fs.existsSync(this._todoPath)) {
+          const existing = fs.readFileSync(this._todoPath, 'utf8');
+          if (existing.includes(`- [ ] ${taskText}`) || existing.includes(`- [x] ${taskText}`) || existing.includes(`- [~] ${taskText}`)) {
+            this._log(`WS task already in TODO.md, skipping: "${taskText}"`);
+            return;
+          }
+        }
+      } catch { /* ignore read errors — proceed to append */ }
+
       this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
       try {
         if (!this._todoPath) { throw new Error('todoPath is empty'); }
