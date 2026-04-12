@@ -9,8 +9,8 @@ import { WebhookClient, WebhookEvent, sendDiscordBotMessage } from './webhook';
 import { loadSettingsForRoot, AutodevSettings } from './settings';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
-import { getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
-import { captureAndSaveSessionId, saveSessionId, stdoutFilePath, exitFilePath } from './sessionState';
+import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
+import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
@@ -30,6 +30,13 @@ class RateLimitError extends Error {
   constructor(readonly rawMessage: string, readonly resetAt: Date | undefined) {
     super(rawMessage);
     this.name = 'RateLimitError';
+  }
+}
+
+class ContextLengthError extends Error {
+  constructor(readonly rawMessage: string) {
+    super(rawMessage);
+    this.name = 'ContextLengthError';
   }
 }
 
@@ -161,6 +168,8 @@ export class TaskLoopRunner {
   private _completedCount = 0;
   private _failedCount = 0;
   private _loopStartTime = 0;
+  /** Task lines that have already had /compact run — prevents infinite compact loops. */
+  private _compactedTaskLines = new Set<number>();
 
   get state(): LoopState { return this._state; }
   get currentTask(): string | undefined { return this._currentTask; }
@@ -476,6 +485,7 @@ export class TaskLoopRunner {
 
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._completedCount++;
+        this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
         const totalKnown = this._iterations + afterRemaining;
@@ -548,6 +558,31 @@ export class TaskLoopRunner {
           if (this._state !== 'running') { break; }
           continue; // pick up the same task at the top of the loop
         }
+        // --- Context length (OpenCode): run /compact once then retry ------
+        if (err instanceof ContextLengthError && !this._compactedTaskLines.has(task.line)) {
+          this._compactedTaskLines.add(task.line);
+          const rawMsg = err.rawMessage.slice(0, 300);
+          this._cb?.log(`🗜 Context length exceeded — running /compact: ${rawMsg}`);
+          this._notifyDiscord(`🗜 **Context length exceeded** — running \`/compact\`…\n\`\`\`\n${rawMsg}\n\`\`\``);
+          let sessionId = getSessionId(this._workspaceRoot!, 'opencode-cli');
+          if (!sessionId) {
+            sessionId = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg));
+          }
+          if (sessionId) {
+            try {
+              await runOpenCodeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
+              this._cb?.log('🗜 Compact complete — retrying task');
+              this._notifyDiscord('🗜 Compact complete — retrying task');
+            } catch (compactErr) {
+              const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+              this._cb?.log(`⚠️ Compact failed: ${compactMsg} — retrying anyway`);
+            }
+          } else {
+            this._cb?.log('⚠️ No OpenCode session ID found for compact — retrying task without compact');
+          }
+          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+          continue;
+        }
         // --- Normal task failure ------------------------------------------
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._failedCount++;
@@ -611,6 +646,7 @@ export class TaskLoopRunner {
   /** Return when the task text appears with [x] status in the TODO.md file. */
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
+    const isOpenCodeCli = this._cb?.getActiveProvider() === 'opencode-cli';
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
 
@@ -679,13 +715,13 @@ export class TaskLoopRunner {
       // Track how many characters of the stdout file we've already forwarded
       let lastStdoutLen = 0;
 
-      // Check stdout file: forward any new content to Discord/webhook, detect rate limit
+      // Check stdout file: forward any new content to Discord/webhook, detect rate limit / context errors
       const checkStdout = () => {
-        if (!isClaudeCli) { return; } // only Claude CLI pipes to this file
+        if (!isClaudeCli && !isOpenCodeCli) { return; } // only CLI providers tee stdout
         const content = readStdoutFile();
 
-        // Forward new output lines to Discord / webhook
-        if (content.length > lastStdoutLen) {
+        // Forward new output lines to Discord / webhook (Claude only — OpenCode output is very verbose)
+        if (isClaudeCli && content.length > lastStdoutLen) {
           const newText = content.slice(lastStdoutLen).trim();
           lastStdoutLen = content.length;
           if (newText) {
@@ -699,12 +735,21 @@ export class TaskLoopRunner {
               gitBranch: this._gitBranch,
             });
           }
+        } else {
+          lastStdoutLen = content.length; // keep cursor up to date for non-Claude providers
         }
 
-        // Rate limit detection
-        if (content.includes('hit your limit') || content.toLowerCase().includes('rate limit')) {
+        // Rate limit detection (Claude)
+        if (isClaudeCli && (content.includes('hit your limit') || content.toLowerCase().includes('rate limit'))) {
           cleanup();
           reject(new RateLimitError(content.trim(), parseRateLimitResetTime(content)));
+          return;
+        }
+
+        // Context length error detection (OpenCode)
+        if (isOpenCodeCli && content.toLowerCase().includes('maximum context length')) {
+          cleanup();
+          reject(new ContextLengthError(content.trim()));
         }
       };
 

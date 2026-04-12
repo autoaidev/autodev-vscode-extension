@@ -54,3 +54,23 @@ export function getLatestOpenCodeSessionId(
     });
   });
 }
+
+/**
+ * Run `/compact` on an existing OpenCode session to summarise conversation
+ * history and free up context window space.  Returns a promise that resolves
+ * when the compact command exits (success or failure — caller decides whether
+ * to treat an error as fatal).
+ */
+export function runOpenCodeCompact(
+  sessionId: string,
+  cwd: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cmd = `opencode run -s ${sessionId} /compact`;
+    log(`OpenCode compact: ${cmd}`);
+    exec(cmd, { cwd, encoding: 'utf8', timeout: 120_000 }, (err) => {
+      if (err) { reject(err); } else { resolve(); }
+    });
+  });
+}

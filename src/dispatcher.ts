@@ -122,6 +122,9 @@ export async function sendPromptToAi(
       cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
     } else {
       cmd = buildOpenCodeCliCommand(agentProfileFile, includeProfile ? messageFile : messageFile, resolvedSessionId);
+      const stdoutFile = stdoutFilePath(root, providerId);
+      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
+      cmd = teeCommand(cmd, stdoutFile);
     }
 
     const exitFile = exitFilePath(root, providerId);
