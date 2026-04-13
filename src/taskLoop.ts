@@ -14,6 +14,7 @@ import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, e
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
+import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
 
 // ---------------------------------------------------------------------------
@@ -156,6 +157,7 @@ export class TaskLoopRunner {
   private _settings: AutodevSettings | undefined;
   private _workspaceRoot: string | undefined;
   private _discordPoller: DiscordPoller | null = null;
+  private _discordGateway: DiscordGateway | null = null;
   private _webhookPoller: WebhookPoller | null = null;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _taskCompletionAbort: (() => void) | null = null;
@@ -227,6 +229,10 @@ export class TaskLoopRunner {
       ? new DiscordPoller(settings.discordToken, settings.discordChannelId, settings.discordOwners)
       : null;
 
+    this._discordGateway = settings.discordToken
+      ? new DiscordGateway(settings.discordToken)
+      : null;
+
     this._webhookPoller = (settings.serverBaseUrl && settings.serverApiKey && settings.webhookSlug)
       ? new WebhookPoller(settings.serverBaseUrl, settings.serverApiKey, settings.webhookSlug)
       : null;
@@ -263,6 +269,9 @@ export class TaskLoopRunner {
     if (this._discordPoller) {
       await this._discordPoller.initialize();
     }
+
+    // Connect to Discord Gateway so the bot appears online
+    this._discordGateway?.connect();
 
     // Start WebSocket connection (no-op for HTTP pollers)
     if (this._webhookPoller) {
@@ -322,6 +331,8 @@ export class TaskLoopRunner {
     this._currentTask = undefined;
     this._webhook = null;
     this._discordPoller = null;
+    this._discordGateway?.destroy();
+    this._discordGateway = null;
     this._webhookPoller = null;
     this._setState('idle');
     callbacks.log('Task loop stopped');
