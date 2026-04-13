@@ -7,6 +7,8 @@ import * as url from 'url';
 import * as fs from 'fs';
 import * as path from 'path';
 import { VncSession } from './vnc';
+import { RdpSession } from './rdp';
+import type { RdpConnectOptions } from './rdp';
 import { saveAttachment } from './messageBuilder';
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,7 @@ class WebSocketPoller {
 
   private _vncPassword: string | undefined;
   private _vncSessions: Map<string, VncSession> = new Map();
+  private _rdpSessions: Map<string, RdpSession> = new Map();
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
 
@@ -99,6 +102,7 @@ class WebSocketPoller {
   destroy(): void {
     this._destroyed = true;
     this._stopAllVncSessions();
+    this._stopAllRdpSessions();
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
     this._closeSocket();
   }
@@ -239,6 +243,7 @@ class WebSocketPoller {
 
   private _scheduleReconnect(): void {
     this._stopAllVncSessions();
+    this._stopAllRdpSessions();
     if (this._destroyed) { return; }
     // If a reconnect is already scheduled, don't schedule another.
     if (this._reconnectTimer) { return; }
@@ -384,6 +389,55 @@ class WebSocketPoller {
         this._log(`VNC session closed: ${sessionId}`);
         this._vncSessions.get(sessionId)?.stop();
         this._vncSessions.delete(sessionId);
+      }
+      return;
+    }
+
+    // ── RDP frames from pixel-office ─────────────────────────────────────────
+
+    if (msgType === 'rdp_session') {
+      const action = msg['action'] as string | undefined;
+      if (action === 'start') {
+        const sessionId = msg['sessionId'] as string;
+        const opts: RdpConnectOptions = {
+          host:       (msg['host']     as string | undefined) ?? '127.0.0.1',
+          port:       msg['port']     ? Number(msg['port'])     : undefined,
+          username:   msg['username'] as string | undefined,
+          password:   msg['password'] as string | undefined,
+          domain:     msg['domain']   as string | undefined,
+          width:      msg['width']    ? Number(msg['width'])    : undefined,
+          height:     msg['height']   ? Number(msg['height'])   : undefined,
+          colorDepth: msg['colorDepth'] ? Number(msg['colorDepth']) : undefined,
+        };
+        this._log(`RDP session start: ${sessionId} → ${opts.host}:${opts.port ?? 3389}`);
+
+        const session = new RdpSession(sessionId, (frame) => this.sendFrame(frame));
+        this._rdpSessions.set(sessionId, session);
+
+        session.start(opts).catch((err: Error) => {
+          this._log(`RDP session ${sessionId} failed to start: ${err.message}`);
+          this._rdpSessions.delete(sessionId);
+          this.sendFrame({ type: 'rdp_close', sessionId, reason: err.message });
+        });
+      }
+      return;
+    }
+
+    if (msgType === 'rdp_input') {
+      const sessionId = msg['sessionId'] as string | undefined;
+      const event     = msg['event'] as Record<string, unknown> | undefined;
+      if (sessionId && event) {
+        this._rdpSessions.get(sessionId)?.handleInput(event);
+      }
+      return;
+    }
+
+    if (msgType === 'rdp_close') {
+      const sessionId = msg['sessionId'] as string | undefined;
+      if (sessionId) {
+        this._log(`RDP session closed: ${sessionId}`);
+        this._rdpSessions.get(sessionId)?.stop();
+        this._rdpSessions.delete(sessionId);
       }
       return;
     }
@@ -571,6 +625,15 @@ class WebSocketPoller {
       session.stop();
     }
     this._vncSessions.clear();
+  }
+
+  /** Stop all active RDP sessions (called on destroy/reconnect). */
+  private _stopAllRdpSessions(): void {
+    for (const [id, session] of this._rdpSessions) {
+      this._log(`RDP session terminated (disconnect): ${id}`);
+      session.stop();
+    }
+    this._rdpSessions.clear();
   }
 
   /** Update the VNC password used for incoming vnc_session requests. */
