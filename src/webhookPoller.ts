@@ -550,6 +550,12 @@ class WebSocketPoller {
           break;
         }
 
+        case 'download': {
+          const buf = fs.readFileSync(absPath);
+          respond(true, { base64: buf.toString('base64') });
+          break;
+        }
+
         default:
           respond(false, { error: `Unknown action: ${action}` });
       }
