@@ -479,8 +479,10 @@ class WebSocketPoller {
       }
 
       if (!taskText) { return; }
+      // Collapse newlines so the entire message becomes a single TODO.md line
+      taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
       const fullText = attRefs.length > 0
-        ? taskText + '\n' + attRefs.map(p => `[attachment: ${p}]`).join('\n')
+        ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
 
       // Deduplicate: skip if this exact task line is already present in TODO.md.
@@ -856,8 +858,10 @@ class HttpWebhookPoller {
         }
       }
       if (!taskText) { return false; }
+      // Collapse newlines so the entire message becomes a single TODO.md line
+      taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
       const fullText = attRefs.length > 0
-        ? taskText + '\n' + attRefs.map(p => `[attachment: ${p}]`).join('\n')
+        ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
 
       fs.appendFileSync(todoPath, `\n- [ ] ${fullText}\n`, 'utf8');
