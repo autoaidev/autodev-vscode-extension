@@ -456,11 +456,13 @@ class WebSocketPoller {
 
       // Handle A2A parts — extract text parts and save file parts as attachments
       const rawParts = meta['parts'] as Array<Record<string, unknown>> | undefined;
+      const textParts: string[] = [];
       const attRefs: string[] = [];
       if (rawParts) {
         for (const part of rawParts) {
-          if (part['kind'] === 'text' && !taskText) {
-            taskText = (part['text'] as string | undefined) ?? '';
+          if (part['kind'] === 'text') {
+            const t = (part['text'] as string | undefined) ?? '';
+            if (t) { textParts.push(t); }
           } else if (part['kind'] === 'file' && this._workspaceRoot) {
             const file = part['file'] as Record<string, unknown> | undefined;
             if (file) {
@@ -478,6 +480,12 @@ class WebSocketPoller {
         }
       }
 
+      // Merge text: task.text takes priority; append any additional parts text
+      if (textParts.length > 0) {
+        taskText = taskText
+          ? taskText + ' ' + textParts.join(' ')
+          : textParts.join(' ');
+      }
       if (!taskText) { return; }
       // Collapse newlines so the entire message becomes a single TODO.md line
       taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
@@ -839,11 +847,13 @@ class HttpWebhookPoller {
       if (!payload || payload.event !== 'user_message') { return false; }
 
       let taskText = payload.task?.text ?? '';
+      const textParts: string[] = [];
       const attRefs: string[] = [];
       if (payload.parts && workspaceRoot) {
         for (const part of payload.parts) {
-          if (part.kind === 'text' && !taskText) {
-            taskText = part.text ?? '';
+          if (part.kind === 'text') {
+            const t = part.text ?? '';
+            if (t) { textParts.push(t); }
           } else if (part.kind === 'file' && part.file) {
             const name = part.file.name ?? 'attachment';
             const bytesB64 = part.file.bytes;
@@ -856,6 +866,12 @@ class HttpWebhookPoller {
             }
           }
         }
+      }
+      // Merge text: task.text takes priority; append any additional parts text
+      if (textParts.length > 0) {
+        taskText = taskText
+          ? taskText + ' ' + textParts.join(' ')
+          : textParts.join(' ');
       }
       if (!taskText) { return false; }
       // Collapse newlines so the entire message becomes a single TODO.md line
