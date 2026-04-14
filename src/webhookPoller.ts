@@ -480,12 +480,8 @@ class WebSocketPoller {
         }
       }
 
-      // Merge text: task.text takes priority; append any additional parts text
-      if (textParts.length > 0) {
-        taskText = taskText
-          ? taskText + ' ' + textParts.join(' ')
-          : textParts.join(' ');
-      }
+      // Use parts text only as fallback when task.text is absent
+      if (!taskText && textParts.length > 0) { taskText = textParts.join(' '); }
       if (!taskText) { return; }
       // Collapse newlines so the entire message becomes a single TODO.md line
       taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
@@ -867,12 +863,8 @@ class HttpWebhookPoller {
           }
         }
       }
-      // Merge text: task.text takes priority; append any additional parts text
-      if (textParts.length > 0) {
-        taskText = taskText
-          ? taskText + ' ' + textParts.join(' ')
-          : textParts.join(' ');
-      }
+      // Use parts text only as fallback when task.text is absent
+      if (!taskText && textParts.length > 0) { taskText = textParts.join(' '); }
       if (!taskText) { return false; }
       // Collapse newlines so the entire message becomes a single TODO.md line
       taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
