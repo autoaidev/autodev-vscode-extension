@@ -42,21 +42,28 @@ declare const WebSocket: new (url: string) => {
   readonly readyState: number; // 0 CONNECTING | 1 OPEN | 2 CLOSING | 3 CLOSED
 };
 
+// Backoff: 1 s, 2 s, 4 s, 8 s, 16 s, 32 s, 60 s (cap)
+const RECONNECT_BASE_MS  = 1_000;
+const RECONNECT_MAX_MS   = 60_000;
+
 export class DiscordGateway {
   private ws:               InstanceType<typeof WebSocket> | null = null;
   private heartbeatTimer:   NodeJS.Timeout | null = null;
+  private jitterTimer:      NodeJS.Timeout | null = null;
   private reconnectTimer:   NodeJS.Timeout | null = null;
   private ackReceived       = true;
   private sequence:         number | null = null;
   private sessionId:        string | null = null;
   private resumeGatewayUrl: string | null = null;
   private destroyed         = false;
+  private reconnectAttempts = 0;
 
   constructor(private readonly botToken: string) {}
 
   /** Open the gateway connection. Safe to call multiple times. */
   connect(): void {
     this.destroyed = false;
+    this.reconnectAttempts = 0;
     this._connect(this.resumeGatewayUrl ?? GATEWAY_URL);
   }
 
@@ -78,6 +85,7 @@ export class DiscordGateway {
     };
 
     ws.onclose = (ev) => {
+      if (this.ws !== ws) { return; } // stale close — a newer connection is already active
       if (NON_RESUMABLE_CODES.has(ev.code)) {
         this.sessionId        = null;
         this.resumeGatewayUrl = null;
@@ -109,6 +117,7 @@ export class DiscordGateway {
           const d = p.d as { session_id: string; resume_gateway_url: string };
           this.sessionId        = d.session_id;
           this.resumeGatewayUrl = d.resume_gateway_url;
+          this.reconnectAttempts = 0; // successful connection — reset backoff
         }
         break;
       }
@@ -142,12 +151,14 @@ export class DiscordGateway {
   }
 
   private _startHeartbeat(interval: number): void {
-    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); }
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer);  this.heartbeatTimer = null; }
+    if (this.jitterTimer)    { clearTimeout(this.jitterTimer);       this.jitterTimer    = null; }
     this.ackReceived = true;
 
     // Initial jitter per Discord docs
     const jitter = Math.floor(Math.random() * interval);
-    setTimeout(() => {
+    this.jitterTimer = setTimeout(() => {
+      this.jitterTimer = null;
       if (this.destroyed) { return; }
       this._sendHeartbeat();
       this.heartbeatTimer = setInterval(() => {
@@ -175,7 +186,15 @@ export class DiscordGateway {
   private _scheduleReconnect(immediate = false): void {
     this._cleanup();
     if (this.destroyed) { return; }
-    const delay = immediate ? 0 : 1000 + Math.random() * 4000;
+    let delay: number;
+    if (immediate) {
+      delay = 0;
+    } else {
+      // Exponential backoff with jitter: 1s, 2s, 4s … capped at 60s
+      const base = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts), RECONNECT_MAX_MS);
+      delay = base * (0.5 + Math.random() * 0.5); // 50–100 % of base
+    }
+    this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       this._connect(this.resumeGatewayUrl ?? GATEWAY_URL);
     }, delay);
@@ -183,6 +202,7 @@ export class DiscordGateway {
 
   private _cleanup(): void {
     if (this.heartbeatTimer)  { clearInterval(this.heartbeatTimer);   this.heartbeatTimer  = null; }
+    if (this.jitterTimer)     { clearTimeout(this.jitterTimer);        this.jitterTimer     = null; }
     if (this.reconnectTimer)  { clearTimeout(this.reconnectTimer);     this.reconnectTimer  = null; }
     if (this.ws) {
       const ws = this.ws;
