@@ -334,6 +334,17 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field"><label class="cfg-label">VNC Port</label><input class="cfg-input" id="cfg_vncPort" type="number" min="1" max="65535"></div>
     <div class="cfg-field"><label class="cfg-label">VNC Password</label><input class="cfg-input" id="cfg_vncPassword" type="password" placeholder="(leave empty for no-auth)"></div>
   </div>
+  <div class="cfg-section">RDP</div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_rdpEnabled"> Enable RDP</label></div>
+  </div>
+  <div class="cfg-row" id="rdpFields">
+    <div class="cfg-field"><label class="cfg-label">RDP Host</label><input class="cfg-input" id="cfg_rdpHost" placeholder="hostname or IP"></div>
+    <div class="cfg-field"><label class="cfg-label">RDP Port</label><input class="cfg-input" id="cfg_rdpPort" type="number" min="1" max="65535"></div>
+    <div class="cfg-field"><label class="cfg-label">Username</label><input class="cfg-input" id="cfg_rdpUsername" placeholder=""></div>
+    <div class="cfg-field"><label class="cfg-label">Password</label><input class="cfg-input" id="cfg_rdpPassword" type="password"></div>
+    <div class="cfg-field"><label class="cfg-label">Domain</label><input class="cfg-input" id="cfg_rdpDomain" placeholder="(optional)"></div>
+  </div>
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
   </div>
@@ -490,6 +501,18 @@ function populateSettings(s){
   if(vncprt) vncprt.value=s.vncPort!==undefined?s.vncPort:5900;
   const vncpw=document.getElementById('cfg_vncPassword');
   if(vncpw) vncpw.value=s.vncPassword||'';
+  const rdpe=document.getElementById('cfg_rdpEnabled');
+  if(rdpe) rdpe.checked=!!s.rdpEnabled;
+  const rdph=document.getElementById('cfg_rdpHost');
+  if(rdph) rdph.value=s.rdpHost||'';
+  const rdpprt=document.getElementById('cfg_rdpPort');
+  if(rdpprt) rdpprt.value=s.rdpPort!==undefined?s.rdpPort:3389;
+  const rdpu=document.getElementById('cfg_rdpUsername');
+  if(rdpu) rdpu.value=s.rdpUsername||'';
+  const rdppw=document.getElementById('cfg_rdpPassword');
+  if(rdppw) rdppw.value=s.rdpPassword||'';
+  const rdpd=document.getElementById('cfg_rdpDomain');
+  if(rdpd) rdpd.value=s.rdpDomain||'';
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
@@ -552,10 +575,16 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
     vncEnabled:document.getElementById('cfg_vncEnabled').checked,
-    enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     vncHost:document.getElementById('cfg_vncHost').value.trim(),
     vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
     vncPassword:document.getElementById('cfg_vncPassword').value,
+    rdpEnabled:document.getElementById('cfg_rdpEnabled').checked,
+    rdpHost:document.getElementById('cfg_rdpHost').value.trim(),
+    rdpPort:parseInt(document.getElementById('cfg_rdpPort').value)||3389,
+    rdpUsername:document.getElementById('cfg_rdpUsername').value,
+    rdpPassword:document.getElementById('cfg_rdpPassword').value,
+    rdpDomain:document.getElementById('cfg_rdpDomain').value.trim(),
+    enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,

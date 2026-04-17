@@ -30,6 +30,12 @@ export interface AutodevSettings {
   vncHost: string;
   vncPort: number;
   vncPassword: string;
+  rdpEnabled: boolean;
+  rdpHost: string;
+  rdpPort: number;
+  rdpUsername: string;
+  rdpPassword: string;
+  rdpDomain: string;
   enableFileBrowser: boolean;
 }
 
@@ -54,6 +60,12 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   vncHost: '',
   vncPort: 5900,
   vncPassword: '',
+  rdpEnabled: false,
+  rdpHost: '',
+  rdpPort: 3389,
+  rdpUsername: '',
+  rdpPassword: '',
+  rdpDomain: '',
   enableFileBrowser: false,
 };
 
