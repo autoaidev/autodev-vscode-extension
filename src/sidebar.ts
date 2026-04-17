@@ -362,6 +362,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 const vscode = acquireVsCodeApi();
 let state = {selectedProvider:'copilot',providers:[],tasks:[],loopState:'idle',loopTask:null,settings:{}};
 let activeTab = 'tasks'; // track which tab is currently visible
+let _pendingResume = null; // user's in-flight resumeSession toggle (null = no pending)
 
 function showTab(tab) {
   activeTab = tab;
@@ -399,6 +400,7 @@ function renderProviders(){
   const resumeOn=!!(state.settings&&state.settings.resumeSession);
   resumeCheck.checked=resumeOn;
   resumeCheck.onchange=function(){
+    _pendingResume=resumeCheck.checked;
     vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
   };
   const newSessBtn=document.getElementById('newSessionBtn');
@@ -599,7 +601,15 @@ document.getElementById('editJsonBtn').addEventListener('click',function(){
 
 window.addEventListener('message',function(e){
   const msg=e.data;
-  if(msg.command==='update'){state=msg;renderProviders();renderLoop();renderTasks();showTab(activeTab);}
+  if(msg.command==='update'){
+    const pr=_pendingResume;
+    state=msg;
+    if(pr!==null){
+      if(state.settings&&state.settings.resumeSession===pr){_pendingResume=null;}
+      else{if(state.settings)state.settings.resumeSession=pr;}
+    }
+    renderProviders();renderLoop();renderTasks();showTab(activeTab);
+  }
 });
 </script>
 </body>
