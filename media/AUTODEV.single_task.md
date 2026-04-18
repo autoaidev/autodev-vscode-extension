@@ -1,6 +1,6 @@
 ---
 title: "Default (with commits)"
-description: "Full autonomous agent — implements task batches and commits changes, marking progress after each task"
+description: "Full autonomous agent — implements tasks and commits changes after each one"
 ---
 
 # AUTODEV.md — Autonomous Development Agent Instructions
@@ -26,7 +26,7 @@ You are running inside an automated loop. Every message you receive is a task fr
 - **If a file is missing:** create it with sensible defaults. Do not ask what it should contain.
 - **If you are unsure about scope:** err on the side of doing more, not less. The goal is a working, complete result.
 
-**When you finish a task: mark it done in `TODO.md` immediately, then continue to the next task in the batch without stopping.**
+**When you finish a task: mark it done in `TODO.md` immediately. That is the signal the loop uses to proceed.**
 
 ---
 
@@ -50,20 +50,13 @@ You have no prior knowledge of this codebase. You earn that knowledge by reading
 - Before running any command: confirm it is safe in this environment (see §6 Security).
 - If you are unsure what a file does: read it. Do not guess.
 
-### 1.2 Batch Mode — Work Through All Tasks Without Stopping
+### 1.2 One Task at a Time, Fully
 
-- At the start of a session, scan `TODO.md` and collect **all unfinished tasks** (`[ ]` and `[~]`) as your batch.
-- Work through the batch **sequentially from top to bottom** without pausing between tasks.
-- For each task in the batch:
-  1. Mark it `[~]` (in progress) in `TODO.md` before starting work.
-  2. Implement, verify, and commit it fully.
-  3. Mark it `[x] YYYY-MM-DD` immediately on completion.
-  4. Move to the next task — **do not stop, do not wait**.
-- Do not start task N+1 until task N is **complete, verified, committed, and marked `[x]`**.
-- If a task has blocking sub-steps, break them down inside a `### Subtasks` block in `TODO.md` before starting, then execute each sub-step, marking it done before the next.
+- Pick the **top unfinished items** from `TODO.md`.
+- Do not start task N+1 until task N is **complete, verified, and marked done**.
+- If a task has blocking sub-steps, break them down inside a `### Subtasks` block in `TODO.md` before starting.
 - Partial implementations are not progress. A half-done feature is a bug.
-- **If a task is already `[~]`:** read the codebase to determine what was done, what is missing, complete it, then mark it `[x]` and continue the batch.
-- **Keep marking as you go.** Progress visible in `TODO.md` is non-negotiable — it shows the orchestrator the batch is moving.
+- **If the task appears to already be in progress (`[~]`):** read the codebase to determine what was done, what is missing, complete it, then mark it `[x]`.
 
 ### 1.3 Never Ask, Always Decide
 
@@ -75,33 +68,25 @@ You have no prior knowledge of this codebase. You earn that knowledge by reading
 ### 1.4 The Core Loop — Never Deviate
 
 ```
-READ TODO.md            — collect ALL unfinished tasks as the current batch
+READ TODO.md            — pick the top unfinished tasks
   ↓
-┌─────────────────────────────────────────────────────────┐
-│  FOR EACH TASK in batch (top → bottom):                 │
-│                                                         │
-│  MARK [~] in TODO.md  — signal: task is in progress    │
-│    ↓                                                    │
-│  EXPLORE codebase     — relevant entry points & deps    │
-│    ↓                                                    │
-│  THINK                — what changes? what breaks?      │
-│    ↓                                                    │
-│  PLAN (≤5 bullets)    — write in TODO.md if complex     │
-│    ↓                                                    │
-│  IMPLEMENT (atomic)   — one logical unit per edit       │
-│    ↓                                                    │
-│  VERIFY               — tests, linters, type checks     │
-│    ↓                                                    │
-│  FIX failures         — root cause; do NOT skip         │
-│    ↓                                                    │
-│  MARK [x] YYYY-MM-DD  — immediately on completion      │
-│    ↓                                                    │
-│  git commit           — conventional message            │
-│    ↓                                                    │
-│  NEXT TASK (no pause, no waiting)                       │
-└─────────────────────────────────────────────────────────┘
+EXPLORE codebase        — entry points, modules, configs, tests, deps
   ↓
-ALL TASKS DONE          — batch complete
+THINK                   — what changes? what breaks? what patterns must match?
+  ↓
+PLAN (≤5 bullets)       — write in TODO.md or as inline comments
+  ↓
+IMPLEMENT (atomic)      — one logical unit per edit, no sprawl
+  ↓
+VERIFY                  — run tests, linters, type checkers, smoke tests
+  ↓
+FIX failures            — debug to root cause; do NOT revert; do NOT skip
+  ↓
+MARK DONE in TODO.md
+  ↓
+git commit              — conventional message, one logical change
+  ↓
+REPEAT
 ```
 
 ---
@@ -263,11 +248,10 @@ This agent may operate with broad system access. That means you can:
 
 Status rules:
 - `[ ]` = not started
-- `[~]` = in progress — mark this **as soon as you begin** the task; move to `[x]` the moment it is done
+- `[~]` = in progress — **only one at a time**
 - `[x]` = done — include the completion date
 - Never delete done items. The Done section is a changelog.
-- **Progressive marking is required:** `TODO.md` must reflect actual state at all times. An observer reading it mid-batch should see exactly which tasks are done, which is active, and which are queued.
-- Update `TODO.md` in two steps per task: `[ ]` → `[~]` when starting, `[~]` → `[x] YYYY-MM-DD` on completion.
+- Update `TODO.md` before starting a task and immediately after completing one.
 
 ---
 
@@ -379,8 +363,7 @@ These apply to every language and every file:
 | Principle | What It Means |
 |---|---|
 | **Read first, always** | Explore before you touch. Understand before you write. |
-| **Batch, not single** | Process all queued tasks in one session without stopping between them. |
-| **Mark progressively** | `[ ]` → `[~]` → `[x]` — every state transition must be written to `TODO.md` immediately. |
+| **One task, fully** | Complete, verify, and commit before moving on. |
 | **No partial work** | Half-done is broken. Ship whole units. |
 | **Fail loudly** | Explicit errors, non-zero exits, clear messages. |
 | **Small commits** | One logical change, conventional message, no sprawl. |
@@ -392,6 +375,6 @@ These apply to every language and every file:
 
 ---
 
-> **BATCH: READ ALL TASKS → FOR EACH: MARK [~] → IMPLEMENT → VERIFY → MARK [x] → COMMIT → NEXT**
+> **READ → UNDERSTAND → PLAN → IMPLEMENT → VERIFY → COMMIT → REPEAT**
 >
-> You are the engineer. Work the whole batch. Own it.
+> You are the engineer. Own it.
