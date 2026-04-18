@@ -10,6 +10,7 @@ import { VncSession } from './vnc';
 import { RdpSession } from './rdp';
 import type { RdpConnectOptions } from './rdp';
 import { saveAttachment } from './messageBuilder';
+import * as gitService from './git/gitService';
 
 // ---------------------------------------------------------------------------
 // WebhookPoller — mirrors PHP AutodevWebhookTaskProvider
@@ -77,6 +78,7 @@ class WebSocketPoller {
   private _vncPassword: string | undefined;
   private _vncSessions: Map<string, VncSession> = new Map();
   private _rdpSessions: Map<string, RdpSession> = new Map();
+  private _gitEnabled = false;
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
 
@@ -353,6 +355,23 @@ class WebSocketPoller {
       return;
     }
 
+    if (msgType === 'git_request') {
+      const requestId = msg['requestId'] as string | undefined;
+      const action    = msg['action']    as string | undefined;
+      if (requestId && action) {
+        this._handleGitRequest(
+          requestId,
+          action,
+          msg['path']    as string | undefined,
+          msg['staged']  as boolean | undefined,
+          msg['message'] as string | undefined,
+          msg['branch']  as string | undefined,
+          msg['hash']    as string | undefined,
+        );
+      }
+      return;
+    }
+
     if (msgType === 'vnc_session') {
       const action = msg['action'] as string | undefined;
       if (action === 'start') {
@@ -624,6 +643,89 @@ class WebSocketPoller {
     }
   }
 
+  private _handleGitRequest(
+    requestId: string,
+    action: string,
+    filePath?: string,
+    staged?: boolean,
+    message?: string,
+    branch?: string,
+    hash?: string,
+  ): void {
+    const respond = (ok: boolean, data?: Record<string, unknown>, error?: string) => {
+      this.sendFrame({ type: 'git_response', requestId, ok, ...(data ?? {}), ...(error ? { error } : {}) });
+    };
+
+    const root = this._workspaceRoot;
+    if (!root) { respond(false, undefined, 'No workspace root'); return; }
+    if (!this._gitEnabled) { respond(false, undefined, 'Git not enabled'); return; }
+
+    (async () => {
+      try {
+        switch (action) {
+          case 'status': {
+            const status = await gitService.getStatus(root);
+            respond(true, { status });
+            break;
+          }
+          case 'log': {
+            const commits = await gitService.getLog(root);
+            respond(true, { commits });
+            break;
+          }
+          case 'diff': {
+            const diff = await gitService.getDiff(root, filePath ?? '', staged ?? false);
+            respond(true, { diff });
+            break;
+          }
+          case 'commit_diff': {
+            const diff = await gitService.getCommitDiff(root, hash ?? '', filePath);
+            respond(true, { diff });
+            break;
+          }
+          case 'stage': {
+            if (filePath) await gitService.stageFile(root, filePath);
+            else await gitService.stageAll(root);
+            respond(true);
+            break;
+          }
+          case 'unstage': {
+            if (!filePath) { respond(false, undefined, 'path required'); break; }
+            await gitService.unstageFile(root, filePath);
+            respond(true);
+            break;
+          }
+          case 'commit': {
+            if (!message) { respond(false, undefined, 'message required'); break; }
+            const commitHash = await gitService.commit(root, message);
+            respond(true, { hash: commitHash });
+            break;
+          }
+          case 'fetch': {
+            await gitService.fetchOrigin(root);
+            respond(true);
+            break;
+          }
+          case 'branches': {
+            const branches = await gitService.getBranches(root);
+            respond(true, { branches });
+            break;
+          }
+          case 'checkout': {
+            if (!branch) { respond(false, undefined, 'branch required'); break; }
+            await gitService.checkoutBranch(root, branch);
+            respond(true);
+            break;
+          }
+          default:
+            respond(false, undefined, `Unknown git action: ${action}`);
+        }
+      } catch (err) {
+        respond(false, undefined, String(err));
+      }
+    })();
+  }
+
   /** Stop all active VNC sessions (called on destroy/reconnect). */
   private _stopAllVncSessions(): void {
     for (const [id, session] of this._vncSessions) {
@@ -645,6 +747,10 @@ class WebSocketPoller {
   /** Update the VNC password used for incoming vnc_session requests. */
   setVncPassword(password?: string): void {
     this._vncPassword = password;
+  }
+
+  setGitEnabled(enabled: boolean): void {
+    this._gitEnabled = enabled;
   }
 
   /**
@@ -756,6 +862,12 @@ export class WebhookPoller {
   setVncPassword(password?: string): void {
     if (this._impl instanceof WebSocketPoller) {
       this._impl.setVncPassword(password);
+    }
+  }
+
+  setGitEnabled(enabled: boolean): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setGitEnabled(enabled);
     }
   }
 

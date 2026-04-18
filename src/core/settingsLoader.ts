@@ -37,6 +37,7 @@ export interface AutodevSettings {
   rdpPassword: string;
   rdpDomain: string;
   enableFileBrowser: boolean;
+  gitEnabled: boolean;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -67,6 +68,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   rdpPassword: '',
   rdpDomain: '',
   enableFileBrowser: false,
+  gitEnabled: false,
 };
 
 /**

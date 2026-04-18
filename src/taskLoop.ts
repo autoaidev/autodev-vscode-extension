@@ -256,6 +256,7 @@ export class TaskLoopRunner {
           rdpHost:            this._settings?.rdpEnabled ? (this._settings?.rdpHost || undefined) : undefined,
           rdpPort:            this._settings?.rdpEnabled ? (this._settings?.rdpPort ?? 3389) : undefined,
           fileBrowserEnabled: this._settings?.enableFileBrowser ?? false,
+          gitEnabled:         this._settings?.gitEnabled ?? false,
         });
         // Re-sync working state if the WS dropped mid-task
         if (this._currentTask) {
@@ -273,6 +274,9 @@ export class TaskLoopRunner {
     // Pass VNC password so the poller can authenticate incoming vnc_session requests.
     if (this._webhookPoller && settings.vncEnabled && settings.vncPassword) {
       this._webhookPoller.setVncPassword(settings.vncPassword);
+    }
+    if (this._webhookPoller) {
+      this._webhookPoller.setGitEnabled(settings.gitEnabled ?? false);
     }
 
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
@@ -313,6 +317,7 @@ export class TaskLoopRunner {
       rdpHost:            settings.rdpEnabled ? (settings.rdpHost || undefined) : undefined,
       rdpPort:            settings.rdpEnabled ? (settings.rdpPort ?? 3389) : undefined,
       fileBrowserEnabled: settings.enableFileBrowser ?? false,
+      gitEnabled:         settings.gitEnabled ?? false,
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
 

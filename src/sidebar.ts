@@ -347,6 +347,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   </div>
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_gitEnabled"> Enable Git Panel (exposes repo to browser UI)</label></div>
   </div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
@@ -497,6 +498,8 @@ function populateSettings(s){
   if(vnce) vnce.checked=!!s.vncEnabled;
   const efb=document.getElementById('cfg_enableFileBrowser');
   if(efb) efb.checked=!!s.enableFileBrowser;
+  const gite=document.getElementById('cfg_gitEnabled');
+  if(gite) gite.checked=!!s.gitEnabled;
   const vnch=document.getElementById('cfg_vncHost');
   if(vnch) vnch.value=s.vncHost||'';
   const vncprt=document.getElementById('cfg_vncPort');
@@ -587,6 +590,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     rdpPassword:document.getElementById('cfg_rdpPassword').value,
     rdpDomain:document.getElementById('cfg_rdpDomain').value.trim(),
     enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
+    gitEnabled:document.getElementById('cfg_gitEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
