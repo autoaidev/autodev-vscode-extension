@@ -252,6 +252,9 @@ export class TaskLoopRunner {
           vncEnabled:         this._settings?.vncEnabled ?? false,
           vncHost:            this._settings?.vncEnabled ? (this._settings?.vncHost || undefined) : undefined,
           vncPort:            this._settings?.vncEnabled ? (this._settings?.vncPort ?? 5900) : undefined,
+          rdpEnabled:         this._settings?.rdpEnabled ?? false,
+          rdpHost:            this._settings?.rdpEnabled ? (this._settings?.rdpHost || undefined) : undefined,
+          rdpPort:            this._settings?.rdpEnabled ? (this._settings?.rdpPort ?? 3389) : undefined,
           fileBrowserEnabled: this._settings?.enableFileBrowser ?? false,
         });
       });
@@ -296,6 +299,9 @@ export class TaskLoopRunner {
       vncEnabled:         settings.vncEnabled ?? false,
       vncHost:            settings.vncEnabled ? (settings.vncHost || undefined) : undefined,
       vncPort:            settings.vncEnabled ? (settings.vncPort ?? 5900) : undefined,
+      rdpEnabled:         settings.rdpEnabled ?? false,
+      rdpHost:            settings.rdpEnabled ? (settings.rdpHost || undefined) : undefined,
+      rdpPort:            settings.rdpEnabled ? (settings.rdpPort ?? 3389) : undefined,
       fileBrowserEnabled: settings.enableFileBrowser ?? false,
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
