@@ -257,6 +257,16 @@ export class TaskLoopRunner {
           rdpPort:            this._settings?.rdpEnabled ? (this._settings?.rdpPort ?? 3389) : undefined,
           fileBrowserEnabled: this._settings?.enableFileBrowser ?? false,
         });
+        // Re-sync working state if the WS dropped mid-task
+        if (this._currentTask) {
+          this._notifyWebhook('task_start', {
+            iteration: this._iterations,
+            task:      { text: this._currentTask },
+            workDir:   this._workspaceRoot,
+            gitRepo:   this._gitRepo,
+            gitBranch: this._gitBranch,
+          });
+        }
       });
     }
 
