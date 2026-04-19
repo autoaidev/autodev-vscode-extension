@@ -49,7 +49,9 @@ jobs:
           lftp -u "$FTP_USERNAME,$FTP_PASSWORD" sftp://"$FTP_SERVER":$PORT <<EOF
           set sftp:auto-confirm yes
           set net:max-retries 3
-          mkdir -p releases
+          set cmd:fail-exit false
+          mkdir releases
+          set cmd:fail-exit true
           put $VSIX_FILE -o releases/$VSIX_FILE
           put ${NAME_BASE}-latest.vsix -o releases/${NAME_BASE}-latest.vsix
           bye
