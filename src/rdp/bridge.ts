@@ -637,14 +637,14 @@ function buildShareDataHeader(
   hdr.writeUInt16LE(pduLen, 0);
   hdr.writeUInt16LE(PDUTYPE_DATAPDU | 0x10, 2); // type | RDP5 version
   hdr.writeUInt16LE(userId, 4); // PDUSource
-  // Share Data Header
-  hdr.writeUInt32LE(shareId, 6);
-  hdr[10] = 0;       // streamId: STREAM_LOW
-  hdr[11] = 0;       // uncompressedLength hi
-  hdr[12] = pduType2;
-  hdr[13] = 0;       // compressType
-  hdr.writeUInt16LE(totalBodyLen, 14); // compressedLength
-  hdr.writeUInt16LE(0, 16);           // pad
+  // Share Data Header (TS_SHAREDATAHEADER, 12 bytes at hdr[6..17])
+  hdr.writeUInt32LE(shareId, 6);    // shareId
+  hdr[10] = 0;                      // pad1Octet
+  hdr[11] = 0;                      // streamId (STREAM_UNDEFINED)
+  hdr.writeUInt16LE(totalBodyLen, 12); // uncompressedLength
+  hdr[14] = pduType2;               // pduType2
+  hdr[15] = 0;                      // compressType
+  hdr.writeUInt16LE(totalBodyLen, 16); // compressedLength
   return hdr.slice(0, 18);
 }
 
@@ -1118,8 +1118,8 @@ export class RdpBridge extends EventEmitter {
 
   private _handleDataPdu(body: Buffer): void {
     if (body.length < 12) return;
-    // Share Data Header starts at offset 0
-    const pduType2 = body[6];
+    // TS_SHAREDATAHEADER: shareId(4)+pad(1)+streamId(1)+uncompressedLength(2)+pduType2(1)
+    const pduType2 = body[8];
 
     if (pduType2 === PDUTYPE2_UPDATE) {
       this._handleUpdatePdu(body.slice(12));
@@ -1140,9 +1140,9 @@ export class RdpBridge extends EventEmitter {
   }
 
   private _parseBitmapUpdate(data: Buffer): void {
-    if (data.length < 4) return;
-    const numRects = data.readUInt16LE(2);
-    let offset = 4;
+    if (data.length < 2) return;
+    const numRects = data.readUInt16LE(0); // TS_BITMAP_DATA_ARRAY: numberRectangles
+    let offset = 2;
     const rects: RdpRect[] = [];
 
     for (let i = 0; i < numRects; i++) {
@@ -1150,12 +1150,12 @@ export class RdpBridge extends EventEmitter {
 
       const x    = data.readUInt16LE(offset);
       const y    = data.readUInt16LE(offset + 2);
-      const w    = data.readUInt16LE(offset + 4) - x + 1;
-      const h    = data.readUInt16LE(offset + 6) - y + 1;
-      const bpp  = data.readUInt16LE(offset + 8);
-      const flags = data.readUInt16LE(offset + 10);
-      const bitmapLen = data.readUInt16LE(offset + 12);
-      // offset+14 = bitmapDataLength (same for uncompressed), offset+16 = reserved
+      const w    = data.readUInt16LE(offset + 4) - x + 1;  // destRight - destLeft + 1
+      const h    = data.readUInt16LE(offset + 6) - y + 1;  // destBottom - destTop + 1
+      // offset+8 = width (bitmap pixels), offset+10 = height (bitmap pixels) — skipped
+      const bpp       = data.readUInt16LE(offset + 12); // bitsPerPixel
+      const flags     = data.readUInt16LE(offset + 14); // flags
+      const bitmapLen = data.readUInt16LE(offset + 16); // bitmapLength
       offset += 18;
 
       if (offset + bitmapLen > data.length) break;
