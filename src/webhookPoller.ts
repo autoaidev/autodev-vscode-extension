@@ -78,6 +78,7 @@ class WebSocketPoller {
   private _vncPassword: string | undefined;
   private _vncSessions: Map<string, VncSession> = new Map();
   private _rdpSessions: Map<string, RdpSession> = new Map();
+  private _rdpSettings: { host?: string; port?: number; username?: string; password?: string; domain?: string } = {};
   private _gitEnabled = false;
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
@@ -419,11 +420,13 @@ class WebSocketPoller {
       if (action === 'start') {
         const sessionId = msg['sessionId'] as string;
         const opts: RdpConnectOptions = {
-          host:       (msg['host']     as string | undefined) ?? '127.0.0.1',
-          port:       msg['port']     ? Number(msg['port'])     : undefined,
-          username:   msg['username'] as string | undefined,
-          password:   msg['password'] as string | undefined,
-          domain:     msg['domain']   as string | undefined,
+          // host/port from server frame; fall back to local settings
+          host:       (msg['host']     as string | undefined) || this._rdpSettings.host || '127.0.0.1',
+          port:       msg['port']     ? Number(msg['port'])     : (this._rdpSettings.port ?? 3389),
+          // credentials never sent from server — always use local settings
+          username:   (msg['username'] as string | undefined) || this._rdpSettings.username,
+          password:   (msg['password'] as string | undefined) || this._rdpSettings.password,
+          domain:     (msg['domain']   as string | undefined) || this._rdpSettings.domain,
           width:      msg['width']    ? Number(msg['width'])    : undefined,
           height:     msg['height']   ? Number(msg['height'])   : undefined,
           colorDepth: msg['colorDepth'] ? Number(msg['colorDepth']) : undefined,
@@ -753,6 +756,10 @@ class WebSocketPoller {
     this._gitEnabled = enabled;
   }
 
+  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string }): void {
+    this._rdpSettings = s;
+  }
+
   /**
    * Send a JSON payload to the server over the WebSocket connection.
    * Queues the frame if not yet connected — always returns true (accepted).
@@ -868,6 +875,12 @@ export class WebhookPoller {
   setGitEnabled(enabled: boolean): void {
     if (this._impl instanceof WebSocketPoller) {
       this._impl.setGitEnabled(enabled);
+    }
+  }
+
+  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string }): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setRdpSettings(s);
     }
   }
 

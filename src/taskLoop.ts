@@ -278,6 +278,15 @@ export class TaskLoopRunner {
     if (this._webhookPoller) {
       this._webhookPoller.setGitEnabled(settings.gitEnabled ?? false);
     }
+    if (this._webhookPoller && settings.rdpEnabled) {
+      this._webhookPoller.setRdpSettings({
+        host:     settings.rdpHost     || undefined,
+        port:     settings.rdpPort     ?? 3389,
+        username: settings.rdpUsername || undefined,
+        password: settings.rdpPassword || undefined,
+        domain:   settings.rdpDomain   || undefined,
+      });
+    }
 
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
     const autodevPath = settings.profilePath || path.join(root, 'AUTODEV.md');
