@@ -31,6 +31,7 @@ export class RdpSession {
   constructor(
     private readonly sessionId: string,
     private readonly wsSender: (frame: Record<string, unknown>) => boolean,
+    private readonly logger?: (msg: string) => void,
   ) {}
 
   // ── Public API ──────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ export class RdpSession {
   async start(opts: RdpConnectOptions): Promise<void> {
     const bridge = new RdpBridge();
     this._bridge = bridge;
+    if (this.logger) bridge.log = this.logger;
 
     bridge.on('error', (err: Error) => {
       this.wsSender({ type: 'rdp_close', sessionId: this.sessionId, reason: err.message });

@@ -779,6 +779,9 @@ export class RdpBridge extends EventEmitter {
   private _shareId   = 0;
   private _connected = false;
 
+  /** Optional external logger — set before calling connect(). */
+  log: (msg: string) => void = (msg) => console.error(msg);
+
   get width()  { return this._width;  }
   get height() { return this._height; }
 
@@ -893,7 +896,7 @@ export class RdpBridge extends EventEmitter {
 
     const cc = await this._readTpkt(rawSock);
     const selectedProtocol = parseX224ConnectConfirm(cc);
-    console.error(`[RDP] Phase1 done — selectedProtocol=${selectedProtocol}`);
+    this.log(`[RDP] Phase1 done — selectedProtocol=${selectedProtocol}`);
 
     // ── Phase 2: TLS upgrade ───────────────────────────────────────────
     let sock: net.Socket | tls.TLSSocket = rawSock;
@@ -901,7 +904,7 @@ export class RdpBridge extends EventEmitter {
       sock = await upgradeTls(rawSock, host);
       this._sock = sock;
     }
-    console.error(`[RDP] Phase2 done — TLS=${selectedProtocol !== 0}`);
+    this.log(`[RDP] Phase2 done — TLS=${selectedProtocol !== 0}`);
 
     // Attach error/close monitors — these must be in place before we send
     // anything so we can surface failures immediately.  We do NOT install the
@@ -932,7 +935,7 @@ export class RdpBridge extends EventEmitter {
       throw new Error(`Expected MCS_ATTACH_USER_CONFIRM, got 0x${auConf[0].toString(16)}`);
     }
     this._userId = 1001 + auConf.readUInt16BE(2);
-    console.error(`[RDP] Phase4 done — userId=${this._userId}`);
+    this.log(`[RDP] Phase4 done — userId=${this._userId}`);
 
     // ── Phase 5: Channel joins ─────────────────────────────────────────
     for (const channelId of [this._userId, MCS_CHANNEL_GLOBAL]) {
@@ -951,21 +954,21 @@ export class RdpBridge extends EventEmitter {
     // ── Phase 6: Client Info (login) ───────────────────────────────────
     const clientInfo = buildClientInfoPdu(username, password, domain);
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, clientInfo);
-    console.error(`[RDP] Phase6 sent ClientInfo`);
+    this.log(`[RDP] Phase6 sent ClientInfo`);
 
     // ── Phase 6b: License exchange ─────────────────────────────────────
     await this._doLicenseExchange(sock, username);
-    console.error(`[RDP] Phase6b license exchange done`);
+    this.log(`[RDP] Phase6b license exchange done`);
 
     // ── Phase 7: Capability exchange ──────────────────────────────────
     // Wait for Demand Active PDU from server
     const demandPdu = await this._waitForPduType(sock, PDUTYPE_DEMANDACTIVEPDU, 15_000);
     this._shareId = demandPdu.readUInt32LE(6); // shareId in Share Control Header
-    console.error(`[RDP] Phase7 DemandActive — shareId=0x${this._shareId.toString(16)}`);
+    this.log(`[RDP] Phase7 DemandActive — shareId=0x${this._shareId.toString(16)}`);
 
     const confirmActive = buildConfirmActivePdu(this._userId, this._shareId, width, height);
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, confirmActive);
-    console.error(`[RDP] Phase7 ConfirmActive sent, sending sync/ctrl/fontlist`);
+    this.log(`[RDP] Phase7 ConfirmActive sent, sending sync/ctrl/fontlist`);
 
     // Send synchronize + control + font list (required sequence per MS-RDPBCGR §1.3.1.1)
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, buildSynchronizePdu(this._userId, this._shareId));

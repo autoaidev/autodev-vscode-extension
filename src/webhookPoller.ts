@@ -433,7 +433,11 @@ class WebSocketPoller {
         };
         this._log(`RDP session start: ${sessionId} → ${opts.host}:${opts.port ?? 3389}`);
 
-        const session = new RdpSession(sessionId, (frame) => this.sendFrame(frame));
+        const session = new RdpSession(
+          sessionId,
+          (frame) => this.sendFrame(frame),
+          (msg) => this._log(msg),
+        );
         this._rdpSessions.set(sessionId, session);
 
         session.start(opts).catch((err: Error) => {
