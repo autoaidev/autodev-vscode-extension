@@ -480,7 +480,7 @@ function buildConfirmActivePdu(
   genCap.writeUInt16LE(1, 4);  // osMajorType = Windows
   genCap.writeUInt16LE(3, 6);  // osMinorType = Windows NT
   genCap.writeUInt16LE(0x0200, 8); // protocolVersion
-  genCap.writeUInt16LE(0x0004, 12); // extraFlags: FASTPATH_OUTPUT_SUPPORTED
+  genCap.writeUInt16LE(0x0000, 12); // extraFlags: no fast-path (force slow-path TPKT updates)
   genCap.writeUInt16LE(2, 20); // refreshRectSupport
   genCap.writeUInt16LE(2, 22); // suppressOutputSupport
   caps.push(genCap);
@@ -1494,10 +1494,20 @@ export class RdpBridge extends EventEmitter {
     });
   }
 
-  /** Try to parse one complete TPKT from _recvBuf without blocking. */
+  /** Try to parse one complete TPKT from _recvBuf without blocking.
+   * Fast-path PDUs (first byte != 0x03) are skipped with a warning since we
+   * advertise no fast-path support; they should not appear, but guard anyway. */
   private _tryParseTpkt(): Buffer | null {
     if (this._recvBuf.length < 4) return null;
+    if (this._recvBuf[0] !== 0x03) {
+      // Not a TPKT — could be a stray fast-path byte. Scan forward to next 0x03.
+      this.log(`[RDP] warn: non-TPKT byte 0x${this._recvBuf[0].toString(16)} — skipping`);
+      const next = this._recvBuf.indexOf(0x03, 1);
+      this._recvBuf = next >= 0 ? this._recvBuf.slice(next) : Buffer.alloc(0);
+      return null;
+    }
     const len = this._recvBuf.readUInt16BE(2);
+    if (len < 4) { this._recvBuf = this._recvBuf.slice(4); return null; } // guard
     if (this._recvBuf.length < len) return null;
     const pkt = this._recvBuf.slice(0, len);
     this._recvBuf = this._recvBuf.slice(len);
