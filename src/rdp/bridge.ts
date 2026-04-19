@@ -875,9 +875,9 @@ export class RdpBridge extends EventEmitter {
     if (shareCtrl.length < 6) return;
     const pduType = shareCtrl.readUInt16LE(2) & 0x0f;
 
-    if (pduType === PDUTYPE_DATAPDU) {
+    if (pduType === (PDUTYPE_DATAPDU & 0x0f)) {
       this._handleDataPdu(shareCtrl.slice(6));
-    } else if (pduType === PDUTYPE_DEMANDACTIVEPDU) {
+    } else if (pduType === (PDUTYPE_DEMANDACTIVEPDU & 0x0f)) {
       // Re-issued demand active — re-confirm
       this._shareId = shareCtrl.readUInt32LE(6);
       const confirm = buildConfirmActivePdu(this._userId, this._shareId, this._width, this._height);
@@ -1059,7 +1059,7 @@ export class RdpBridge extends EventEmitter {
           const sc = rdp.slice(rdpStart);
           if (sc.length < 6) continue;
           const t = sc.readUInt16LE(2) & 0x0f;
-          if (t === pduType) {
+          if (t === (pduType & 0x0f)) {
             clearTimeout(timer);
             sock.off('data', onData);
             resolve(sc);
