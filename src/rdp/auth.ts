@@ -83,16 +83,34 @@ export function parseX224ConnectConfirm(data: Buffer): number {
     throw new Error(`Expected X.224 CC (0xD0), got 0x${code.toString(16)}`);
   }
 
-  // Check for optional RDP Negotiation Response TLV (type 0x02)
+  // Check for optional RDP Negotiation TLV appended after the fixed 7-byte header
   const varOffset = tpduStart + 7;
-  if (data.length >= varOffset + 8 && data[varOffset] === 0x02) {
-    const flags    = data[varOffset + 1];
-    const protocol = data.readUInt32LE(varOffset + 4);
-    if (flags & 0x01) throw new Error('RDP Negotiation Failure from server');
-    return protocol;
+  if (data.length >= varOffset + 8) {
+    const tlvType = data[varOffset];
+
+    if (tlvType === 0x02) {
+      // TYPE_RDP_NEG_RSP — server accepted our requested protocol.
+      // The flags field here contains capability bits (e.g. EXTENDED_CLIENT_DATA_SUPPORTED=0x01)
+      // which are NOT error indicators — do not treat them as failures.
+      return data.readUInt32LE(varOffset + 4);
+    }
+
+    if (tlvType === 0x03) {
+      // TYPE_RDP_NEG_FAILURE — server rejected our protocol request.
+      const failureCode = data.readUInt32LE(varOffset + 4);
+      const reasons: Record<number, string> = {
+        1: 'SSL_REQUIRED_BY_SERVER',
+        2: 'SSL_NOT_ALLOWED_BY_SERVER',
+        3: 'SSL_CERT_NOT_ON_SERVER',
+        4: 'INCONSISTENT_FLAGS',
+        5: 'HYBRID_REQUIRED_BY_SERVER (NLA required)',
+        6: 'SSL_WITH_USER_AUTH_REQUIRED_BY_SERVER',
+      };
+      throw new Error(`RDP Negotiation Failure: ${reasons[failureCode] ?? `code ${failureCode}`}`);
+    }
   }
 
-  // No negotiation response — server accepted default (classic RDP)
+  // No negotiation TLV — server accepted default (classic RDP security)
   return PROTOCOL_RDP;
 }
 
