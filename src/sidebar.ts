@@ -63,9 +63,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const next = msg.settings as AutodevSettings;
           saveSettings(next);
           this._startWatcher();
-          // Sync hooks when enabled/scope changes
+          // Sync hooks when enabled/scope changes.
+          // Re-load after save so wsUrl is parsed into serverApiKey/serverBaseUrl.
+          const saved = loadSettings();
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          if (root) { this._syncHooks(prev, next, root); }
+          if (root) { this._syncHooks(prev, saved, root); }
           this._push();
           vscode.window.showInformationMessage('AutoDev: Settings saved.');
           break;
@@ -189,8 +191,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _syncHooks(prev: AutodevSettings, next: AutodevSettings, root: string): void {
     const wasEnabled = prev.hooksEnabled;
     const isEnabled  = next.hooksEnabled;
-    const scope      = next.hooksScope ?? 'project';
-    const prevScope  = prev.hooksScope ?? 'project';
+    const scope      = next.hooksScope ?? 'global';
+    const prevScope  = prev.hooksScope ?? 'global';
 
     if (!isEnabled) {
       // Uninstall from both scopes to clean up
@@ -667,7 +669,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     gitEnabled:document.getElementById('cfg_gitEnabled').checked,
     hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,
-    hooksScope:document.querySelector('input[name="hooksScope"]:checked')?.value||'project',
+    hooksScope:document.querySelector('input[name="hooksScope"]:checked')?.value||'global',
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
