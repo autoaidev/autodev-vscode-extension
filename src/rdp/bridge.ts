@@ -1009,7 +1009,7 @@ export class RdpBridge extends EventEmitter {
       }
       let off = 6;
       const lb = payload[off++];
-      if (lb & 0x80) off += lb & 0x7f;
+      if (lb & 0x80) off++; // T.125 PER 2-byte form: [0x80|hi, lo] — skip the low byte
       const rdp = payload.slice(off);
       if (rdp.length < 6) continue;
 
@@ -1094,22 +1094,15 @@ export class RdpBridge extends EventEmitter {
     const lenByte = payload[offset];
     offset++;
     if (lenByte & 0x80) {
-      const extra = lenByte & 0x7f;
-      offset += extra;
+      offset++; // T.125 PER 2-byte form: [0x80|hi, lo] — skip the low byte
     }
 
     const rdpPayload = payload.slice(offset);
     if (rdpPayload.length < 6) return;
 
-    // Strip SEC header if encryption is on (it isn't — we use TLS)
-    // Just check for SEC_LOGON_INFO flag; if set, skip 4 bytes
-    const secFlags = rdpPayload.readUInt16LE(0);
-    let rdpStart = 0;
-    if (secFlags & 0x0040 /* SEC_LOGON_INFO */ || secFlags & 0x0080 /* SEC_LICENSE_PKT */) {
-      rdpStart = 4; // skip security header
-    }
-
-    const shareCtrl = rdpPayload.slice(rdpStart);
+    // With TLS (no RDP-level encryption), run-loop PDUs have no security header.
+    // rdpPayload starts directly with the Share Control Header.
+    const shareCtrl = rdpPayload;
     if (shareCtrl.length < 6) return;
     const pduType = shareCtrl.readUInt16LE(2) & 0x0f;
 
@@ -1295,19 +1288,15 @@ export class RdpBridge extends EventEmitter {
           // MCS fixed header: opcode(1)+initiator(2)+channelId(2)+priority(1) = 6 bytes
           let offset = 6;
           const lb = mcsPayload[offset++];
-          if (lb & 0x80) offset += lb & 0x7f;
+          if (lb & 0x80) offset++; // T.125 PER 2-byte form: skip low byte
           const rdp = mcsPayload.slice(offset);
           if (rdp.length < 6) continue;
-          const secFlags = rdp.readUInt16LE(0);
-          let rdpStart = 0;
-          if (secFlags & 0x0080 || secFlags & 0x0040) rdpStart = 4;
-          const sc = rdp.slice(rdpStart);
-          if (sc.length < 6) continue;
-          const t = sc.readUInt16LE(2) & 0x0f;
+          // With TLS, Demand Active has no security header — rdp IS the Share Control Header.
+          const t = rdp.readUInt16LE(2) & 0x0f;
           if (t === (pduType & 0x0f)) {
             clearTimeout(timer);
             sock.off('data', onData);
-            resolve(sc);
+            resolve(rdp);
             return;
           }
         }
