@@ -641,7 +641,7 @@ function buildShareDataHeader(
   // Share Data Header (TS_SHAREDATAHEADER, 12 bytes at hdr[6..17])
   hdr.writeUInt32LE(shareId, 6);    // shareId
   hdr[10] = 0;                      // pad1Octet
-  hdr[11] = 0;                      // streamId (STREAM_UNDEFINED)
+  hdr[11] = 1;                      // streamId (STREAM_LOW)
   hdr.writeUInt16LE(totalBodyLen, 12); // uncompressedLength
   hdr[14] = pduType2;               // pduType2
   hdr[15] = 0;                      // compressType
@@ -893,6 +893,7 @@ export class RdpBridge extends EventEmitter {
 
     const cc = await this._readTpkt(rawSock);
     const selectedProtocol = parseX224ConnectConfirm(cc);
+    console.error(`[RDP] Phase1 done — selectedProtocol=${selectedProtocol}`);
 
     // ── Phase 2: TLS upgrade ───────────────────────────────────────────
     let sock: net.Socket | tls.TLSSocket = rawSock;
@@ -900,6 +901,7 @@ export class RdpBridge extends EventEmitter {
       sock = await upgradeTls(rawSock, host);
       this._sock = sock;
     }
+    console.error(`[RDP] Phase2 done — TLS=${selectedProtocol !== 0}`);
 
     // Attach error/close monitors — these must be in place before we send
     // anything so we can surface failures immediately.  We do NOT install the
@@ -930,6 +932,7 @@ export class RdpBridge extends EventEmitter {
       throw new Error(`Expected MCS_ATTACH_USER_CONFIRM, got 0x${auConf[0].toString(16)}`);
     }
     this._userId = 1001 + auConf.readUInt16BE(2);
+    console.error(`[RDP] Phase4 done — userId=${this._userId}`);
 
     // ── Phase 5: Channel joins ─────────────────────────────────────────
     for (const channelId of [this._userId, MCS_CHANNEL_GLOBAL]) {
@@ -948,20 +951,25 @@ export class RdpBridge extends EventEmitter {
     // ── Phase 6: Client Info (login) ───────────────────────────────────
     const clientInfo = buildClientInfoPdu(username, password, domain);
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, clientInfo);
+    console.error(`[RDP] Phase6 sent ClientInfo`);
 
     // ── Phase 6b: License exchange ─────────────────────────────────────
     await this._doLicenseExchange(sock, username);
+    console.error(`[RDP] Phase6b license exchange done`);
 
     // ── Phase 7: Capability exchange ──────────────────────────────────
     // Wait for Demand Active PDU from server
     const demandPdu = await this._waitForPduType(sock, PDUTYPE_DEMANDACTIVEPDU, 15_000);
     this._shareId = demandPdu.readUInt32LE(6); // shareId in Share Control Header
+    console.error(`[RDP] Phase7 DemandActive — shareId=0x${this._shareId.toString(16)}`);
 
     const confirmActive = buildConfirmActivePdu(this._userId, this._shareId, width, height);
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, confirmActive);
+    console.error(`[RDP] Phase7 ConfirmActive sent, sending sync/ctrl/fontlist`);
 
-    // Send synchronize + control + font list (required sequence)
+    // Send synchronize + control + font list (required sequence per MS-RDPBCGR §1.3.1.1)
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, buildSynchronizePdu(this._userId, this._shareId));
+    this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, buildControlPdu(this._userId, this._shareId, 4 /*CTRLACTION_COOPERATE*/));
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, buildControlPdu(this._userId, this._shareId, 1 /*CTRLACTION_REQUEST_CONTROL*/));
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, buildFontListPdu(this._userId, this._shareId));
 
@@ -1110,10 +1118,17 @@ export class RdpBridge extends EventEmitter {
     if (pduType === (PDUTYPE_DATAPDU & 0x0f)) {
       this._handleDataPdu(shareCtrl.slice(6));
     } else if (pduType === (PDUTYPE_DEMANDACTIVEPDU & 0x0f)) {
-      // Re-issued demand active — re-confirm
+      // Re-issued demand active — re-confirm and re-sync
       this._shareId = shareCtrl.readUInt32LE(6);
-      const confirm = buildConfirmActivePdu(this._userId, this._shareId, this._width, this._height);
-      if (this._sock) this._sendMcsData(this._sock, MCS_CHANNEL_GLOBAL, confirm);
+      if (this._sock) {
+        const s = this._sock;
+        const confirm = buildConfirmActivePdu(this._userId, this._shareId, this._width, this._height);
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL, confirm);
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL, buildSynchronizePdu(this._userId, this._shareId));
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL, buildControlPdu(this._userId, this._shareId, 4));
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL, buildControlPdu(this._userId, this._shareId, 1));
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL, buildFontListPdu(this._userId, this._shareId));
+      }
     }
   }
 
@@ -1195,17 +1210,14 @@ export class RdpBridge extends EventEmitter {
   private _sendInput(eventType: number, eventData: Buffer): void {
     if (!this._sock || !this._userId) return;
 
-    // InputPDU body: numEvents(2) + pad(2) + [eventTime(4) + messageType(2) + slowPathData(variable)]
-    const event = Buffer.alloc(12);
-    event.writeUInt16LE(1, 0); // numEvents
-    event.writeUInt16LE(0, 2); // pad
-    event.writeUInt32LE(0, 4); // eventTime (0 = server picks)
-    event.writeUInt16LE(eventType, 8);
-    event.writeUInt16LE(0, 10); // pad for sync/scan; reused for flags
-
+    // TS_INPUT_PDU_DATA: numEvents(2) + pad(2) + [TS_INPUT_EVENT: eventTime(4) + messageType(2) + slowPathData(6)]
+    const event = Buffer.alloc(16);
+    event.writeUInt16LE(1, 0);          // numEvents
+    event.writeUInt16LE(0, 2);          // pad
+    event.writeUInt32LE(0, 4);          // eventTime (0 = server picks)
+    event.writeUInt16LE(eventType, 8);  // messageType
     if (eventData.length >= 6) {
-      // Overwrite last 6 bytes of placeholder with actual event data
-      eventData.copy(event, 6, 0, 6);
+      eventData.copy(event, 10, 0, 6);  // slowPathData at offset 10
     }
 
     const shareHdr = buildShareDataHeader(this._userId, this._shareId, PDUTYPE2_INPUT, event.length);
@@ -1297,6 +1309,9 @@ export class RdpBridge extends EventEmitter {
           if (t === (pduType & 0x0f)) {
             clearTimeout(timer);
             sock.off('data', onData);
+            // Save any remaining bytes so _runLoop can consume them
+            this._handshakeBuf = Buffer.concat([buf, this._handshakeBuf]);
+            buf = Buffer.alloc(0);
             resolve(rdp);
             return;
           }
