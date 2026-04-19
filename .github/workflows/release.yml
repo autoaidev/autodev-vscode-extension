@@ -34,25 +34,18 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "filename=${NAME}-${VERSION}.vsix" >> $GITHUB_OUTPUT
 
-      - name: Copy versioned file as latest
+      - name: Stage VSIX files for upload
         run: |
+          mkdir -p ftp-upload
           NAME_BASE=$(node -p "require('./package.json').name")
-          cp "${{ steps.meta.outputs.filename }}" "${NAME_BASE}-latest.vsix"
+          cp "${{ steps.meta.outputs.filename }}" ftp-upload/
+          cp "${{ steps.meta.outputs.filename }}" "ftp-upload/${NAME_BASE}-latest.vsix"
 
-      - name: Upload versioned VSIX via FTP
-        uses: genietim/ftp-action@v4.0.1
+      - name: Upload VSIX files via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          host: ${{ secrets.FTP_SERVER }}
-          user: ${{ secrets.FTP_USERNAME }}
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          localDir: ${{ steps.meta.outputs.filename }}
-          remoteDir: "releases"
-
-      - name: Upload latest VSIX via FTP
-        uses: genietim/ftp-action@v4.0.1
-        with:
-          host: ${{ secrets.FTP_SERVER }}
-          user: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          localDir: "*-latest.vsix"
-          remoteDir: "releases"
+          local-dir: "./ftp-upload/"
+          server-dir: "releases/"
