@@ -21,9 +21,9 @@ export const MCS_CONNECT_INITIAL      = 0x7f65;
 export const MCS_CONNECT_RESPONSE     = 0x7f66;
 export const MCS_ERECT_DOMAIN_REQUEST = 0x04;
 export const MCS_ATTACH_USER_REQUEST  = 0x28;
-export const MCS_ATTACH_USER_CONFIRM  = 0x2c;
+export const MCS_ATTACH_USER_CONFIRM  = 0x2e; // (11 << 2) | 2  — "initiator present" bit set
 export const MCS_CHANNEL_JOIN_REQUEST = 0x38;
-export const MCS_CHANNEL_JOIN_CONFIRM = 0x3c;
+export const MCS_CHANNEL_JOIN_CONFIRM = 0x3e; // (15 << 2) | 2  — "channelId present" bit set
 export const MCS_SEND_DATA_REQUEST    = 0x64;
 export const MCS_SEND_DATA_INDICATION = 0x68;
 

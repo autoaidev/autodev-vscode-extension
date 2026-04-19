@@ -767,7 +767,7 @@ export class RdpBridge extends EventEmitter {
     if (auConf[0] !== MCS_ATTACH_USER_CONFIRM) {
       throw new Error(`Expected MCS_ATTACH_USER_CONFIRM, got 0x${auConf[0].toString(16)}`);
     }
-    this._userId = 1000 + auConf.readUInt16BE(2);
+    this._userId = 1001 + auConf.readUInt16BE(2);
 
     // ── Phase 5: Channel joins ─────────────────────────────────────────
     for (const channelId of [this._userId, MCS_CHANNEL_GLOBAL]) {
