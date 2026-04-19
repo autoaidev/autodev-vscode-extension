@@ -205,11 +205,30 @@ function buildMcsConnectInitial(
   const clientData = Buffer.concat([csCore, csSec, csCluster]);
 
   // GCC ConferenceCreateRequest — T.124 PER-encoded wrapper
-  // H.221 non-standard key "Duca" + 2-byte PER length (high bit set) + data
+  // [MS-RDPBCGR] 2.2.1.3 — the ConnectGCCPDU body must carry the proper
+  // T.124 ConferenceCreateRequest structure before the H.221/Duca client data.
+  // Without this structure xrdp cannot extract the screen dimensions and aborts
+  // with "xrdp_bitmap_create: size overflow 0x0x4" after the FontMap handshake.
+  function perLen(len: number): Buffer {
+    // PER unconstrained length: 1 byte for 0-127, 2 bytes for 128-16383
+    if (len <= 0x7F) return Buffer.from([len]);
+    return Buffer.from([0x80 | (len >> 8), len & 0xFF]);
+  }
+  // ConnectGCCPDU body: choice(1) + conference-name(5) + optFlags(2) + "Duca"(4)
+  //                   + perLen(clientData) + clientData
+  const ccrBody = Buffer.concat([
+    Buffer.from([
+      0x00,                         // choice: conferenceCreateRequest
+      0x08, 0x00, 0x10, 0x00, 0x01, // conference name PER
+      0xC0, 0x00,                   // optional fields: userData present
+      0x44, 0x75, 0x63, 0x61,       // H.221 non-standard key "Duca"
+    ]),
+    perLen(clientData.length),      // PER length of client data blocks
+    clientData,
+  ]);
+  // T.124 ConnectData: H.221 OID key + PER length of CCR body + CCR body
   const gccKey = Buffer.from([0x00, 0x05, 0x00, 0x14, 0x7c, 0x00, 0x01]);
-  const lenBuf  = Buffer.alloc(2);
-  lenBuf.writeUInt16BE(0x8000 | clientData.length, 0);
-  const gccConnReq = Buffer.concat([gccKey, lenBuf, clientData]);
+  const gccConnReq = Buffer.concat([gccKey, perLen(ccrBody.length), ccrBody]);
 
   // MCS Connect-Initial BER encoding  [MS-RDPBCGR] 2.2.1.3 / T.125
   //
