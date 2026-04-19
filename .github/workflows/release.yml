@@ -34,18 +34,23 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "filename=${NAME}-${VERSION}.vsix" >> $GITHUB_OUTPUT
 
-      - name: Stage VSIX files for upload
+      - name: Upload via SFTP
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          VSIX_FILE: ${{ steps.meta.outputs.filename }}
         run: |
-          mkdir -p ftp-upload
+          sudo apt-get install -y lftp
           NAME_BASE=$(node -p "require('./package.json').name")
-          cp "${{ steps.meta.outputs.filename }}" ftp-upload/
-          cp "${{ steps.meta.outputs.filename }}" "ftp-upload/${NAME_BASE}-latest.vsix"
-
-      - name: Upload VSIX files via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: "./ftp-upload/"
-          server-dir: "releases/"
+          cp "$VSIX_FILE" "${NAME_BASE}-latest.vsix"
+          PORT=${FTP_PORT:-22}
+          lftp -u "$FTP_USERNAME,$FTP_PASSWORD" sftp://"$FTP_SERVER":$PORT <<EOF
+          set sftp:auto-confirm yes
+          set net:max-retries 3
+          mkdir -p releases
+          put $VSIX_FILE -o releases/$VSIX_FILE
+          put ${NAME_BASE}-latest.vsix -o releases/${NAME_BASE}-latest.vsix
+          bye
+          EOF
