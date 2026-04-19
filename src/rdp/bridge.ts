@@ -779,6 +779,11 @@ export class RdpBridge extends EventEmitter {
   private _shareId   = 0;
   private _connected = false;
 
+  // Auto-reconnect support (xrdp closes TCP after initial handshake, expects client to reconnect)
+  private _opts:          RdpConnectOptions | null = null;
+  private _reconnectCount = 0;
+  private static readonly _MAX_RECONNECTS = 5;
+
   /** Optional external logger — set before calling connect(). */
   log: (msg: string) => void = (msg) => console.error(msg);
 
@@ -791,6 +796,8 @@ export class RdpBridge extends EventEmitter {
    * Connect to an RDP server.  Resolves once the desktop is ready.
    */
   async connect(opts: RdpConnectOptions): Promise<RdpInfo> {
+    this._opts = opts; // save for auto-reconnect
+
     const host       = opts.host;
     const port       = opts.port       ?? RDP_DEFAULT_PORT;
     const username   = opts.username   ?? '';
@@ -805,6 +812,10 @@ export class RdpBridge extends EventEmitter {
     this._colorDepth = colorDepth;
 
     return new Promise<RdpInfo>((resolve, reject) => {
+      // connectResolved: true once the initial handshake has resolved the Promise.
+      // The rawSock 'close' listener uses this guard so it doesn't emit 'close'
+      // after the TLS socket takes over (the TLS 'close' handler manages reconnect).
+      let connectResolved = false;
       const sock = net.createConnection({ host, port });
       this._sock = sock;
 
@@ -812,12 +823,17 @@ export class RdpBridge extends EventEmitter {
         if (!this._closed) { this._closed = true; this.emit('error', err); reject(err); }
       });
       sock.once('close', () => {
-        if (!this._closed) { this._closed = true; this.emit('close'); }
+        // Only fire if the Promise never resolved (pre-Phase-8 failure on raw socket)
+        if (!connectResolved && !this._closed) { this._closed = true; this.emit('close'); }
       });
 
       sock.once('connect', async () => {
         try {
-          await this._handshake(sock, host, port, username, password, domain, width, height, colorDepth, resolve, reject);
+          await this._handshake(
+            sock, host, port, username, password, domain, width, height, colorDepth,
+            (info) => { connectResolved = true; resolve(info); },
+            reject,
+          );
         } catch (err) {
           reject(err instanceof Error ? err : new Error(String(err)));
           sock.destroy();
@@ -874,6 +890,55 @@ export class RdpBridge extends EventEmitter {
     }
   }
 
+  // ── Auto-reconnect ─────────────────────────────────────────────────────
+
+  /**
+   * Reconnect using saved opts — called after xrdp's clean TCP close that
+   * follows the initial session-creation handshake.
+   */
+  private _doReconnect(): void {
+    if (this._closed || !this._opts) return;
+    const opts = this._opts;
+    const host       = opts.host;
+    const port       = opts.port       ?? RDP_DEFAULT_PORT;
+    const username   = opts.username   ?? '';
+    const password   = opts.password   ?? '';
+    const domain     = opts.domain     ?? '';
+    const width      = opts.width      ?? RDP_DEFAULT_WIDTH;
+    const height     = opts.height     ?? RDP_DEFAULT_HEIGHT;
+    const colorDepth = opts.colorDepth ?? RDP_DEFAULT_COLOR_DEPTH;
+
+    this._width      = width;
+    this._height     = height;
+    this._colorDepth = colorDepth;
+
+    const sock = net.createConnection({ host, port });
+    this._sock = sock;
+
+    sock.once('error', (err) => {
+      this.log(`[RDP] reconnect socket error: ${err.message}`);
+      if (!this._closed) { this._closed = true; this.emit('error', err); }
+    });
+
+    sock.once('connect', async () => {
+      try {
+        await this._handshake(
+          sock, host, port, username, password, domain, width, height, colorDepth,
+          (_info) => { this.log('[RDP] reconnect complete — desktop ready'); },
+          (err)   => {
+            this.log(`[RDP] reconnect handshake failed: ${err.message}`);
+            if (!this._closed) { this._closed = true; this.emit('error', err); }
+          },
+        );
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        this.log(`[RDP] reconnect exception: ${e.message}`);
+        if (!this._closed) { this._closed = true; this.emit('error', e); }
+        sock.destroy();
+      }
+    });
+  }
+
   // ── Handshake ──────────────────────────────────────────────────────────
 
   private async _handshake(
@@ -916,7 +981,22 @@ export class RdpBridge extends EventEmitter {
     });
     sock.on('close', () => {
       this.log(`[RDP] socket closed (connected=${this._connected})`);
-      if (!this._closed) { this._closed = true; this.emit('close'); }
+      if (this._closed) return;
+      // xrdp closes TCP after initial session setup — auto-reconnect for actual desktop
+      if (this._connected && this._opts && this._reconnectCount < RdpBridge._MAX_RECONNECTS) {
+        this._reconnectCount++;
+        this.log(`[RDP] clean close — auto-reconnect ${this._reconnectCount}/${RdpBridge._MAX_RECONNECTS}`);
+        this._connected = false;
+        this._userId    = 0;
+        this._shareId   = 0;
+        this._recvBuf   = Buffer.alloc(0);
+        this._handshakeBuf = Buffer.alloc(0);
+        this._sock      = null;
+        setTimeout(() => this._doReconnect(), 300);
+      } else {
+        this._closed = true;
+        this.emit('close');
+      }
     });
 
     // ── Phase 3: MCS Connect ───────────────────────────────────────────
