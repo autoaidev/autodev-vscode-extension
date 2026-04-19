@@ -40,7 +40,7 @@ jobs:
           cp "${{ steps.meta.outputs.filename }}" "${NAME_BASE}-latest.vsix"
 
       - name: Upload versioned VSIX via FTP
-        uses: genietim/ftp-action@releases/v4
+        uses: genietim/ftp-action@v4.0.1
         with:
           host: ${{ secrets.FTP_SERVER }}
           user: ${{ secrets.FTP_USERNAME }}
@@ -49,7 +49,7 @@ jobs:
           remoteDir: "releases"
 
       - name: Upload latest VSIX via FTP
-        uses: genietim/ftp-action@releases/v4
+        uses: genietim/ftp-action@v4.0.1
         with:
           host: ${{ secrets.FTP_SERVER }}
           user: ${{ secrets.FTP_USERNAME }}
