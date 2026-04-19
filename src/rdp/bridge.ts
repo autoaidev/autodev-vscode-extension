@@ -22,6 +22,7 @@
 
 import * as net from 'net';
 import * as tls from 'tls';
+import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import {
   buildX224ConnectRequest,
@@ -233,6 +234,152 @@ function buildMcsConnectInitial(
   return berTlv(0x7f65, body);
 }
 
+// ── License crypto helpers ────────────────────────────────────────────────
+
+/** Modular exponentiation using BigInt (for pure-JS RSA). */
+function modpow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  base = base % mod;
+  while (exp > 0n) {
+    if (exp & 1n) result = (result * base) % mod;
+    exp >>= 1n;
+    base = (base * base) % mod;
+  }
+  return result;
+}
+
+/**
+ * RSA PKCS#1 v1.5 encrypt `message` using an RDP little-endian modulus.
+ * Returns the ciphertext in little-endian (as RDP expects).
+ */
+function rsaEncryptLe(message: Buffer, modulusLe: Buffer, exponent: number): Buffer {
+  const modulusBe = Buffer.from(modulusLe).reverse();
+  const n = BigInt('0x' + modulusBe.toString('hex'));
+  const ks = modulusLe.length;
+  const padLen = ks - message.length - 3;
+  const padBytes = crypto.randomBytes(padLen).map(b => b === 0 ? 1 : b);
+  const padded = Buffer.concat([Buffer.from([0x00, 0x02]), padBytes, Buffer.from([0x00]), message]);
+  const m = BigInt('0x' + padded.toString('hex'));
+  const c = modpow(m, BigInt(exponent), n);
+  const cHex = c.toString(16).padStart(ks * 2, '0');
+  return Buffer.from(Buffer.from(cHex, 'hex')).reverse(); // LE
+}
+
+/** MS-RDPELE §5.1.3 salted hash: SHA1 + MD5 mix. */
+function saltedHash(secret: Buffer, label: Buffer, r1: Buffer, r2: Buffer): Buffer {
+  const sha = crypto.createHash('sha1');
+  sha.update(label); sha.update(secret); sha.update(r1); sha.update(r2);
+  const md5 = crypto.createHash('md5');
+  md5.update(secret); md5.update(sha.digest());
+  return md5.digest();
+}
+
+/** Derive MAC key (16 B) and enc key (16 B) from pre-master secret. */
+function deriveLicenseKeys(
+  preMaster: Buffer, clientRand: Buffer, serverRand: Buffer,
+): [Buffer, Buffer] {
+  let ms = Buffer.concat([
+    saltedHash(preMaster, Buffer.from('A'),   clientRand, serverRand),
+    saltedHash(preMaster, Buffer.from('BB'),  clientRand, serverRand),
+    saltedHash(preMaster, Buffer.from('CCC'), clientRand, serverRand),
+  ]);
+  const skb = Buffer.concat([
+    saltedHash(ms, Buffer.from('A'),   serverRand, clientRand),
+    saltedHash(ms, Buffer.from('BB'),  serverRand, clientRand),
+    saltedHash(ms, Buffer.from('CCC'), serverRand, clientRand),
+  ]);
+  return [skb.slice(0, 16), skb.slice(16, 32)]; // [mac_key, enc_key]
+}
+
+function macData(macKey: Buffer, data: Buffer): Buffer {
+  const p1 = Buffer.alloc(40).fill(0x36);
+  const p2 = Buffer.alloc(48).fill(0x5c);
+  const sha = crypto.createHash('sha1');
+  sha.update(macKey); sha.update(p1);
+  const lenBuf = Buffer.alloc(4); lenBuf.writeUInt32LE(data.length, 0);
+  sha.update(lenBuf); sha.update(data);
+  const md5 = crypto.createHash('md5');
+  md5.update(macKey); md5.update(p2); md5.update(sha.digest());
+  return md5.digest().slice(0, 16);
+}
+
+function rc4(key: Buffer, data: Buffer): Buffer {
+  const cipher = crypto.createDecipheriv('rc4' as any, key, null as any);
+  return Buffer.concat([cipher.update(data), cipher.final()]);
+}
+
+/**
+ * Parse SERVER_LICENSE_REQUEST to extract serverRandom, RSA modulus (LE) and exponent.
+ * `body` starts at the license preamble (4 bytes before ServerRandom).
+ */
+function parseLicenseRequest(body: Buffer): { serverRand: Buffer; modulusLe: Buffer; exponent: number } {
+  // body[0..3] = preamble; body[4..35] = ServerRandom[32]
+  const serverRand = body.slice(4, 36);
+  let pos = 36;
+  // ProductInfo: dwVersion(4) + cbCompanyName(4) + name + cbProductId(4) + id
+  const cbCompany = body.readUInt32LE(pos + 4);
+  pos += 4 + 4 + cbCompany;
+  const cbProduct = body.readUInt32LE(pos);
+  pos += 4 + cbProduct;
+  // KeyExchangeList blob: wBlobType(2)+wBlobLen(2)+data
+  const kbLen = body.readUInt16LE(pos + 2); pos += 4 + kbLen;
+  // ServerCertificate blob
+  const certLen = body.readUInt16LE(pos + 2);
+  const cert = body.slice(pos + 4, pos + 4 + certLen);
+  // PROPRIETARYSERVERCERTIFICATE: dwVersion(4)+dwSigAlgId(4)+dwKeyAlgId(4)+wBlobType(2)+wBlobLen(2)+RSA_PUBLIC_KEY
+  const pkBlobLen = cert.readUInt16LE(14);
+  const pk = cert.slice(16, 16 + pkBlobLen); // RSA_PUBLIC_KEY
+  // RSA1(4)+keylen(4)+bitlen(4)+datalen(4)+pubExp(4)+modulus(keylen)
+  const keylen   = pk.readUInt32LE(4);
+  const bitlen   = pk.readUInt32LE(8);
+  const exponent = pk.readUInt32LE(16);
+  const modulusLe = pk.slice(20, 20 + bitlen / 8);
+  return { serverRand, modulusLe, exponent };
+}
+
+function buildNewLicenseRequest(
+  clientRand: Buffer, encPms: Buffer, username: string, machine: string,
+): Buffer {
+  const un = Buffer.from(username + '\0', 'ascii');
+  const mn = Buffer.from(machine  + '\0', 'ascii');
+  const body = Buffer.alloc(4 + 4 + 32 + 4 + encPms.length + 4 + un.length + 4 + mn.length);
+  let off = 0;
+  body.writeUInt32LE(1, off); off += 4;           // KEY_EXCHANGE_ALG_RSA
+  body.writeUInt32LE(0x04000000, off); off += 4;  // PlatformId
+  clientRand.copy(body, off); off += 32;
+  body.writeUInt16LE(0x0006, off); off += 2;       // wBlobType = BB_KEY_EXCHG_ALG_BLOB
+  body.writeUInt16LE(encPms.length, off); off += 2;
+  encPms.copy(body, off); off += encPms.length;
+  body.writeUInt16LE(0x000f, off); off += 2;       // wBlobType = BB_CLIENT_USER_NAME_BLOB
+  body.writeUInt16LE(un.length, off); off += 2;
+  un.copy(body, off); off += un.length;
+  body.writeUInt16LE(0x0010, off); off += 2;       // wBlobType = BB_CLIENT_MACHINE_NAME_BLOB
+  body.writeUInt16LE(mn.length, off); off += 2;
+  mn.copy(body, off);
+  const preamble = Buffer.alloc(4);
+  preamble.writeUInt8(0x13, 0); preamble.writeUInt8(0x00, 1);
+  preamble.writeUInt16LE(4 + body.length, 2);
+  return Buffer.concat([preamble, body]);
+}
+
+function buildPlatformChallengeResponse(
+  encKey: Buffer, macKey: Buffer, challengePlain: Buffer,
+): Buffer {
+  const hwid = Buffer.alloc(8); hwid.writeUInt32LE(2, 0); // hardwareIDVersion=2, hardwareID1=0
+  const encChallenge = rc4(encKey, challengePlain);
+  const encHwid      = rc4(encKey, hwid);
+  const mac          = macData(macKey, Buffer.concat([challengePlain, hwid]));
+  const encChalLen = Buffer.alloc(4);
+  encChalLen.writeUInt16LE(0x000e, 0); encChalLen.writeUInt16LE(encChallenge.length, 2);
+  const encHwidLen = Buffer.alloc(4);
+  encHwidLen.writeUInt16LE(0x000f, 0); encHwidLen.writeUInt16LE(encHwid.length, 2);
+  const body = Buffer.concat([encChalLen, encChallenge, encHwidLen, encHwid, mac]);
+  const preamble = Buffer.alloc(4);
+  preamble.writeUInt8(0x15, 0); preamble.writeUInt8(0x80, 1);
+  preamble.writeUInt16LE(4 + body.length, 2);
+  return Buffer.concat([preamble, body]);
+}
+
 // ── Client Info PDU ───────────────────────────────────────────────────────
 
 function buildClientInfoPdu(
@@ -269,7 +416,20 @@ function buildClientInfoPdu(
   hdr.writeUInt16LE(shellBuf.length - 2, 14);    // cbAlternateShell
   hdr.writeUInt16LE(workdirBuf.length - 2, 16);  // cbWorkingDir
 
-  const info = Buffer.concat([hdr, domainBuf, usernameBuf, passwordBuf, shellBuf, workdirBuf]);
+  // TS_EXTENDED_INFO_PACKET (required by RDP 5.0+)
+  // clientAddressFamily(2) + cbClientAddress(2) + clientAddress(2) +
+  // cbClientDir(2) + clientDir(2) + clientTimeZone(172) +
+  // clientSessionId(4) + performanceFlags(4) + cbAutoReconnectCookie(2)
+  const ext = Buffer.alloc(2 + 2 + 2 + 2 + 2 + 172 + 4 + 4 + 2);
+  ext.writeUInt16LE(0x0002, 0);  // clientAddressFamily = AF_INET
+  ext.writeUInt16LE(2, 2);       // cbClientAddress = 2 (null-term only)
+  // clientAddress[2] = 0x0000 (already zero)
+  ext.writeUInt16LE(2, 6);       // cbClientDir = 2 (null-term only)
+  // clientDir[2] = 0x0000 (already zero)
+  // clientTimeZone[172] = all zeros (UTC)
+  // clientSessionId, performanceFlags, cbAutoReconnectCookie = 0
+
+  const info = Buffer.concat([hdr, domainBuf, usernameBuf, passwordBuf, shellBuf, workdirBuf, ext]);
 
   // Prepend SEC_INFO_PKT Security Header (flags only — no encryption)
   const secHdr = Buffer.alloc(4);
@@ -608,6 +768,7 @@ export class RdpBridge extends EventEmitter {
   private _sock:   net.Socket | tls.TLSSocket | null = null;
   private _closed  = false;
   private _recvBuf = Buffer.alloc(0);
+  private _pendingTpkt: Buffer | null = null; // packet peeked during license exchange
 
   private _width      = RDP_DEFAULT_WIDTH;
   private _height     = RDP_DEFAULT_HEIGHT;
@@ -787,6 +948,9 @@ export class RdpBridge extends EventEmitter {
     const clientInfo = buildClientInfoPdu(username, password, domain);
     this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, clientInfo);
 
+    // ── Phase 6b: License exchange ─────────────────────────────────────
+    await this._doLicenseExchange(sock, username);
+
     // ── Phase 7: Capability exchange ──────────────────────────────────
     // Wait for Demand Active PDU from server
     const demandPdu = await this._waitForPduType(sock, PDUTYPE_DEMANDACTIVEPDU, 15_000);
@@ -814,6 +978,75 @@ export class RdpBridge extends EventEmitter {
 
     // Start continuous parsing
     this._runLoop(sock);
+  }
+
+  // ── License exchange ──────────────────────────────────────────────────
+
+  /**
+   * Handle RDP license exchange after Client Info PDU.
+   * Responds to SERVER_LICENSE_REQUEST and PLATFORM_CHALLENGE until the
+   * server completes licensing (or sends a non-license PDU).
+   */
+  private async _doLicenseExchange(
+    sock: net.Socket | tls.TLSSocket,
+    username: string,
+  ): Promise<void> {
+    const SEC_LICENSE_PKT = 0x0080;
+    let clientRand: Buffer | undefined;
+    let preMaster:  Buffer | undefined;
+    let serverRand: Buffer | undefined;
+    let macKey:     Buffer | undefined;
+    let encKey:     Buffer | undefined;
+
+    for (let i = 0; i < 10; i++) {
+      const tpkt = await this._readTpkt(sock);
+      // Parse MCS SDI header to find the RDP/license payload
+      const payload = tpkt.slice(7);  // skip TPKT(4)+X224(3)
+      if (payload.length < 7 || payload[0] !== MCS_SEND_DATA_INDICATION) {
+        // Not an SDI — put it back and stop
+        this._pendingTpkt = tpkt;
+        return;
+      }
+      let off = 6;
+      const lb = payload[off++];
+      if (lb & 0x80) off += lb & 0x7f;
+      const rdp = payload.slice(off);
+      if (rdp.length < 6) continue;
+
+      const secFlags = rdp.readUInt16LE(0);
+      if (!(secFlags & SEC_LICENSE_PKT)) {
+        // Not a license packet (could be Demand Active) — put it back
+        this._pendingTpkt = tpkt;
+        return;
+      }
+
+      const body = rdp.slice(4); // skip 4-byte security header
+      const msgType = body[0];
+
+      if (msgType === 0x01) { // SERVER_LICENSE_REQUEST
+        const { serverRand: sr, modulusLe, exponent } = parseLicenseRequest(body);
+        serverRand = sr;
+        clientRand = crypto.randomBytes(32);
+        preMaster  = crypto.randomBytes(48);
+        const encPms = rsaEncryptLe(preMaster, modulusLe, exponent);
+        const req = buildNewLicenseRequest(clientRand, encPms, username, 'autodev');
+        const secHdr = Buffer.from([0x80, 0x00, 0x00, 0x00]); // SEC_LICENSE_PKT
+        this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, Buffer.concat([secHdr, req]));
+
+      } else if (msgType === 0x02 && clientRand && preMaster && serverRand) { // PLATFORM_CHALLENGE
+        [macKey, encKey] = deriveLicenseKeys(preMaster, clientRand, serverRand);
+        const chalLen     = body.readUInt16LE(6);
+        const encChal     = body.slice(8, 8 + chalLen);
+        const challenge   = rc4(encKey, encChal);
+        const resp = buildPlatformChallengeResponse(encKey, macKey, challenge);
+        const secHdr = Buffer.from([0x80, 0x00, 0x00, 0x00]);
+        this._sendMcsData(sock, MCS_CHANNEL_GLOBAL, Buffer.concat([secHdr, resp]));
+
+      } else if (msgType === 0x03 || msgType === 0xff) {
+        // NEW_LICENSE or ERROR_ALERT — licensing done regardless of error code
+        return;
+      }
+    }
   }
 
   // ── Run loop ─────────────────────────────────────────────────────────
@@ -850,9 +1083,9 @@ export class RdpBridge extends EventEmitter {
     if (mcsOpcode !== MCS_SEND_DATA_INDICATION) return;
     if (payload.length < 8) return;
 
-    // Decode MCS SDI BER header to find the RDP payload offset
-    // Simplified: find length field after fixed 7-byte MCS header
-    let offset = 7;
+    // Decode MCS SDI PER/BER length field.
+    // MCS fixed header: opcode(1)+initiator(2)+channelId(2)+priority(1) = 6 bytes.
+    let offset = 6;
     const lenByte = payload[offset];
     offset++;
     if (lenByte & 0x80) {
@@ -995,6 +1228,11 @@ export class RdpBridge extends EventEmitter {
 
   /** Read a complete TPKT from the given socket (used during handshake only). */
   private _readTpkt(sock: net.Socket | tls.TLSSocket): Promise<Buffer> {
+    if (this._pendingTpkt) {
+      const pkt = this._pendingTpkt;
+      this._pendingTpkt = null;
+      return Promise.resolve(pkt);
+    }
     return new Promise((resolve, reject) => {
       let buf = Buffer.alloc(0);
       const onData = (chunk: Buffer) => {
@@ -1028,7 +1266,9 @@ export class RdpBridge extends EventEmitter {
     timeoutMs: number,
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      let buf = Buffer.alloc(0);
+      // Seed with any packet peeked during license exchange
+      let buf = this._pendingTpkt ? this._pendingTpkt : Buffer.alloc(0);
+      this._pendingTpkt = null;
       const timer = setTimeout(() => {
         sock.off('data', onData);
         reject(new Error(`Timeout waiting for PDU type 0x${pduType.toString(16)}`));
@@ -1048,7 +1288,8 @@ export class RdpBridge extends EventEmitter {
           const mcsPayload = tpkt.slice(7); // skip TPKT(4) + X224(3)
           if (mcsPayload[0] !== MCS_SEND_DATA_INDICATION) continue;
 
-          let offset = 7;
+          // MCS fixed header: opcode(1)+initiator(2)+channelId(2)+priority(1) = 6 bytes
+          let offset = 6;
           const lb = mcsPayload[offset++];
           if (lb & 0x80) offset += lb & 0x7f;
           const rdp = mcsPayload.slice(offset);
@@ -1069,6 +1310,8 @@ export class RdpBridge extends EventEmitter {
       };
 
       sock.on('data', onData);
+      // Process any pre-seeded data immediately
+      if (buf.length > 0) onData(Buffer.alloc(0));
     });
   }
 
