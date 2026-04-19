@@ -768,7 +768,7 @@ export class RdpBridge extends EventEmitter {
   private _sock:   net.Socket | tls.TLSSocket | null = null;
   private _closed  = false;
   private _recvBuf = Buffer.alloc(0);
-  private _pendingTpkt: Buffer | null = null; // packet peeked during license exchange
+  private _handshakeBuf = Buffer.alloc(0); // raw-byte accumulator for handshake TPKT parsing
 
   private _width      = RDP_DEFAULT_WIDTH;
   private _height     = RDP_DEFAULT_HEIGHT;
@@ -1004,7 +1004,7 @@ export class RdpBridge extends EventEmitter {
       const payload = tpkt.slice(7);  // skip TPKT(4)+X224(3)
       if (payload.length < 7 || payload[0] !== MCS_SEND_DATA_INDICATION) {
         // Not an SDI — put it back and stop
-        this._pendingTpkt = tpkt;
+        this._handshakeBuf = Buffer.concat([tpkt, this._handshakeBuf]);
         return;
       }
       let off = 6;
@@ -1016,7 +1016,7 @@ export class RdpBridge extends EventEmitter {
       const secFlags = rdp.readUInt16LE(0);
       if (!(secFlags & SEC_LICENSE_PKT)) {
         // Not a license packet (could be Demand Active) — put it back
-        this._pendingTpkt = tpkt;
+        this._handshakeBuf = Buffer.concat([tpkt, this._handshakeBuf]);
         return;
       }
 
@@ -1059,6 +1059,11 @@ export class RdpBridge extends EventEmitter {
         try { this._dispatchPdu(pdu); } catch { /* tolerate parse errors */ }
       }
     };
+    // Drain any bytes left over from handshake phase into _recvBuf
+    if (this._handshakeBuf.length > 0) {
+      this._recvBuf = Buffer.concat([this._recvBuf, this._handshakeBuf]);
+      this._handshakeBuf = Buffer.alloc(0);
+    }
     // Install _recvBuf listener here (not during handshake) so that
     // _readTpkt's own listeners are the sole consumers during negotiation.
     sock.on('data', (chunk: Buffer) => {
@@ -1228,21 +1233,20 @@ export class RdpBridge extends EventEmitter {
 
   /** Read a complete TPKT from the given socket (used during handshake only). */
   private _readTpkt(sock: net.Socket | tls.TLSSocket): Promise<Buffer> {
-    if (this._pendingTpkt) {
-      const pkt = this._pendingTpkt;
-      this._pendingTpkt = null;
-      return Promise.resolve(pkt);
-    }
     return new Promise((resolve, reject) => {
-      let buf = Buffer.alloc(0);
+      const tryExtract = (): boolean => {
+        if (this._handshakeBuf.length < 4) return false;
+        const len = this._handshakeBuf.readUInt16BE(2);
+        if (this._handshakeBuf.length < len) return false;
+        const pkt = this._handshakeBuf.slice(0, len);
+        this._handshakeBuf = this._handshakeBuf.slice(len); // preserve remainder
+        resolve(pkt);
+        return true;
+      };
+      if (tryExtract()) return; // already buffered enough
       const onData = (chunk: Buffer) => {
-        buf = Buffer.concat([buf, chunk]);
-        if (buf.length < 4) return;
-        const len = buf.readUInt16BE(2);
-        if (buf.length >= len) {
-          sock.off('data', onData);
-          resolve(buf.slice(0, len));
-        }
+        this._handshakeBuf = Buffer.concat([this._handshakeBuf, chunk]);
+        if (tryExtract()) sock.off('data', onData);
       };
       sock.on('data', onData);
       setTimeout(() => { sock.off('data', onData); reject(new Error('TPKT read timeout')); }, 15_000);
@@ -1266,9 +1270,9 @@ export class RdpBridge extends EventEmitter {
     timeoutMs: number,
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      // Seed with any packet peeked during license exchange
-      let buf = this._pendingTpkt ? this._pendingTpkt : Buffer.alloc(0);
-      this._pendingTpkt = null;
+      // Seed with any bytes buffered during license exchange
+      let buf = this._handshakeBuf;
+      this._handshakeBuf = Buffer.alloc(0);
       const timer = setTimeout(() => {
         sock.off('data', onData);
         reject(new Error(`Timeout waiting for PDU type 0x${pduType.toString(16)}`));
