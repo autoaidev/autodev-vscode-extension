@@ -911,9 +911,11 @@ export class RdpBridge extends EventEmitter {
     // _recvBuf 'data' listener here; that is done inside _runLoop so that
     // handshake packets read via _readTpkt are not also buffered in _recvBuf.
     sock.on('error', (err) => {
+      this.log(`[RDP] socket error: ${err.message}`);
       if (!this._closed) { this._closed = true; this.emit('error', err); }
     });
     sock.on('close', () => {
+      this.log(`[RDP] socket closed (connected=${this._connected})`);
       if (!this._closed) { this._closed = true; this.emit('close'); }
     });
 
@@ -1064,11 +1066,14 @@ export class RdpBridge extends EventEmitter {
   // ── Run loop ─────────────────────────────────────────────────────────
 
   private _runLoop(sock: net.Socket | tls.TLSSocket): void {
+    this.log(`[RDP] runLoop started (handshakeBuf=${this._handshakeBuf.length} bytes)`);
     const pump = () => {
       while (true) {
         const pdu = this._tryParseTpkt();
         if (!pdu) break;
-        try { this._dispatchPdu(pdu); } catch { /* tolerate parse errors */ }
+        try { this._dispatchPdu(pdu); } catch (e) {
+          this.log(`[RDP] dispatchPdu error: ${e}`);
+        }
       }
     };
     // Drain any bytes left over from handshake phase into _recvBuf
@@ -1117,9 +1122,13 @@ export class RdpBridge extends EventEmitter {
     const shareCtrl = rdpPayload;
     if (shareCtrl.length < 6) return;
     const pduType = shareCtrl.readUInt16LE(2) & 0x0f;
+    this.log(`[RDP] runLoop PDU: pduType=0x${pduType.toString(16)} len=${shareCtrl.length}`);
 
     if (pduType === (PDUTYPE_DATAPDU & 0x0f)) {
-      this._handleDataPdu(shareCtrl.slice(6));
+      const body = shareCtrl.slice(6);
+      const pt2 = body.length >= 9 ? body[8] : -1;
+      this.log(`[RDP]   DataPDU pduType2=0x${pt2.toString(16)}`);
+      this._handleDataPdu(body);
     } else if (pduType === (PDUTYPE_DEMANDACTIVEPDU & 0x0f)) {
       // Re-issued demand active — re-confirm and re-sync
       this._shareId = shareCtrl.readUInt32LE(6);
