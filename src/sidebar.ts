@@ -87,6 +87,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     });
     webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this._refreshTasks(); } });
 
+    this._cozempicInstalled = null; // re-check each time the panel opens
     this._startWatcher();
     this._refreshTasks();
   }
@@ -214,8 +215,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
   private _checkCozempic(): boolean {
     if (this._cozempicInstalled !== null) { return this._cozempicInstalled; }
-    try { execSync('cozempic --version', { stdio: 'pipe' }); this._cozempicInstalled = true; }
-    catch { this._cozempicInstalled = false; }
+    // VS Code's process doesn't inherit the user's full shell PATH (e.g. ~/.local/bin
+    // where pip/pipx installs cozempic). Use a login shell so profile files are sourced.
+    const shell = process.env.SHELL || 'bash';
+    try {
+      execSync(`${shell} -lc "cozempic --version"`, { stdio: 'pipe' });
+      this._cozempicInstalled = true;
+    } catch {
+      this._cozempicInstalled = false;
+    }
     return this._cozempicInstalled;
   }
 
@@ -403,8 +411,8 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time</label></div>
   </div>
   <div id="hooksScopeRow" class="cfg-row" style="display:none">
-    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeProject" value="project"> Project <small style="opacity:.6">(.claude/settings.json)</small></label></div>
-    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeGlobal" value="global"> Global <small style="opacity:.6">(~/.claude/settings.json)</small></label></div>
+    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeGlobal" value="global"> Global <small style="opacity:.6">~/.claude/settings.json — same file as cozempic</small></label></div>
+    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeProject" value="project"> Project <small style="opacity:.6">.claude/settings.json in workspace</small></label></div>
   </div>
   <div id="hooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; Hooks installed — events streaming to Pixel Office</div>
   <div class="cfg-section">Paths</div>
@@ -582,8 +590,8 @@ function populateSettings(s){
   const hscope=s.hooksScope||'project';
   const hsp=document.getElementById('hooksScopeProject');
   const hsg=document.getElementById('hooksScopeGlobal');
-  if(hsp) hsp.checked=hscope==='project';
   if(hsg) hsg.checked=hscope==='global';
+  if(hsp) hsp.checked=hscope==='project';
   document.getElementById('hooksScopeRow').style.display=!!s.hooksEnabled?'':'none';
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');

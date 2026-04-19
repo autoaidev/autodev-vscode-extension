@@ -811,7 +811,7 @@ export class RdpBridge extends EventEmitter {
   // Auto-reconnect support (xrdp closes TCP after initial handshake, expects client to reconnect)
   private _opts:          RdpConnectOptions | null = null;
   private _reconnectCount = 0;
-  private static readonly _MAX_RECONNECTS = 5;
+  private static readonly _MAX_RECONNECTS = 10;
 
   /** Optional external logger — set before calling connect(). */
   log: (msg: string) => void = (msg) => console.error(msg);
@@ -1290,11 +1290,17 @@ export class RdpBridge extends EventEmitter {
     if (updateType === UPDATE_BITMAP) {
       this._parseBitmapUpdate(body.slice(2));
     } else if (updateType === 0x0003 /* UPDATETYPE_SYNCHRONIZE */) {
-      // Server has finished syncing — request full-screen refresh
-      if (this._sock) {
-        this._sendMcsData(this._sock, MCS_CHANNEL_GLOBAL,
-          buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
-        this.log('[RDP] UPDATETYPE_SYNCHRONIZE — sent RefreshRect');
+      // xrdp backend is syncing — wait before requesting a full-screen refresh
+      // to give the Xvnc backend time to start up
+      if (this._sock && !this._closed) {
+        const s = this._sock;
+        setTimeout(() => {
+          if (!this._closed && this._connected && s === this._sock) {
+            this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
+              buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
+            this.log('[RDP] UPDATETYPE_SYNCHRONIZE — sent RefreshRect (delayed)');
+          }
+        }, 2000);
       }
     }
     // UPDATE_ORDERS and UPDATE_POINTER can be added in Phase 2
