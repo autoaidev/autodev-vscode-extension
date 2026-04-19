@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { execSync } from 'child_process';
+import { areHooksInstalled, deriveHttpBaseUrl, installHooks, uninstallHooks } from './hooksManager';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
@@ -27,6 +29,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _settingsWatcher?: vscode.FileSystemWatcher;
   private _pollTimer?: ReturnType<typeof setInterval>;
   private _lastNotifyTime = 0;
+  private _cozempicInstalled: boolean | null = null;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -55,12 +58,18 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'stopLoop':    void vscode.commands.executeCommand('autodev.stopTaskLoop'); break;
         case 'retryLoop':   void vscode.commands.executeCommand('autodev.retryLoop'); break;
         case 'openTask':    void this._openTaskLine(msg.line as number); break;
-        case 'saveSettings':
-          saveSettings(msg.settings as AutodevSettings);
+        case 'saveSettings': {
+          const prev = loadSettings();
+          const next = msg.settings as AutodevSettings;
+          saveSettings(next);
           this._startWatcher();
+          // Sync hooks when enabled/scope changes
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) { this._syncHooks(prev, next, root); }
           this._push();
           vscode.window.showInformationMessage('AutoDev: Settings saved.');
           break;
+        }
         case 'openSettings': void vscode.commands.executeCommand('autodev.openSettings'); break;
         case 'newSession': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -176,6 +185,40 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._push();
   }
 
+  private _syncHooks(prev: AutodevSettings, next: AutodevSettings, root: string): void {
+    const wasEnabled = prev.hooksEnabled;
+    const isEnabled  = next.hooksEnabled;
+    const scope      = next.hooksScope ?? 'project';
+    const prevScope  = prev.hooksScope ?? 'project';
+
+    if (!isEnabled) {
+      // Uninstall from both scopes to clean up
+      if (wasEnabled || areHooksInstalled('project', root)) { uninstallHooks('project', root); }
+      if (wasEnabled || areHooksInstalled('global', root))  { uninstallHooks('global', root); }
+      return;
+    }
+
+    // Enabled: (re)install if toggled on or scope changed or URL/key changed
+    const httpBase = deriveHttpBaseUrl(next.wsUrl);
+    const apiKey   = next.serverApiKey;
+    if (!httpBase || !apiKey) {
+      vscode.window.showWarningMessage('AutoDev Hooks: Set a WebSocket URL first so the hook URL can be derived.');
+      return;
+    }
+
+    // If scope changed, uninstall from the old scope first
+    if (wasEnabled && prevScope !== scope) { uninstallHooks(prevScope, root); }
+
+    installHooks(scope, root, httpBase, apiKey);
+  }
+
+  private _checkCozempic(): boolean {
+    if (this._cozempicInstalled !== null) { return this._cozempicInstalled; }
+    try { execSync('cozempic --version', { stdio: 'pipe' }); this._cozempicInstalled = true; }
+    catch { this._cozempicInstalled = false; }
+    return this._cozempicInstalled;
+  }
+
   private _push(): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const sessionId = root ? (getSessionId(root, this._selectedProvider) ?? null) : null;
@@ -196,6 +239,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       sessionId,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
+      cozempicInstalled: this._checkCozempic(),
+      hooksInstalled: root ? (areHooksInstalled('project', root) || areHooksInstalled('global', root)) : false,
     });
   }
 }
@@ -309,6 +354,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 <div id="taskList"></div>
 </div>
 <div id="panelSettings" style="display:none">
+<div id="cozempicBanner" style="display:none;padding:8px 10px;margin-bottom:10px;border-radius:4px;background:color-mix(in srgb,var(--vscode-statusBarItem-warningBackground,#b5630d) 15%,transparent);border:1px solid var(--vscode-statusBarItem-warningBackground,#b5630d);font-size:12px;line-height:1.6">
+  <strong>Cozempic not detected</strong> &mdash; prunes bloated Claude Code sessions.<br>
+  Install: <code style="font-size:11px">pip install cozempic</code> then run <code style="font-size:11px">cozempic init</code>
+</div>
   <div class="cfg-section">Server</div>
   <div class="cfg-field"><label class="cfg-label">WebSocket URL</label><input class="cfg-input" id="cfg_wsUrl" placeholder="wss://host/ws?token=agt_xxx&amp;endpoint=my-slug"></div>
   <div class="cfg-section">Discord</div>
@@ -349,6 +398,15 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_gitEnabled"> Enable Git Panel (exposes repo to browser UI)</label></div>
   </div>
+  <div class="cfg-section">Claude Code Hooks</div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time</label></div>
+  </div>
+  <div id="hooksScopeRow" class="cfg-row" style="display:none">
+    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeProject" value="project"> Project <small style="opacity:.6">(.claude/settings.json)</small></label></div>
+    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeGlobal" value="global"> Global <small style="opacity:.6">(~/.claude/settings.json)</small></label></div>
+  </div>
+  <div id="hooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; Hooks installed — events streaming to Pixel Office</div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <div class="cfg-field">
@@ -518,6 +576,15 @@ function populateSettings(s){
   if(rdppw) rdppw.value=s.rdpPassword||'';
   const rdpd=document.getElementById('cfg_rdpDomain');
   if(rdpd) rdpd.value=s.rdpDomain||'';
+  // Hooks
+  const he=document.getElementById('cfg_hooksEnabled');
+  if(he) he.checked=!!s.hooksEnabled;
+  const hscope=s.hooksScope||'project';
+  const hsp=document.getElementById('hooksScopeProject');
+  const hsg=document.getElementById('hooksScopeGlobal');
+  if(hsp) hsp.checked=hscope==='project';
+  if(hsg) hsg.checked=hscope==='global';
+  document.getElementById('hooksScopeRow').style.display=!!s.hooksEnabled?'':'none';
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
@@ -591,6 +658,8 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     rdpDomain:document.getElementById('cfg_rdpDomain').value.trim(),
     enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     gitEnabled:document.getElementById('cfg_gitEnabled').checked,
+    hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,
+    hooksScope:document.querySelector('input[name="hooksScope"]:checked')?.value||'project',
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
@@ -603,6 +672,10 @@ document.getElementById('editJsonBtn').addEventListener('click',function(){
   vscode.postMessage({command:'openSettings'});
 });
 
+document.getElementById('cfg_hooksEnabled').addEventListener('change',function(){
+  document.getElementById('hooksScopeRow').style.display=this.checked?'':'none';
+});
+
 window.addEventListener('message',function(e){
   const msg=e.data;
   if(msg.command==='update'){
@@ -613,6 +686,8 @@ window.addEventListener('message',function(e){
       else{if(state.settings)state.settings.resumeSession=pr;}
     }
     renderProviders();renderLoop();renderTasks();showTab(activeTab);
+    document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';
+    document.getElementById('hooksStatusBadge').style.display=msg.hooksInstalled?'':'none';
   }
 });
 </script>

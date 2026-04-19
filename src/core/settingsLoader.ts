@@ -38,6 +38,8 @@ export interface AutodevSettings {
   rdpDomain: string;
   enableFileBrowser: boolean;
   gitEnabled: boolean;
+  hooksEnabled: boolean;
+  hooksScope: 'project' | 'global';
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -69,6 +71,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   rdpDomain: '',
   enableFileBrowser: false,
   gitEnabled: false,
+  hooksEnabled: false,
+  hooksScope: 'project',
 };
 
 /**

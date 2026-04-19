@@ -1270,15 +1270,15 @@ export class RdpBridge extends EventEmitter {
       }
       this._handleUpdatePdu(body.slice(12));
     } else if (pduType2 === PDUTYPE2_FONTMAP) {
-      // Server finished capability sequence — enable output and request first frame
+      // Server finished capability sequence.
+      // Send TS_SYNCHRONIZE_EVENT (keyboard state sync) to signal client readiness.
+      // Do NOT send SuppressOutput/RefreshRect here — xrdp's Xvnc backend crashes on them
+      // before it has fully started; just send INPUT_SYNC and let xrdp push updates.
       this._connected = true;
       if (this._sock) {
-        const s = this._sock;
-        this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
-          buildSuppressOutputPdu(this._userId, this._shareId, true, this._width, this._height));
-        this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
-          buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
-        this.log('[RDP] FontMap received — sent SuppressOutput(allow) + RefreshRect');
+        // toggleFlags=0: no CapsLock/NumLock/ScrollLock
+        this._sendInput(INPUT_EVENT_SYNC, Buffer.from([0, 0, 0, 0, 0, 0]));
+        this.log('[RDP] FontMap received — sent INPUT_SYNC');
       }
     }
   }
@@ -1289,6 +1289,13 @@ export class RdpBridge extends EventEmitter {
 
     if (updateType === UPDATE_BITMAP) {
       this._parseBitmapUpdate(body.slice(2));
+    } else if (updateType === 0x0003 /* UPDATETYPE_SYNCHRONIZE */) {
+      // Server has finished syncing — request full-screen refresh
+      if (this._sock) {
+        this._sendMcsData(this._sock, MCS_CHANNEL_GLOBAL,
+          buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
+        this.log('[RDP] UPDATETYPE_SYNCHRONIZE — sent RefreshRect');
+      }
     }
     // UPDATE_ORDERS and UPDATE_POINTER can be added in Phase 2
   }
