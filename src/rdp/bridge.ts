@@ -53,6 +53,8 @@ import {
   PDUTYPE2_FONTLIST,
   PDUTYPE2_FONTMAP,
   PDUTYPE2_INPUT,
+  PDUTYPE2_REFRESH_RECT,
+  PDUTYPE2_SUPPRESS_OUTPUT,
   UPDATE_BITMAP,
   SEC_LOGON_INFO,
   BITMAP_COMPRESSION,
@@ -649,6 +651,26 @@ function buildShareDataHeader(
   return hdr.slice(0, 18);
 }
 
+function buildRefreshRectPdu(userId: number, shareId: number, width: number, height: number): Buffer {
+  // TS_REFRESH_RECT_PDU: numberOfAreas(1) + pad(3) + InclusiveRect (left/top/right/bottom each uint16)
+  const body = Buffer.alloc(12);
+  body[0] = 1; // numberOfAreas = 1
+  body.writeUInt16LE(0, 4);          // left
+  body.writeUInt16LE(0, 6);          // top
+  body.writeUInt16LE(width - 1, 8);  // right
+  body.writeUInt16LE(height - 1, 10); // bottom
+  const hdr = buildShareDataHeader(userId, shareId, PDUTYPE2_REFRESH_RECT, body.length);
+  return Buffer.concat([hdr, body]);
+}
+
+function buildSuppressOutputPdu(userId: number, shareId: number, allow: boolean): Buffer {
+  // TS_SUPPRESS_OUTPUT_PDU: allowDisplayUpdates(1) + pad(3) + optional desktopRect
+  const body = Buffer.alloc(4);
+  body[0] = allow ? 1 : 0; // ALLOW_DISPLAY_UPDATES=1, SUPPRESS_DISPLAY_UPDATES=0
+  const hdr = buildShareDataHeader(userId, shareId, PDUTYPE2_SUPPRESS_OUTPUT, body.length);
+  return Buffer.concat([hdr, body]);
+}
+
 // ── Bitmap decompression (RLE — MS-RDPEGDI 3.1.9) ─────────────────────────
 
 function decompressBitmap(
@@ -992,7 +1014,9 @@ export class RdpBridge extends EventEmitter {
         this._recvBuf   = Buffer.alloc(0);
         this._handshakeBuf = Buffer.alloc(0);
         this._sock      = null;
-        setTimeout(() => this._doReconnect(), 300);
+        // Progressive delay: give xrdp time to start the X session backend
+        const delayMs = Math.min(1000 * this._reconnectCount, 5000);
+        setTimeout(() => this._doReconnect(), delayMs);
       } else {
         this._closed = true;
         this.emit('close');
@@ -1230,10 +1254,22 @@ export class RdpBridge extends EventEmitter {
     const pduType2 = body[8];
 
     if (pduType2 === PDUTYPE2_UPDATE) {
+      if (body.length >= 14) {
+        const updateType = body.readUInt16LE(12);
+        this.log(`[RDP]   UpdatePDU updateType=0x${updateType.toString(16)}`);
+      }
       this._handleUpdatePdu(body.slice(12));
     } else if (pduType2 === PDUTYPE2_FONTMAP) {
-      // Server finished capability sequence — desktop is ready
+      // Server finished capability sequence — enable output and request first frame
       this._connected = true;
+      if (this._sock) {
+        const s = this._sock;
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
+          buildSuppressOutputPdu(this._userId, this._shareId, true));
+        this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
+          buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
+        this.log('[RDP] FontMap received — sent SuppressOutput(allow) + RefreshRect');
+      }
     }
   }
 
