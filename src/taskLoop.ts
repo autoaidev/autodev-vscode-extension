@@ -16,6 +16,7 @@ import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
+import { HOOKS_JSONL_PATH } from './hooksManager';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -160,6 +161,7 @@ export class TaskLoopRunner {
   private _discordGateway: DiscordGateway | null = null;
   private _webhookPoller: WebhookPoller | null = null;
   private _pollerIntervals: NodeJS.Timeout[] = [];
+  private _hooksFileOffset = 0;
   private _taskCompletionAbort: (() => void) | null = null;
   private _retryScheduler = new RetryScheduler();
   private _resumeResolve: (() => void) | null = null;
@@ -410,6 +412,38 @@ export class TaskLoopRunner {
         try { await this._webhookPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(webhookInterval);
+    }
+
+    // Poll ~/.autodev/hooks-events.jsonl every 10 s and forward new lines via WS
+    if (this._webhookPoller?.isWebSocket) {
+      // Start at current file size so we don't replay old events on loop restart
+      try {
+        this._hooksFileOffset = fs.existsSync(HOOKS_JSONL_PATH)
+          ? fs.statSync(HOOKS_JSONL_PATH).size
+          : 0;
+      } catch { this._hooksFileOffset = 0; }
+
+      const hooksInterval = setInterval(() => {
+        if (this._state !== 'running') { return; }
+        try {
+          if (!fs.existsSync(HOOKS_JSONL_PATH)) { return; }
+          const size = fs.statSync(HOOKS_JSONL_PATH).size;
+          if (size <= this._hooksFileOffset) { return; }
+          const fd = fs.openSync(HOOKS_JSONL_PATH, 'r');
+          const buf = Buffer.alloc(size - this._hooksFileOffset);
+          fs.readSync(fd, buf, 0, buf.length, this._hooksFileOffset);
+          fs.closeSync(fd);
+          this._hooksFileOffset = size;
+          const lines = buf.toString('utf8').split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            try {
+              const ev = JSON.parse(line);
+              this._webhookPoller!.sendFrame({ type: 'hook_event', data: ev });
+            } catch { /* skip malformed lines */ }
+          }
+        } catch { /* ignore read errors */ }
+      }, 10_000);
+      this._pollerIntervals.push(hooksInterval);
     }
   }
 

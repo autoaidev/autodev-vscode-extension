@@ -3,8 +3,9 @@ import * as os from 'os';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
-// Claude Code hooks manager — installs/removes autodev HTTP hooks so every
-// tool call, stop, notification, etc. is streamed to Pixel Office in real time.
+// Claude Code hooks manager — installs/removes autodev command hooks that
+// append each event as a JSONL line to ~/.autodev/hooks-events.jsonl.
+// The task loop polls that file every 10 s and forwards events via WebSocket.
 // ---------------------------------------------------------------------------
 
 const AUTODEV_MARKER = '__autodev_hooks__';
@@ -17,6 +18,17 @@ const HOOK_EVENTS = [
   'Notification',
 ] as const;
 
+/** Path of the JSONL sink that hook commands write to. */
+export const HOOKS_JSONL_PATH = path.join(os.homedir(), '.autodev', 'hooks-events.jsonl');
+
+/** Shell command installed as the hook body — minifies stdin JSON and appends a JSONL line. */
+const HOOK_COMMAND =
+  `python3 -c "import sys,json,os; ` +
+  `d=json.load(sys.stdin); ` +
+  `p=os.path.expanduser('~/.autodev/hooks-events.jsonl'); ` +
+  `os.makedirs(os.path.dirname(p),exist_ok=True); ` +
+  `open(p,'a').write(json.dumps(d)+'\\n')"`;
+
 function settingsPath(scope: 'project' | 'global', workspaceRoot: string): string {
   return scope === 'global'
     ? path.join(os.homedir(), '.claude', 'settings.json')
@@ -26,19 +38,6 @@ function settingsPath(scope: 'project' | 'global', workspaceRoot: string): strin
 function readSettings(filePath: string): any {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
   catch { return {}; }
-}
-
-/** Derive the HTTP base URL from a wss:// or ws:// URL. */
-export function deriveHttpBaseUrl(wsUrl: string): string {
-  try {
-    const u = new URL(wsUrl);
-    u.pathname = '';
-    u.search = '';
-    u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
-    return u.toString().replace(/\/$/, '');
-  } catch {
-    return '';
-  }
 }
 
 export function areHooksInstalled(scope: 'project' | 'global', workspaceRoot: string): boolean {
@@ -52,23 +51,19 @@ export function areHooksInstalled(scope: 'project' | 'global', workspaceRoot: st
 export function installHooks(
   scope: 'project' | 'global',
   workspaceRoot: string,
-  httpBaseUrl: string,
-  apiKey: string,
 ): void {
   const filePath = settingsPath(scope, workspaceRoot);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   const raw = readSettings(filePath);
   const hooks = raw.hooks ?? {};
-  const url = `${httpBaseUrl}/api/hooks/event`;
 
   for (const ev of HOOK_EVENTS) {
-    // Remove any existing autodev groups, then append fresh one
     const groups = ((hooks[ev] ?? []) as any[]).filter(g => !g[AUTODEV_MARKER]);
     groups.push({
       [AUTODEV_MARKER]: true,
       matcher: '',
-      hooks: [{ type: 'http', url, headers: { Authorization: `Bearer ${apiKey}` } }],
+      hooks: [{ type: 'command', command: HOOK_COMMAND }],
     });
     hooks[ev] = groups;
   }

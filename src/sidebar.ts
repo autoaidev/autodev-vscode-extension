@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { areHooksInstalled, deriveHttpBaseUrl, installHooks, uninstallHooks } from './hooksManager';
+import { areHooksInstalled, installHooks, uninstallHooks } from './hooksManager';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
@@ -201,18 +201,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Enabled: (re)install if toggled on or scope changed or URL/key changed
-    const httpBase = deriveHttpBaseUrl(next.wsUrl);
-    const apiKey   = next.serverApiKey;
-    if (!httpBase || !apiKey) {
-      vscode.window.showWarningMessage('AutoDev Hooks: Set a WebSocket URL first so the hook URL can be derived.');
-      return;
-    }
-
     // If scope changed, uninstall from the old scope first
     if (wasEnabled && prevScope !== scope) { uninstallHooks(prevScope, root); }
 
-    installHooks(scope, root, httpBase, apiKey);
+    installHooks(scope, root);
   }
 
   private _checkCozempic(): boolean {

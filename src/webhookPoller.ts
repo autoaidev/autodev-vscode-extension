@@ -433,6 +433,35 @@ class WebSocketPoller {
         };
         this._log(`RDP session start: ${sessionId} → ${opts.host}:${opts.port ?? 3389}`);
 
+        // Send Guacamole token to browser so it can connect via guacamole-lite
+        // (guacd + guacamole-lite must be running on the same host as xrdp, port 4567)
+        if (opts.username || opts.password) {
+          const guacSettings: Record<string, string | number | boolean> = {
+            hostname:      opts.host,
+            port:          String(opts.port ?? 3389),
+            'ignore-cert': true,
+          };
+          if (opts.username) { guacSettings['username'] = opts.username; }
+          if (opts.password) { guacSettings['password'] = opts.password; }
+          if (opts.domain)   { guacSettings['domain']   = opts.domain; }
+          if (opts.width)    { guacSettings['width']    = opts.width; }
+          if (opts.height)   { guacSettings['height']   = opts.height; }
+
+          const tokenPayload = JSON.stringify({ connection: { type: 'rdp', settings: guacSettings } });
+          const token = Buffer.from(tokenPayload).toString('base64');
+          const guacWsUrl = `ws://${opts.host}:4567`;
+
+          this.sendFrame({
+            type:      'rdp_guac_token',
+            sessionId,
+            wsUrl:     guacWsUrl,
+            token,
+            width:     opts.width  ?? 1280,
+            height:    opts.height ?? 800,
+          });
+          this._log(`RDP guac token sent for session ${sessionId} → ${guacWsUrl}`);
+        }
+
         const session = new RdpSession(
           sessionId,
           (frame) => this.sendFrame(frame),
