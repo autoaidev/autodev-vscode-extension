@@ -112,13 +112,49 @@ function wrapMcsSend(userId: number, channelId: number, payload: Buffer): Buffer
 
 // ── GCC / MCS Connect helpers ─────────────────────────────────────────────
 
+/** Encode a BER length field. */
+function berLen(len: number): Buffer {
+  if (len < 128)   return Buffer.from([len]);
+  if (len < 256)   return Buffer.from([0x81, len]);
+  return Buffer.from([0x82, len >> 8, len & 0xff]);
+}
+
+/** Wrap `content` in a BER TLV.  `tag` may be 1 or 2 bytes (e.g. 0x7f65). */
+function berTlv(tag: number, content: Buffer): Buffer {
+  const tagBuf = tag > 0xff
+    ? Buffer.from([tag >> 8, tag & 0xff])
+    : Buffer.from([tag]);
+  return Buffer.concat([tagBuf, berLen(content.length), content]);
+}
+
+/** BER-encode a small non-negative INTEGER. */
+function berInt(v: number): Buffer {
+  if (v === 0)        return Buffer.from([0x02, 0x01, 0x00]);
+  if (v <= 0x7f)      return Buffer.from([0x02, 0x01, v]);
+  if (v <= 0x7fff)    return Buffer.from([0x02, 0x02, v >> 8, v & 0xff]);
+  return Buffer.from([0x02, 0x03, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]);
+}
+
+/** Build one MCS DomainParameters SEQUENCE. */
+function berDomainParams(
+  maxChannelIds: number, maxUserIds: number, maxTokenIds: number,
+  numPriorities: number, minThroughput: number, maxHeight: number,
+  maxMCSPDU: number,     protocolVersion: number,
+): Buffer {
+  const body = Buffer.concat([
+    berInt(maxChannelIds), berInt(maxUserIds),    berInt(maxTokenIds),
+    berInt(numPriorities), berInt(minThroughput), berInt(maxHeight),
+    berInt(maxMCSPDU),     berInt(protocolVersion),
+  ]);
+  return berTlv(0x30, body); // SEQUENCE
+}
+
 function buildMcsConnectInitial(
   width: number,
   height: number,
   colorDepth: number,
 ): Buffer {
   // ── GCC Conference Create Request (client core data only) ─────────────────
-  // We build a minimal GCC payload with only core + security + cluster data.
   // Full spec: [MS-RDPBCGR] section 2.2.1.3
 
   const rdpVersion = 0x00080004; // RDP 5.0+
@@ -134,116 +170,67 @@ function buildMcsConnectInitial(
   csCore.writeUInt16LE(0xAA03, 14); // SASSequence
   csCore.writeUInt32LE(0x0409, 16); // keyboardLayout (English US)
   csCore.writeUInt32LE(2600, 20);   // clientBuild
-  // clientName (32 bytes UTF-16LE, zero-padded)
-  Buffer.from('autodev', 'utf16le').copy(csCore, 24);
-  csCore.writeUInt32LE(0x00000004, 56); // keyboardType = IBM enhanced (101/102 key)
+  Buffer.from('autodev', 'utf16le').copy(csCore, 24); // clientName (32 bytes)
+  csCore.writeUInt32LE(0x00000004, 56); // keyboardType = IBM enhanced
   csCore.writeUInt32LE(0x00000000, 60); // keyboardSubType
   csCore.writeUInt32LE(12, 64);         // keyboardFunctionKey
-  // imeFileName: 64 bytes (zero)
-  csCore.writeUInt16LE(0xCA01, 130); // postBeta2ColorDepth = 8bpp
+  csCore.writeUInt16LE(0xCA01, 130); // postBeta2ColorDepth
   csCore.writeUInt16LE(1, 132);      // clientProductId
   csCore.writeUInt32LE(0, 134);      // serialNumber
-  // highColorDepth: map to RDP color depth value
   const hcd = colorDepth >= 24 ? 24 : colorDepth >= 16 ? 16 : colorDepth >= 15 ? 15 : 8;
   csCore.writeUInt16LE(hcd, 138);
-  csCore.writeUInt16LE(0x0007, 140); // supportedColorDepths: 15bpp | 16bpp | 24bpp
-  csCore.writeUInt16LE(0x0001, 142); // earlyCapabilityFlags: RNS_UD_CS_SUPPORT_ERRINFO_PDU
-  // clientDigProductId: 64 bytes (zero)
-  csCore.writeUInt8(0, 208);         // connectionType = unknown
+  csCore.writeUInt16LE(0x0007, 140); // supportedColorDepths: 15|16|24bpp
+  csCore.writeUInt16LE(0x0001, 142); // earlyCapabilityFlags: ERRINFO_PDU
+  csCore.writeUInt8(0, 208);         // connectionType
   csCore.writeUInt8(0, 209);         // pad1Octet
-  csCore.writeUInt32LE(0x00000007 /*PROTOCOL_SSL|PROTOCOL_HYBRID|PROTOCOL_RDSTLS*/, 210); // serverSelectedProtocol — filled in after negotiation
+  csCore.writeUInt32LE(0x00000001 /* PROTOCOL_SSL */, 210); // serverSelectedProtocol
 
   // Client Security Data (CS_SECURITY): no encryption
   const csSec = Buffer.alloc(12);
-  csSec.writeUInt16LE(0xC002, 0);  // CS_SECURITY
+  csSec.writeUInt16LE(0xC002, 0);
   csSec.writeUInt16LE(12, 2);
   csSec.writeUInt32LE(ENCRYPTION_METHOD_NONE, 4);
   csSec.writeUInt32LE(ENCRYPTION_LEVEL_NONE, 8);
 
-  // Client Cluster Data (CS_CLUSTER): redirect session
+  // Client Cluster Data (CS_CLUSTER)
   const csCluster = Buffer.alloc(12);
-  csCluster.writeUInt16LE(0xC004, 0); // CS_CLUSTER
+  csCluster.writeUInt16LE(0xC004, 0);
   csCluster.writeUInt16LE(12, 2);
-  csCluster.writeUInt32LE(0x0000000D, 4); // REDIRECTION_SUPPORTED | SERVER_SESSION_REDIRECTION_VERSION_MASK
+  csCluster.writeUInt32LE(0x0000000D, 4); // REDIRECTION_SUPPORTED
   csCluster.writeUInt32LE(0, 8);
 
-  const userData = Buffer.concat([csCore, csSec, csCluster]);
+  const clientData = Buffer.concat([csCore, csSec, csCluster]);
 
-  // GCC ConferenceCreateRequest wrapper (H.221 key + ASN.1 minimal)
-  // Key: "Duca" (H.221 non-standard key for RDP)
-  const gccKey = Buffer.from([0x00, 0x05, 0x00, 0x14, 0x7c, 0x00, 0x01]); // PER header
-  const gccConnReq = Buffer.alloc(gccKey.length + 2 + userData.length);
-  gccKey.copy(gccConnReq, 0);
-  gccConnReq.writeUInt16BE(0x8000 | userData.length, gccKey.length);
-  userData.copy(gccConnReq, gccKey.length + 2);
+  // GCC ConferenceCreateRequest — T.124 PER-encoded wrapper
+  // H.221 non-standard key "Duca" + 2-byte PER length (high bit set) + data
+  const gccKey = Buffer.from([0x00, 0x05, 0x00, 0x14, 0x7c, 0x00, 0x01]);
+  const lenBuf  = Buffer.alloc(2);
+  lenBuf.writeUInt16BE(0x8000 | clientData.length, 0);
+  const gccConnReq = Buffer.concat([gccKey, lenBuf, clientData]);
 
-  // MCS Connect-Initial BER-encoded wrapper (simplified)
-  // We build just enough to pass parseability by real servers.
-  const berHeader = Buffer.from([
-    0x7f, 0x65,  // ConnectInitial APPLICATION tag
-    0x00, 0x00,  // length placeholder (filled below)
-    // callingDomainSelector
-    0x04, 0x01, 0x01,
-    // calledDomainSelector
-    0x04, 0x01, 0x01,
-    // upwardFlag  
-    0x01, 0x01, 0xff,
-    // targetParameters (DomainParameters, omitted → minimal)
-    0x30, 0x20,
-    0x02, 0x02, 0xff, 0xff, // maxChannelIds
-    0x02, 0x02, 0xfc, 0x17, // maxUserIds
-    0x02, 0x02, 0xff, 0xff, // maxTokenIds
-    0x02, 0x01, 0x01,       // numPriorities
-    0x02, 0x01, 0x00,       // minThroughput
-    0x02, 0x01, 0x01,       // maxHeight
-    0x02, 0x02, 0xff, 0xff, // maxMCSPDUsize
-    0x02, 0x01, 0x02,       // protocolVersion
-    // minimumParameters
-    0x30, 0x20,
-    0x02, 0x02, 0x00, 0x01,
-    0x02, 0x02, 0x00, 0x01,
-    0x02, 0x02, 0x00, 0x01,
-    0x02, 0x01, 0x01,
-    0x02, 0x01, 0x00,
-    0x02, 0x01, 0x01,
-    0x02, 0x02, 0x04, 0x20,
-    0x02, 0x01, 0x02,
-    // maximumParameters
-    0x30, 0x20,
-    0x02, 0x02, 0xff, 0xff,
-    0x02, 0x02, 0xfc, 0x17,
-    0x02, 0x02, 0xff, 0xff,
-    0x02, 0x01, 0x01,
-    0x02, 0x01, 0x00,
-    0x02, 0x01, 0x01,
-    0x02, 0x02, 0xff, 0xff,
-    0x02, 0x01, 0x02,
-    // userData  OCTET STRING tag + length
-    0x04, 0x00, // length placeholder
+  // MCS Connect-Initial BER encoding  [MS-RDPBCGR] 2.2.1.3 / T.125
+  //
+  // ConnectInitial ::= [APPLICATION 101] IMPLICIT SEQUENCE {
+  //   callingDomainSelector  OCTET STRING,
+  //   calledDomainSelector   OCTET STRING,
+  //   upwardFlag             BOOLEAN,
+  //   targetParameters       DomainParameters,
+  //   minimumParameters      DomainParameters,
+  //   maximumParameters      DomainParameters,
+  //   userData               OCTET STRING        ← contains GCC data
+  // }
+  const body = Buffer.concat([
+    berTlv(0x04, Buffer.from([0x01])),          // callingDomainSelector
+    berTlv(0x04, Buffer.from([0x01])),          // calledDomainSelector
+    Buffer.from([0x01, 0x01, 0xff]),            // upwardFlag BOOLEAN TRUE
+    berDomainParams(34,    2,    0, 1, 0, 1, 65535, 2),  // target
+    berDomainParams(1,     1,    1, 1, 0, 1,  1056, 2),  // minimum
+    berDomainParams(65535, 64535, 65535, 1, 0, 1, 65535, 2), // maximum
+    berTlv(0x04, gccConnReq),                   // userData
   ]);
 
-  // Fill in userData OCTET STRING length
-  berHeader.writeUInt16BE(gccConnReq.length, berHeader.length - 2);
-
-  const content = Buffer.concat([berHeader, gccConnReq]);
-
-  // Fill in ConnectInitial outer BER length
-  const outer = Buffer.alloc(4 + content.length);
-  outer[0] = 0x7f; outer[1] = 0x65;
-  if (content.length < 128) {
-    outer[2] = content.length;
-    content.copy(outer, 3);
-    return outer.slice(0, 3 + content.length);
-  } else if (content.length < 0x100) {
-    outer[2] = 0x81; outer[3] = content.length;
-    content.copy(outer, 4);
-    return outer;
-  } else {
-    outer[2] = 0x82;
-    outer.writeUInt16BE(content.length, 3);
-    content.copy(outer, 5);
-    return outer.slice(0, 5 + content.length);
-  }
+  // Wrap in APPLICATION 101 CONSTRUCTED = 0x7f 0x65
+  return berTlv(0x7f65, body);
 }
 
 // ── Client Info PDU ───────────────────────────────────────────────────────
@@ -752,10 +739,10 @@ export class RdpBridge extends EventEmitter {
       this._sock = sock;
     }
 
-    // Install the data handler now that we have the final socket
-    sock.on('data', (chunk: Buffer) => {
-      this._recvBuf = Buffer.concat([this._recvBuf, chunk]);
-    });
+    // Attach error/close monitors — these must be in place before we send
+    // anything so we can surface failures immediately.  We do NOT install the
+    // _recvBuf 'data' listener here; that is done inside _runLoop so that
+    // handshake packets read via _readTpkt are not also buffered in _recvBuf.
     sock.on('error', (err) => {
       if (!this._closed) { this._closed = true; this.emit('error', err); }
     });
@@ -839,8 +826,12 @@ export class RdpBridge extends EventEmitter {
         try { this._dispatchPdu(pdu); } catch { /* tolerate parse errors */ }
       }
     };
-    sock.on('data', () => pump());
-    // Process any data already buffered
+    // Install _recvBuf listener here (not during handshake) so that
+    // _readTpkt's own listeners are the sole consumers during negotiation.
+    sock.on('data', (chunk: Buffer) => {
+      this._recvBuf = Buffer.concat([this._recvBuf, chunk]);
+      pump();
+    });
     pump();
   }
 
