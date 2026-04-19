@@ -571,15 +571,16 @@ function buildConfirmActivePdu(
 
   const capsData = Buffer.concat(caps);
 
-  // ConfirmActive PDU body
-  const body = Buffer.alloc(26);
+  // ConfirmActive PDU body: shareId(4)+originatorId(2)+lengthSrcDesc(2)+lengthCombCaps(2)
+  // + sourceDescriptor(9) + numberCapabilities(2) + pad(2) = 23 bytes
+  const body = Buffer.alloc(23);
   body.writeUInt32LE(shareId, 0);
   body.writeUInt16LE(0x03EA, 4); // originatorId (client)
   body.writeUInt16LE(9, 6);      // lengthSourceDescriptor
-  body.writeUInt16LE(capsData.length + 4, 8); // lengthCombinedCapabilities
-  Buffer.from('autodev\0\0', 'ascii').copy(body, 10); // sourceDescriptor (9 bytes)
-  body.writeUInt16LE(caps.length, 22); // numberCapabilities (after descriptor)
-  body.writeUInt16LE(0, 24);           // pad
+  body.writeUInt16LE(capsData.length + 4, 8); // lengthCombinedCapabilities (+4 for numCaps+pad)
+  Buffer.from('autodev\0\0', 'ascii').copy(body, 10); // sourceDescriptor (9 bytes, ends at 18)
+  body.writeUInt16LE(caps.length, 19); // numberCapabilities — immediately after sourceDescriptor
+  body.writeUInt16LE(0, 21);           // pad2Octets
 
   const pduBody = Buffer.concat([body, capsData]);
 
