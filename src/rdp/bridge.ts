@@ -663,10 +663,17 @@ function buildRefreshRectPdu(userId: number, shareId: number, width: number, hei
   return Buffer.concat([hdr, body]);
 }
 
-function buildSuppressOutputPdu(userId: number, shareId: number, allow: boolean): Buffer {
-  // TS_SUPPRESS_OUTPUT_PDU: allowDisplayUpdates(1) + pad(3) + optional desktopRect
-  const body = Buffer.alloc(4);
-  body[0] = allow ? 1 : 0; // ALLOW_DISPLAY_UPDATES=1, SUPPRESS_DISPLAY_UPDATES=0
+function buildSuppressOutputPdu(userId: number, shareId: number, allow: boolean, width = 0, height = 0): Buffer {
+  // TS_SUPPRESS_OUTPUT_PDU: allowDisplayUpdates(1) + pad(3) [+ desktopRect(8) when allow=true]
+  const body = allow ? Buffer.alloc(12) : Buffer.alloc(4);
+  body[0] = allow ? 1 : 0;
+  if (allow) {
+    // pad3Octets[1..3] already zero
+    body.writeUInt16LE(0, 4);           // left
+    body.writeUInt16LE(0, 6);           // top
+    body.writeUInt16LE(width - 1, 8);   // right
+    body.writeUInt16LE(height - 1, 10); // bottom
+  }
   const hdr = buildShareDataHeader(userId, shareId, PDUTYPE2_SUPPRESS_OUTPUT, body.length);
   return Buffer.concat([hdr, body]);
 }
@@ -939,6 +946,7 @@ export class RdpBridge extends EventEmitter {
 
     sock.once('error', (err) => {
       this.log(`[RDP] reconnect socket error: ${err.message}`);
+      if ((err as NodeJS.ErrnoException).code === 'ECONNRESET' && this._connected) return;
       if (!this._closed) { this._closed = true; this.emit('error', err); }
     });
 
@@ -999,6 +1007,8 @@ export class RdpBridge extends EventEmitter {
     // handshake packets read via _readTpkt are not also buffered in _recvBuf.
     sock.on('error', (err) => {
       this.log(`[RDP] socket error: ${err.message}`);
+      // ECONNRESET while connected = xrdp closing for reconnect; let 'close' handler decide
+      if ((err as NodeJS.ErrnoException).code === 'ECONNRESET' && this._connected) return;
       if (!this._closed) { this._closed = true; this.emit('error', err); }
     });
     sock.on('close', () => {
@@ -1265,7 +1275,7 @@ export class RdpBridge extends EventEmitter {
       if (this._sock) {
         const s = this._sock;
         this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
-          buildSuppressOutputPdu(this._userId, this._shareId, true));
+          buildSuppressOutputPdu(this._userId, this._shareId, true, this._width, this._height));
         this._sendMcsData(s, MCS_CHANNEL_GLOBAL,
           buildRefreshRectPdu(this._userId, this._shareId, this._width, this._height));
         this.log('[RDP] FontMap received — sent SuppressOutput(allow) + RefreshRect');
