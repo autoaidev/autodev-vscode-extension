@@ -395,6 +395,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field"><label class="cfg-label">Username</label><input class="cfg-input" id="cfg_rdpUsername" placeholder=""></div>
     <div class="cfg-field"><label class="cfg-label">Password</label><input class="cfg-input" id="cfg_rdpPassword" type="password"></div>
     <div class="cfg-field"><label class="cfg-label">Domain</label><input class="cfg-input" id="cfg_rdpDomain" placeholder="(optional)"></div>
+    <div class="cfg-field"><label class="cfg-label">Guac WS URL</label><input class="cfg-input" id="cfg_rdpGuacWsUrl" placeholder="wss://myhost.com/guac-ws (for HTTPS frontends)"></div>
   </div>
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
@@ -578,6 +579,8 @@ function populateSettings(s){
   if(rdppw) rdppw.value=s.rdpPassword||'';
   const rdpd=document.getElementById('cfg_rdpDomain');
   if(rdpd) rdpd.value=s.rdpDomain||'';
+  const rdpguac=document.getElementById('cfg_rdpGuacWsUrl');
+  if(rdpguac) rdpguac.value=s.rdpGuacWsUrl||'';
   // Hooks
   const he=document.getElementById('cfg_hooksEnabled');
   if(he) he.checked=!!s.hooksEnabled;
@@ -658,6 +661,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     rdpUsername:document.getElementById('cfg_rdpUsername').value,
     rdpPassword:document.getElementById('cfg_rdpPassword').value,
     rdpDomain:document.getElementById('cfg_rdpDomain').value.trim(),
+    rdpGuacWsUrl:document.getElementById('cfg_rdpGuacWsUrl').value.trim(),
     enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     gitEnabled:document.getElementById('cfg_gitEnabled').checked,
     hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,

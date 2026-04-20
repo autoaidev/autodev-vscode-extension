@@ -36,6 +36,8 @@ export interface AutodevSettings {
   rdpUsername: string;
   rdpPassword: string;
   rdpDomain: string;
+  /** Public WSS URL for guacamole-lite (e.g. wss://myhost.com/guac-ws). If empty, falls back to ws://<rdpHost>:4567 */
+  rdpGuacWsUrl: string;
   enableFileBrowser: boolean;
   gitEnabled: boolean;
   hooksEnabled: boolean;
@@ -69,6 +71,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   rdpUsername: '',
   rdpPassword: '',
   rdpDomain: '',
+  rdpGuacWsUrl: '',
   enableFileBrowser: false,
   gitEnabled: false,
   hooksEnabled: false,

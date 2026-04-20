@@ -282,11 +282,12 @@ export class TaskLoopRunner {
     }
     if (this._webhookPoller && settings.rdpEnabled) {
       this._webhookPoller.setRdpSettings({
-        host:     settings.rdpHost     || undefined,
-        port:     settings.rdpPort     ?? 3389,
-        username: settings.rdpUsername || undefined,
-        password: settings.rdpPassword || undefined,
-        domain:   settings.rdpDomain   || undefined,
+        host:       settings.rdpHost       || undefined,
+        port:       settings.rdpPort       ?? 3389,
+        username:   settings.rdpUsername   || undefined,
+        password:   settings.rdpPassword   || undefined,
+        domain:     settings.rdpDomain     || undefined,
+        guacWsUrl:  settings.rdpGuacWsUrl  || undefined,
       });
     }
 

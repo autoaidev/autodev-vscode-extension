@@ -78,7 +78,7 @@ class WebSocketPoller {
   private _vncPassword: string | undefined;
   private _vncSessions: Map<string, VncSession> = new Map();
   private _rdpSessions: Map<string, RdpSession> = new Map();
-  private _rdpSettings: { host?: string; port?: number; username?: string; password?: string; domain?: string } = {};
+  private _rdpSettings: { host?: string; port?: number; username?: string; password?: string; domain?: string; guacWsUrl?: string } = {};
   private _gitEnabled = false;
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
@@ -449,7 +449,8 @@ class WebSocketPoller {
 
           const tokenPayload = JSON.stringify({ connection: { type: 'rdp', settings: guacSettings } });
           const token = Buffer.from(tokenPayload).toString('base64');
-          const guacWsUrl = `ws://${opts.host}:4567`;
+          // Use configured WSS URL (for HTTPS frontends), else fall back to plain WS on port 4567
+          const guacWsUrl = this._rdpSettings.guacWsUrl || `ws://${opts.host}:4567`;
 
           this.sendFrame({
             type:      'rdp_guac_token',
@@ -789,7 +790,7 @@ class WebSocketPoller {
     this._gitEnabled = enabled;
   }
 
-  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string }): void {
+  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string; guacWsUrl?: string }): void {
     this._rdpSettings = s;
   }
 
@@ -911,7 +912,7 @@ export class WebhookPoller {
     }
   }
 
-  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string }): void {
+  setRdpSettings(s: { host?: string; port?: number; username?: string; password?: string; domain?: string; guacWsUrl?: string }): void {
     if (this._impl instanceof WebSocketPoller) {
       this._impl.setRdpSettings(s);
     }
