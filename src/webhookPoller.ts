@@ -420,13 +420,15 @@ class WebSocketPoller {
       if (action === 'start') {
         const sessionId = msg['sessionId'] as string;
         const opts: RdpConnectOptions = {
-          // host/port from server frame; fall back to local settings
-          host:       (msg['host']     as string | undefined) || this._rdpSettings.host || '127.0.0.1',
+          // Local settings take priority: the server-sent host is pixel-office's own IP,
+          // not the target RDP server. Use local rdpHost setting, or default to 127.0.0.1
+          // (xrdp always runs on the same machine as the extension).
+          host:       this._rdpSettings.host || (msg['host'] as string | undefined) || '127.0.0.1',
           port:       msg['port']     ? Number(msg['port'])     : (this._rdpSettings.port ?? 3389),
           // credentials never sent from server — always use local settings
-          username:   (msg['username'] as string | undefined) || this._rdpSettings.username,
-          password:   (msg['password'] as string | undefined) || this._rdpSettings.password,
-          domain:     (msg['domain']   as string | undefined) || this._rdpSettings.domain,
+          username:   this._rdpSettings.username || (msg['username'] as string | undefined),
+          password:   this._rdpSettings.password || (msg['password'] as string | undefined),
+          domain:     this._rdpSettings.domain   || (msg['domain']   as string | undefined),
           width:      msg['width']    ? Number(msg['width'])    : undefined,
           height:     msg['height']   ? Number(msg['height'])   : undefined,
           colorDepth: msg['colorDepth'] ? Number(msg['colorDepth']) : undefined,
