@@ -1,4 +1,12 @@
 import * as fs from 'fs';
+import * as crypto from 'crypto';
+
+/** Generate a task ID like "task-20260421-a3f9k2" */
+function shortId(): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const hash = crypto.randomBytes(4).toString('hex').slice(0, 6);
+  return `task-${date}-${hash}`;
+}
 
 // ---------------------------------------------------------------------------
 // TODO.md parser — mirrors PHP TodoParser/TodoWriter
@@ -7,6 +15,7 @@ import * as fs from 'fs';
 export type TaskStatus = 'todo' | 'in-progress' | 'done';
 
 export interface Task {
+  id?: string;
   status: TaskStatus;
   text: string;
   completedDate?: string;
@@ -32,20 +41,36 @@ export function parseTodoContent(content: string): Task[] {
   return tasks;
 }
 
+/** Extract optional leading task ID, e.g. "[task-20260421-a3f9k2] actual text" */
+function extractId(raw: string): { id?: string; text: string } {
+  const m = raw.match(/^\[(task-\d{8}-[a-f0-9]{6})\]\s+(.+)$/i);
+  if (m) { return { id: m[1], text: m[2] }; }
+  return { text: raw };
+}
+
 function parseLine(line: string, lineNo: number): Task | null {
   const ln = line.trimEnd();
 
   // Done:        - [x] 2026-02-28  text
   let m = ln.match(/^\s*(?:-\s*)?\[x\]\s*(\d{4}-\d{2}-\d{2}\s+)?(.+)$/iu);
-  if (m) { return { status: 'done', text: m[2].trim(), completedDate: m[1]?.trim(), line: lineNo }; }
+  if (m) {
+    const { id, text } = extractId(m[2].trim());
+    return { id, status: 'done', text, completedDate: m[1]?.trim(), line: lineNo };
+  }
 
   // In progress: - [~] text
   m = ln.match(/^\s*(?:-\s*)?\[~\]\s*(.+)$/iu);
-  if (m) { return { status: 'in-progress', text: m[1].trim(), line: lineNo }; }
+  if (m) {
+    const { id, text } = extractId(m[1].trim());
+    return { id, status: 'in-progress', text, line: lineNo };
+  }
 
   // Todo:        - [ ] text
   m = ln.match(/^\s*(?:-\s*)?\[\s+\]\s*(.+)$/iu);
-  if (m) { return { status: 'todo', text: m[1].trim(), line: lineNo }; }
+  if (m) {
+    const { id, text } = extractId(m[1].trim());
+    return { id, status: 'todo', text, line: lineNo };
+  }
 
   return null;
 }
@@ -112,7 +137,9 @@ export function markDone(filePath: string, task: Task): void {
 }
 
 /** Append a new task line to the ## Todo section (at the bottom, before the next heading). */
-export function appendTask(filePath: string, text: string): void {
+export function appendTask(filePath: string, text: string): string {
+  const id = shortId();
+  const line = `- [ ] [${id}] ${text}`;
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
   const todoMatch = content.match(/^(##\s+Todo\s*\n)/mu);
   if (todoMatch && todoMatch.index !== undefined) {
@@ -121,11 +148,12 @@ export function appendTask(filePath: string, text: string): void {
     const rest = content.slice(afterHeading);
     const nextSection = rest.match(/^##\s+/mu);
     const insertAt = nextSection ? afterHeading + nextSection.index! : content.length;
-    content = content.slice(0, insertAt) + `- [ ] ${text}\n` + content.slice(insertAt);
+    content = content.slice(0, insertAt) + line + '\n' + content.slice(insertAt);
   } else {
-    content += `\n## Todo\n- [ ] ${text}\n`;
+    content += `\n## Todo\n${line}\n`;
   }
   fs.writeFileSync(filePath, content, 'utf8');
+  return id;
 }
 
 function escapeRegex(s: string): string {
