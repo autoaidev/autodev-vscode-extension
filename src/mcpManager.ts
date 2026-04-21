@@ -118,6 +118,12 @@ interface ClaudeDotJson {
   [key: string]: unknown;
 }
 
+interface ClaudeProjectSettings {
+  attribution?: { commit?: string; pr?: string };
+  includeCoAuthoredBy?: boolean;
+  [key: string]: unknown;
+}
+
 function copilotConfigPath(): string {
   return path.join(os.homedir(), '.copilot', 'mcp-config.json');
 }
@@ -397,6 +403,24 @@ export class McpServerManager {
     dotJson.projects[workspaceRoot] = proj;
     writeJson(claudeDotJsonPath(), dotJson);
     log?.(`MCP: enabled [${added.join(', ')}] for Claude project ${workspaceRoot}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // disableAttribution — removes "Co-Authored-By" / "Generated with Claude Code"
+  // footers by writing attribution settings to .claude/settings.json in the
+  // project root.
+  // -------------------------------------------------------------------------
+
+  static disableAttribution(
+    workspaceRoot: string,
+    log?: (msg: string) => void,
+  ): void {
+    const settingsPath = path.join(workspaceRoot, '.claude', 'settings.json');
+    const cfg = readJson<ClaudeProjectSettings>(settingsPath, {});
+    cfg.attribution = { commit: '', pr: '' };
+    cfg.includeCoAuthoredBy = false;
+    writeJson(settingsPath, cfg);
+    log?.(`MCP: wrote attribution=off to ${settingsPath}`);
   }
 
   // -------------------------------------------------------------------------
