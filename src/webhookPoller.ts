@@ -448,6 +448,7 @@ class WebSocketPoller {
           if (opts.domain)   { guacSettings['domain']   = opts.domain; }
           if (opts.width)    { guacSettings['width']    = opts.width; }
           if (opts.height)   { guacSettings['height']   = opts.height; }
+          guacSettings['color-depth'] = opts.colorDepth ?? 24;
 
           const tokenPayload = JSON.stringify({ connection: { type: 'rdp', settings: guacSettings } });
           const token = Buffer.from(tokenPayload).toString('base64');
