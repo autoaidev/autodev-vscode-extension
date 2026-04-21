@@ -17,6 +17,8 @@
 - [Agent Profile (AUTODEV.md)](#agent-profile-autodevmd)
 - [Prompt Structure](#prompt-structure)
 - [MCP Servers](#mcp-servers)
+- [RDP Desktop Sharing](#rdp-desktop-sharing)
+- [VNC Desktop Sharing](#vnc-desktop-sharing)
 - [Discord Integration](#discord-integration)
 - [Webhook / Server Integration](#webhook--server-integration)
 - [Settings Reference](#settings-reference)
@@ -293,6 +295,154 @@ Config files updated:
 
 ---
 
+## RDP Desktop Sharing
+
+AutoDev can stream the agent machine's XFCE desktop to a **pixel-office** browser front-end over WebSocket, using the Guacamole HTML5 protocol. This lets you watch and interact with the remote desktop directly in the browser — no RDP client required.
+
+### Architecture
+
+```
+Browser (pixel-office)
+    │
+    │  WebSocket (wss://…/guac-ws?token=…)
+    ▼
+guacamole-lite  :4567          ← Node.js WS bridge
+    │
+    │  Guacamole protocol (TCP)
+    ▼
+guacd  :4822                   ← C proxy daemon
+    │
+    │  RDP  :3389
+    ▼
+xrdp / XFCE session            ← running on the agent machine
+```
+
+### Requirements on the agent machine
+
+All three services are installed automatically by the Packer `install.sh` when you build the Hetzner snapshot:
+
+| Service | Package | Port |
+|---|---|---|
+| `xrdp` | built from source (0.9.24) | 3389 |
+| `guacd` | `guacd` apt package | 4822 |
+| `guacamole-lite` | npm `guacamole-lite` | 4567 |
+
+If you're setting up manually:
+```bash
+# xrdp (Ubuntu 22.04) — build from source for clipboard fix
+# See: install.sh STEP 5
+
+# guacd
+apt-get install -y guacd libguac-client-rdp0
+
+# guacamole-lite
+mkdir -p /opt/guacamole-lite && cd /opt/guacamole-lite
+npm install guacamole-lite
+# + copy server.js from install.sh STEP 5b
+systemctl start guacd guacamole-lite
+```
+
+### Extension settings
+
+Open the **Settings** tab in the AutoDev sidebar and fill in the **RDP** section:
+
+| Setting | Description | Example |
+|---|---|---|
+| `rdpEnabled` | Enable RDP sharing | `true` |
+| `rdpHost` | IP or hostname of the xrdp server | `127.0.0.1` |
+| `rdpPort` | xrdp port | `3389` |
+| `rdpUsername` | OS user to log in as | `code1` |
+| `rdpPassword` | OS user password | `secret` |
+| `rdpDomain` | Windows domain (usually blank) | _(empty)_ |
+| `rdpGuacWsUrl` | Public WSS URL of guacamole-lite | `wss://myhost.com/guac-ws` |
+
+**`rdpGuacWsUrl` is required when pixel-office is served over HTTPS.** The browser cannot connect to a plain `ws://` URL from an HTTPS page, so guacamole-lite must be exposed through an HTTPS/WSS reverse proxy path (e.g. Apache `proxy_wstunnel` at `/guac-ws`).
+
+If left empty, the extension falls back to `ws://<rdpHost>:4567` — fine for local/HTTP setups.
+
+### How it works
+
+1. pixel-office sends `rdp_open` to the extension over the AutoDev WebSocket.
+2. The extension builds a Guacamole connection token (base64-encoded JSON) containing the RDP credentials and resolution:
+   ```json
+   {
+     "connection": {
+       "type": "rdp",
+       "settings": {
+         "hostname": "127.0.0.1",
+         "port": "3389",
+         "username": "code1",
+         "password": "secret",
+         "width": 1280,
+         "height": 800,
+         "color-depth": 24,
+         "ignore-cert": "true"
+       }
+     }
+   }
+   ```
+3. The extension sends `rdp_guac_token` back to pixel-office with the token and the `wsUrl`.
+4. The browser's `GuacCanvas.vue` connects to `<wsUrl>?token=<token>` and renders the desktop using `guacamole-common-js`.
+5. Mouse and keyboard events are sent back over the same WebSocket connection.
+
+### Clipboard
+
+Bidirectional clipboard is enabled automatically. Copy in the browser → paste on the remote desktop, and vice versa.
+
+### Pixel-office proxy setup (Apache)
+
+On the pixel-office server, add to the virtual host:
+
+```apache
+# Enable required modules:
+# a2enmod proxy proxy_http proxy_wstunnel
+
+ProxyPass        /guac-ws  ws://168.119.177.181:4567
+ProxyPassReverse /guac-ws  ws://168.119.177.181:4567
+```
+
+Replace `168.119.177.181` with the agent machine's IP. The browser then connects to `wss://pixel-office.tools.ooyes.net/guac-ws?token=…`.
+
+---
+
+## VNC Desktop Sharing
+
+AutoDev also supports VNC (RFB protocol) for machines running a VNC server (TigerVNC, TightVNC, x11vnc, etc.).
+
+### Requirements
+
+A VNC server must be running on the agent machine:
+```bash
+# TigerVNC server
+apt-get install -y tigervnc-standalone-server
+vncserver :1 -geometry 1280x800 -depth 24
+
+# Or x11vnc (share an existing X display)
+x11vnc -display :0 -passwd secret -forever -bg
+```
+
+### Extension settings
+
+| Setting | Description | Example |
+|---|---|---|
+| `vncEnabled` | Enable VNC sharing | `true` |
+| `vncHost` | IP or hostname of the VNC server | `127.0.0.1` |
+| `vncPort` | VNC port (5900 + display number) | `5900` |
+| `vncPassword` | VNC password | `secret` |
+
+### How it works
+
+The extension implements the RFB protocol directly in Node.js (no external tools required). It:
+1. Connects to `<vncHost>:<vncPort>` over TCP
+2. Performs RFB handshake and VNC authentication
+3. Requests FramebufferUpdates and relays compressed bitmap rectangles to pixel-office via `vnc_fbu` WebSocket messages
+4. Forwards mouse (`pe`) and keyboard (`ke`) events from the browser to the VNC server
+5. Syncs clipboard bidirectionally
+
+pixel-office renders VNC frames on an HTML5 canvas using the same batched deflate-compressed update protocol as RDP.
+
+---
+
 ## Discord Integration
 
 Configure **Discord Bot Token**, **Channel ID**, and **Allowed Owners** in Settings.
@@ -364,6 +514,27 @@ Stored in `.vscode/autodev.json` (auto-added to `.gitignore`). Edit via the Sett
 | `retryOnTimeout` | `false` | Re-queue timed-out tasks (vs. skipping them) |
 | `autoResetPendingTasks` | `true` | Reset `[~]` tasks to `[ ]` when the loop starts |
 | `resumeSession` | `false` | Pass session ID to CLI providers for conversation continuity |
+
+### RDP
+
+| Key | Default | Description |
+|---|---|---|
+| `rdpEnabled` | `false` | Enable RDP desktop sharing via Guacamole |
+| `rdpHost` | _(empty)_ | xrdp server IP / hostname |
+| `rdpPort` | `3389` | xrdp port |
+| `rdpUsername` | _(empty)_ | OS user to authenticate as |
+| `rdpPassword` | _(empty)_ | OS user password |
+| `rdpDomain` | _(empty)_ | Windows domain (usually blank for Linux) |
+| `rdpGuacWsUrl` | _(empty)_ | Public WSS URL of guacamole-lite — required for HTTPS frontends (e.g. `wss://myhost.com/guac-ws`) |
+
+### VNC
+
+| Key | Default | Description |
+|---|---|---|
+| `vncEnabled` | `false` | Enable VNC desktop sharing |
+| `vncHost` | _(empty)_ | VNC server IP / hostname |
+| `vncPort` | `5900` | VNC port (5900 + display number) |
+| `vncPassword` | _(empty)_ | VNC password |
 
 ### Paths
 

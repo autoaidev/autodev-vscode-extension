@@ -108,6 +108,16 @@ function claudeConfigPath(): string {
   return path.join(os.homedir(), '.claude', 'settings.json');
 }
 
+/** ~/.claude.json — stores per-project enabledMcpjsonServers */
+function claudeDotJsonPath(): string {
+  return path.join(os.homedir(), '.claude.json');
+}
+
+interface ClaudeDotJson {
+  projects?: Record<string, { enabledMcpjsonServers?: string[]; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
 function copilotConfigPath(): string {
   return path.join(os.homedir(), '.copilot', 'mcp-config.json');
 }
@@ -357,6 +367,54 @@ export class McpServerManager {
           log?.(`MCP: added '${server.name}' to ${provider}`);
         }
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // enableForClaudeProject — writes enabledMcpjsonServers into ~/.claude.json
+  // under projects[workspaceRoot] so Claude Code actually loads them.
+  // See: https://github.com/anthropics/claude-code/issues/24657
+  // -------------------------------------------------------------------------
+
+  static enableForClaudeProject(
+    workspaceRoot: string,
+    serverNames: string[],
+    log?: (msg: string) => void,
+  ): void {
+    const dotJson = readJson<ClaudeDotJson>(claudeDotJsonPath(), {});
+    dotJson.projects ??= {};
+    const proj = dotJson.projects[workspaceRoot] ?? {};
+    const existing = new Set(proj.enabledMcpjsonServers ?? []);
+    const added: string[] = [];
+    for (const name of serverNames) {
+      if (!existing.has(name)) {
+        existing.add(name);
+        added.push(name);
+      }
+    }
+    if (added.length === 0) { return; }
+    proj.enabledMcpjsonServers = [...existing];
+    dotJson.projects[workspaceRoot] = proj;
+    writeJson(claudeDotJsonPath(), dotJson);
+    log?.(`MCP: enabled [${added.join(', ')}] for Claude project ${workspaceRoot}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // addDefaultsAndEnable — addDefaults + enableForClaudeProject in one call
+  // -------------------------------------------------------------------------
+
+  static addDefaultsAndEnable(
+    workspaceRoot: string,
+    targets: McpProvider[] = ALL_PROVIDERS,
+    log?: (msg: string) => void,
+  ): void {
+    McpServerManager.addDefaults(targets, log);
+    if (targets.includes('claude-cli')) {
+      McpServerManager.enableForClaudeProject(
+        workspaceRoot,
+        DEFAULT_MCP_SERVERS.map(s => s.name),
+        log,
+      );
     }
   }
 }
