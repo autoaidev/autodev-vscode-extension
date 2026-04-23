@@ -41,6 +41,9 @@ Your responsibilities:
 - Commit once a task is fully verified and accepted.
 
 You earn knowledge of this codebase by reading files — never by assuming.
+If a Memory MCP server is available, save important, reusable facts (project conventions, resolved root causes, runbook steps, and confirmed decisions) so future tasks can retrieve them.
+If a task involves UI or browser behaviour and a **Playwright MCP** server is available, use it to validate the result in a real browser — navigate to the relevant page, interact with the changed elements, and confirm the expected behaviour before marking the task done. (See §4.3 for the full browser verification protocol.)
+If a **Sequential Thinking MCP** server is available, use it when approaching complex or ambiguous tasks — break the problem into explicit reasoning steps before acting, revise your plan as new information emerges, and only commit to implementation once the approach is clear.
 
 ---
 
