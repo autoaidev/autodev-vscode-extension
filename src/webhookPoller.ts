@@ -10,6 +10,7 @@ import { VncSession } from './vnc';
 import { RdpSession } from './rdp';
 import type { RdpConnectOptions } from './rdp';
 import { saveAttachment } from './messageBuilder';
+import { appendTask, shortId } from './todo';
 import * as gitService from './git/gitService';
 
 // ---------------------------------------------------------------------------
@@ -514,6 +515,8 @@ class WebSocketPoller {
       let taskText = typeof taskObj?.['text'] === 'string' ? taskObj['text'] : '';
 
       // Handle A2A parts — extract text parts and save file parts as attachments
+      // Pre-generate task ID so all attachments share the same prefix
+      const wsTaskId = shortId();
       const rawParts = meta['parts'] as Array<Record<string, unknown>> | undefined;
       const textParts: string[] = [];
       const attRefs: string[] = [];
@@ -529,7 +532,7 @@ class WebSocketPoller {
               const bytesB64 = file['bytes'] as string | undefined;
               if (bytesB64) {
                 const buf = Buffer.from(bytesB64, 'base64');
-                const rel = saveAttachment(this._workspaceRoot, name, buf);
+                const rel = saveAttachment(this._workspaceRoot, name, buf, wsTaskId);
                 attRefs.push(rel);
               } else if (typeof file['uri'] === 'string') {
                 attRefs.push(file['uri'] as string);
@@ -548,13 +551,12 @@ class WebSocketPoller {
         ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
 
-      // Deduplicate: skip if this exact task line is already present in TODO.md.
-      // This prevents double-entries when the server re-delivers tasks on reconnect
-      // (e.g. after a stale-socket delivery that was never actually received).
+      // Deduplicate: skip if this exact task text is already present in TODO.md.
+      // This prevents double-entries when the server re-delivers tasks on reconnect.
       try {
         if (this._todoPath && fs.existsSync(this._todoPath)) {
           const existing = fs.readFileSync(this._todoPath, 'utf8');
-          if (existing.includes(`- [ ] ${taskText}`) || existing.includes(`- [x] ${taskText}`) || existing.includes(`- [~] ${taskText}`)) {
+          if (existing.includes(taskText)) {
             this._log(`WS task already in TODO.md, skipping: "${taskText}"`);
             return;
           }
@@ -564,7 +566,7 @@ class WebSocketPoller {
       this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
       try {
         if (!this._todoPath) { throw new Error('todoPath is empty'); }
-        fs.appendFileSync(this._todoPath, `\n- [ ] ${fullText}\n`, 'utf8');
+        appendTask(this._todoPath, fullText, wsTaskId);
       } catch (err) {
         this._log(`WS failed to append task to TODO.md: ${err}`);
       }
@@ -1005,6 +1007,8 @@ class HttpWebhookPoller {
       if (!payload || payload.event !== 'user_message') { return false; }
 
       let taskText = payload.task?.text ?? '';
+      // Pre-generate task ID so attachments share the same prefix
+      const httpTaskId = shortId();
       const textParts: string[] = [];
       const attRefs: string[] = [];
       if (payload.parts && workspaceRoot) {
@@ -1017,7 +1021,7 @@ class HttpWebhookPoller {
             const bytesB64 = part.file.bytes;
             if (bytesB64) {
               const buf = Buffer.from(bytesB64, 'base64');
-              const rel = saveAttachment(workspaceRoot, name, buf);
+              const rel = saveAttachment(workspaceRoot, name, buf, httpTaskId);
               attRefs.push(rel);
             } else if (part.file.uri) {
               attRefs.push(part.file.uri);
@@ -1034,7 +1038,7 @@ class HttpWebhookPoller {
         ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
 
-      fs.appendFileSync(todoPath, `\n- [ ] ${fullText}\n`, 'utf8');
+      appendTask(todoPath, fullText, httpTaskId);
       return true;
     } catch {
       return false;

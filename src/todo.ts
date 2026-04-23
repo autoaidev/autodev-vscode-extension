@@ -1,9 +1,9 @@
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 
-/** Generate a task ID like "task-20260421-a3f9k2" */
-function shortId(): string {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+/** Generate a task ID like "task-2026-04-21-a3f9k2" */
+export function shortId(): string {
+  const date = new Date().toISOString().slice(0, 10);
   const hash = crypto.randomBytes(4).toString('hex').slice(0, 6);
   return `task-${date}-${hash}`;
 }
@@ -41,9 +41,9 @@ export function parseTodoContent(content: string): Task[] {
   return tasks;
 }
 
-/** Extract optional leading task ID, e.g. "[task-20260421-a3f9k2] actual text" */
+/** Extract optional leading task ID, e.g. "[task-2026-04-21-a3f9k2] actual text" */
 function extractId(raw: string): { id?: string; text: string } {
-  const m = raw.match(/^\[(task-\d{8}-[a-f0-9]{6})\]\s+(.+)$/i);
+  const m = raw.match(/^\[(task-(?:\d{4}-\d{2}-\d{2}|\d{8})-[a-f0-9]{6})\]\s+(.+)$/i);
   if (m) { return { id: m[1], text: m[2] }; }
   return { text: raw };
 }
@@ -137,9 +137,9 @@ export function markDone(filePath: string, task: Task): void {
 }
 
 /** Append a new task line to the ## Todo section (at the bottom, before the next heading). */
-export function appendTask(filePath: string, text: string): string {
-  const id = shortId();
-  const line = `- [ ] [${id}] ${text}`;
+export function appendTask(filePath: string, text: string, id?: string): string {
+  const taskId = id ?? shortId();
+  const line = `- [ ] [${taskId}] ${text}`;
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
   const todoMatch = content.match(/^(##\s+Todo\s*\n)/mu);
   if (todoMatch && todoMatch.index !== undefined) {
@@ -153,7 +153,7 @@ export function appendTask(filePath: string, text: string): string {
     content += `\n## Todo\n${line}\n`;
   }
   fs.writeFileSync(filePath, content, 'utf8');
-  return id;
+  return taskId;
 }
 
 function escapeRegex(s: string): string {

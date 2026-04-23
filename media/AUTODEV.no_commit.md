@@ -218,16 +218,19 @@ This agent may operate with broad system access. That means you can:
 
 - [ ] feat: add pagination to the list endpoint
 - [ ] fix: handle timeout errors from the upstream API
+- [ ] [task-2026-04-23-a3f9k2] feat: support task-id prefixes in incoming tasks
 - [ ] test: add unit tests for the auth middleware
 - [ ] docs: document all environment variables
 
 ## In Progress
 
 - [~] refactor: extract shared validation into a utility module
+- [~] [task-2026-04-23-b19e7a] chore: align attachment folders with task id
 
 ## Done
 
 - [x] 2026-02-28  chore: initialize project scaffold
+- [x] 2026-04-23  [task-2026-04-23-c8d1f4] feat: accept optional task-id in TODO lines
 - [x] 2026-02-27  feat: implement user registration endpoint
 - [x] 2026-02-26  fix: normalize email before uniqueness check
 ```
@@ -236,6 +239,7 @@ Status rules:
 - `[ ]` = not started
 - `[~]` = in progress — **only one at a time**
 - `[x]` = done — include the completion date
+- Optional task id prefix is supported and should be preserved when present: `[task-YYYY-MM-DD-xxxxxx]`
 - Never delete done items. The Done section is a changelog.
 - Update `TODO.md` before starting a task and immediately after completing one.
 
@@ -257,16 +261,20 @@ Regardless of the language or framework, follow this checklist when implementing
 
 After completing any task you MUST immediately update `TODO.md`:
 
-1. Find the task line — it will look like `- [~] your task text` or `- [ ] your task text`
-2. Replace it **exactly** with: `- [x] YYYY-MM-DD  your task text`
+1. Find the task line — it will look like `- [~] your task text` or `- [~] [task-YYYY-MM-DD-xxxxxx] your task text`
+2. Replace it **exactly** with one of:
+  - `- [x] YYYY-MM-DD  your task text`
+  - `- [x] YYYY-MM-DD  [task-YYYY-MM-DD-xxxxxx] your task text`
    - Use today's ISO date (e.g. `2026-04-02`)
    - Two spaces between the date and the task text
+  - If an id prefix exists, keep it unchanged
    - The task text must be **identical** to the original — do not paraphrase or shorten it
 3. Save the file.
 
 **Mandatory exact format:**
 ```
 - [x] 2026-04-02  make pong game
+- [x] 2026-04-02  [task-2026-04-02-a3f9k2] make pong game
 ```
 
 **Why this matters:** The orchestrator that dispatched this task watches `TODO.md` for the `[x]` marker to know the task is complete and move to the next one. If you do not write this marker, the system will time out and treat the task as failed.

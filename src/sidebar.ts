@@ -599,7 +599,10 @@ function renderProfileSelect(profiles, currentPath){
   const input=document.getElementById('cfg_profilePath');
   if(!sel||!input) return;
   sel.innerHTML=profiles.map(function(p){
-    return '<option value="'+esc(p.filePath)+'" title="'+esc(p.description)+'">'+esc(p.title)+'</option>';
+    const fileName=(p.filePath||'').split(/[\\/]/).pop()||p.filePath||'';
+    const tip=[p.description||'', fileName].filter(function(x){ return !!x; }).join('\\n');
+    const label=(p.title||'')+' \u00b7 '+fileName;
+    return '<option value="'+esc(p.filePath)+'" title="'+esc(tip)+'">'+esc(label)+'</option>';
   }).join('')+'<option value="__custom__">Custom path\u2026</option>';
   // Determine which option matches the current path
   const match=profiles.find(function(p){return p.filePath===currentPath;});

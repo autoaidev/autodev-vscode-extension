@@ -3,6 +3,7 @@ import * as http from 'http';
 import * as url from 'url';
 import * as fs from 'fs';
 import { saveAttachment } from './messageBuilder';
+import { appendTask, shortId } from './todo';
 
 // ---------------------------------------------------------------------------
 // DiscordPoller — mirrors PHP DiscordTaskProvider (poll / drainQueue / react)
@@ -25,6 +26,7 @@ interface DiscordMessage {
 interface QueuedTask {
   taskText: string;
   messageId: string;
+  taskId: string;
 }
 
 const DISCORD_API = 'https://discord.com/api/v10';
@@ -105,12 +107,15 @@ export class DiscordPoller {
         const text = (msg.content ?? '').trim();
         if (text) { parts.push(text); }
 
+        // Pre-generate task ID so attachments share the same prefix
+        const taskId = shortId();
+
         // Save any attached files to disk; reference by path in the task text
         for (const att of (msg.attachments ?? [])) {
           const data = await fetchAttachmentBuffer(att.url, this.botToken);
           if (data !== null) {
             if (workspaceRoot) {
-              const relPath = saveAttachment(workspaceRoot, att.filename, data);
+              const relPath = saveAttachment(workspaceRoot, att.filename, data, taskId);
               parts.push(`[attachment: ${relPath}]`);
             } else {
               // fallback: inline as text when no workspace root
@@ -122,7 +127,7 @@ export class DiscordPoller {
         if (parts.length === 0) { continue; }
 
         const taskText = parts.join('\n');
-        this.queue.push({ taskText, messageId: msg.id });
+        this.queue.push({ taskText, messageId: msg.id, taskId });
 
         // React ✅ to the message so the sender knows it was accepted
         reactToMessage(this.botToken, this.channelId, msg.id, '✅').catch(() => {});
@@ -134,9 +139,9 @@ export class DiscordPoller {
 
   private _drainQueue(todoPath: string): boolean {
     if (this.queue.length === 0) { return false; }
-    const { taskText } = this.queue.shift()!;
+    const { taskText, taskId } = this.queue.shift()!;
     try {
-      fs.appendFileSync(todoPath, `\n- [ ] ${taskText}\n`, 'utf8');
+      appendTask(todoPath, taskText, taskId);
     } catch { /* non-fatal */ }
     return true;
   }
