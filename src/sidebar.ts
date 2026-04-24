@@ -401,7 +401,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_gitEnabled"> Enable Git Panel (exposes repo to browser UI)</label></div>
   </div>
-  <div class="cfg-section">Claude Code Hooks</div>
+  <div class="cfg-section">Hook Events</div>
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time</label></div>
   </div>
@@ -589,7 +589,8 @@ function populateSettings(s){
   const hsg=document.getElementById('hooksScopeGlobal');
   if(hsg) hsg.checked=hscope==='global';
   if(hsp) hsp.checked=hscope==='project';
-  document.getElementById('hooksScopeRow').style.display=!!s.hooksEnabled?'':'none';
+  const isClaudeProv=state.selectedProvider==='claude-cli';
+  document.getElementById('hooksScopeRow').style.display=(!!s.hooksEnabled&&isClaudeProv)?'':'none';
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
@@ -682,7 +683,8 @@ document.getElementById('editJsonBtn').addEventListener('click',function(){
 });
 
 document.getElementById('cfg_hooksEnabled').addEventListener('change',function(){
-  document.getElementById('hooksScopeRow').style.display=this.checked?'':'none';
+  const isClaudeProv=state.selectedProvider==='claude-cli';
+  document.getElementById('hooksScopeRow').style.display=(this.checked&&isClaudeProv)?'':'none';
 });
 
 window.addEventListener('message',function(e){

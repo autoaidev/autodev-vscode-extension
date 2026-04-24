@@ -8,6 +8,7 @@ import { loadSettingsForRoot } from './core/settingsLoader';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
+import { getManualHookCmd } from './hooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -53,6 +54,21 @@ function ensureProjectGitignore(root: string, entry: string): void {
     if (content.length > 0 && !content.endsWith('\n')) { content += '\n'; }
     fs.writeFileSync(gitignorePath, content + `${entry}\n`, 'utf8');
   } catch { /* ignore */ }
+}
+
+/**
+ * Wrap a shell command with synthetic SessionStart / SessionEnd hook events
+ * written to ~/.autodev/hooks-events.jsonl.  Used for providers that don't
+ * have native hooks (copilot-cli, opencode-cli).  Post hook always runs even
+ * if the main command fails.
+ */
+function wrapWithSyntheticHooks(cmd: string, provider: string, sessionName: string): string {
+  const pre  = getManualHookCmd(provider, 'SessionStart', sessionName);
+  const post = getManualHookCmd(provider, 'SessionEnd',   sessionName);
+  if (os.platform() === 'win32') {
+    return `${pre}; ${cmd}; ${post}`;
+  }
+  return `${pre}; { ${cmd}; }; ${post}`;
 }
 
 /** Combine profile + message into a temp file under .autodev/messages/ and return its path. */
@@ -126,12 +142,18 @@ export async function sendPromptToAi(
     } else if (providerId === 'copilot-cli') {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
+      if (settings.hooksEnabled) {
+        cmd = wrapWithSyntheticHooks(cmd, 'copilot-cli', path.basename(root));
+      }
     } else {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId);
       const stdoutFile = stdoutFilePath(root, providerId);
       try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
+      if (settings.hooksEnabled) {
+        cmd = wrapWithSyntheticHooks(cmd, 'opencode-cli', path.basename(root));
+      }
     }
 
     const exitFile = exitFilePath(root, providerId);

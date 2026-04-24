@@ -55,6 +55,25 @@ const HOOK_EVENTS = [
 /** Path of the JSONL sink that hook commands write to. */
 export const HOOKS_JSONL_PATH = path.join(os.homedir(), '.autodev', 'hooks-events.jsonl');
 
+/**
+ * Returns a shell command that appends a synthetic hook event to hooks-events.jsonl.
+ * The JSON payload is base64-encoded to avoid all shell quoting issues.
+ * Used by the dispatcher to emit SessionStart/SessionEnd for providers that lack
+ * native hooks (copilot-cli, opencode-cli).
+ */
+export function getManualHookCmd(provider: string, hookEvent: string, sessionName?: string): string {
+  const payload = { hook: hookEvent, provider, _session_name: sessionName ?? '' };
+  const b64 = Buffer.from(JSON.stringify(payload)).toString('base64');
+  return (
+    `python3 -c "import base64,json,os,datetime; ` +
+    `d=json.loads(base64.b64decode('${b64}').decode()); ` +
+    `d['timestamp']=datetime.datetime.utcnow().isoformat()+'Z'; ` +
+    `p=os.path.expanduser('~/.autodev/hooks-events.jsonl'); ` +
+    `os.makedirs(os.path.dirname(p),exist_ok=True); ` +
+    `open(p,'a').write(json.dumps(d)+'\\n')"`
+  );
+}
+
 /** Shell command installed as the hook body — minifies stdin JSON and appends a JSONL line. */
 const HOOK_COMMAND =
   `python3 -c "import sys,json,os; ` +
