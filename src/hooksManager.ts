@@ -11,10 +11,44 @@ import * as path from 'path';
 const AUTODEV_MARKER = '__autodev_hooks__';
 
 const HOOK_EVENTS = [
+  // Tool lifecycle
   'PreToolUse',
   'PostToolUse',
-  'Stop',
+  'PostToolUseFailure',
+  'PostToolBatch',
+  // Session lifecycle
   'SessionStart',
+  'SessionEnd',
+  'Stop',
+  'StopFailure',
+  // Subagent / teammate
+  'SubagentStart',
+  'SubagentStop',
+  'TeammateIdle',
+  // Permissions
+  'PermissionRequest',
+  'PermissionDenied',
+  // User prompt
+  'UserPromptSubmit',
+  'UserPromptExpansion',
+  // Tasks
+  'TaskCreated',
+  'TaskCompleted',
+  // Context / workspace
+  'CwdChanged',
+  'FileChanged',
+  'InstructionsLoaded',
+  'ConfigChange',
+  // Compaction
+  'PreCompact',
+  'PostCompact',
+  // Elicitation
+  'Elicitation',
+  'ElicitationResult',
+  // Worktree
+  'WorktreeCreate',
+  'WorktreeRemove',
+  // General
   'Notification',
 ] as const;
 
