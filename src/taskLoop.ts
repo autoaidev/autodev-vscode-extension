@@ -472,12 +472,15 @@ export class TaskLoopRunner {
       let task = pickNextTask(tasks); // first [ ] task
 
       // Helper: is the CLI process still running? (exit file absent or empty)
+      // On the very first dispatch (_iterations === 0) no process has been launched yet,
+      // so always return false regardless of file state.
       const provider = this._cb?.getActiveProvider();
       const cliIsRunning = (() => {
+        if (this._iterations === 0) { return false; } // nothing launched yet
         if (!this._workspaceRoot || !provider || !PROVIDERS[provider]?.isCli) { return false; }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
-          return content === '';
+          return content === ''; // empty = process still running (exit code not yet written)
         } catch { return true; } // file absent = still running
       })();
 
