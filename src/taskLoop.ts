@@ -467,8 +467,31 @@ export class TaskLoopRunner {
       this._cb?.log('Auto-reset in-progress tasks to [ ]');
     }
 
-    while (this._state === 'running') {      const tasks = parseTodo(todoPath);
-      const task = pickNextTask(tasks);
+    while (this._state === 'running') {
+      const tasks = parseTodo(todoPath);
+      let task = pickNextTask(tasks); // first [ ] task
+
+      // Helper: is the CLI process still running? (exit file absent or empty)
+      const provider = this._cb?.getActiveProvider();
+      const cliIsRunning = (() => {
+        if (!this._workspaceRoot || !provider || !PROVIDERS[provider]?.isCli) { return false; }
+        try {
+          const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
+          return content === '';
+        } catch { return true; } // file absent = still running
+      })();
+
+      // If no [ ] task but CLI is still running and there's a [~] task in flight,
+      // treat that [~] task as the current one and wait — don't interrupt the process.
+      let watchingInProgress = false;
+      if (!task && cliIsRunning) {
+        const inProgress = tasks.find(t => t.status === 'in-progress');
+        if (inProgress) {
+          task = inProgress;
+          watchingInProgress = true;
+          this._cb?.log(`⏳ CLI running, watching in-progress: ${discordLabel(task.text)}`);
+        }
+      }
 
       if (!task) {
         const remaining = countRemaining(tasks);
@@ -495,32 +518,40 @@ export class TaskLoopRunner {
       // A task is available — reset the all-done flag
       allTasksDoneNotified = false;
 
-      this._iterations++;
+      if (!watchingInProgress) {
+        this._iterations++;
+      }
       this._currentTask = task.text;
       this._setState('running', task.text);
 
-      // Do NOT mark in-progress from JS — the prompt instructs the LLM to do it
-      // Only include the AUTODEV profile on the first task — subsequent tasks only need the TODO
+      // Build prompt (needed even when not sending, for messageFile path)
       const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath, this._iterations === 1);
       const remaining = countRemaining(parseTodo(todoPath));
 
-      this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
-      this._notifyWebhook('task_start', {
-        iteration: this._iterations,
-        task:      { text: task.text },
-        remaining,
-        workDir:   this._workspaceRoot,
-        gitRepo:   this._gitRepo,
-        gitBranch: this._gitBranch,
-      });
-      this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
+      if (!watchingInProgress) {
+        this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
+        this._notifyWebhook('task_start', {
+          iteration: this._iterations,
+          task:      { text: task.text },
+          remaining,
+          workDir:   this._workspaceRoot,
+          gitRepo:   this._gitRepo,
+          gitBranch: this._gitBranch,
+        });
+        this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
+      }
 
       const taskStartTime = Date.now();
       // Snapshot the JSONL cursor before sending — we only read bytes written after this
       const claudeCursor = getClaudeSessionCursor(this._workspaceRoot!);
+
       try {
-        // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
-        await this._cb!.sendToAi(prompt, task.text, this._iterations === 1, messageFile);
+        if (cliIsRunning || watchingInProgress) {
+          this._cb?.log(`⏳ CLI still running — skipping send, waiting for task completion…`);
+        } else {
+          // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
+          await this._cb!.sendToAi(prompt, task.text, this._iterations === 1, messageFile);
+        }
 
         // Wait for the AI to mark the task [x] done in TODO.md
         await this._waitForTaskCompletion(todoPath, task, claudeCursor);
