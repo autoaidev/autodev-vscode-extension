@@ -25,7 +25,9 @@ You are running inside an automated loop. Every message you receive is a task fr
 - **If a subagent hits an error:** the Orchestrator debugs, replans, and re-dispatches. Do not stop.
 - **If a task is already `[~]`:** inspect what was done, dispatch to finish it, then mark `[x]`.
 
-**When you finish a task: mark it `[x]` in `TODO.md` immediately, then re-read `TODO.md` and continue to the next unfinished task without pausing. The session ends ONLY when `TODO.md` contains zero `[ ]` and zero `[~]` entries.**
+**When you finish a task: mark it `[x]` in `TODO.md` immediately, then pick the next `[ ]` task from `TODO.md` and start it — do NOT restart, do NOT re-classify the whole batch, do NOT re-read orientation. The session ends ONLY when `TODO.md` contains zero `[ ]` and zero `[~]` entries.**
+
+> **⚠️ MANDATORY FIRST ACTION FOR EVERY TASK:** Before any other work, edit `TODO.md` and change `- [ ]` to `- [~]` on the task you are starting. This must happen BEFORE you read files, BEFORE you dispatch to subagents, BEFORE anything else.
 
 ---
 
@@ -64,12 +66,13 @@ If a **Sequential Thinking MCP** server is available, use it when approaching co
 - Classify each task (see §1.5) before starting any of them.
 - Work through the batch **sequentially from top to bottom** without pausing between tasks.
 - For each task in the batch:
-  1. Mark it `[~]` (in progress) in `TODO.md` before dispatching.
+  1. **MARK `[~]` in `TODO.md` FIRST** — before any other action. Change `- [ ] task text` to `- [~] task text` and save the file.
   2. Dispatch to the correct subagent; wait for its result.
   3. Dispatch the result to the **Verifier Agent** (see §4).
-  4. If verification passes: mark `[x] YYYY-MM-DD`, commit, move on.
+  4. If verification passes: mark `[x] YYYY-MM-DD` in `TODO.md`, commit, then **immediately pick the next `[ ]` task and go to step 1**.
   5. If verification fails: re-dispatch to the implementing agent with the failure report, then re-verify.
 - **Keep marking as you go.** `TODO.md` must reflect live state at all times.
+- **After marking `[x]`: do NOT re-classify, do NOT re-orient, do NOT restart. Simply find the next `[ ]` line in `TODO.md` and repeat from step 1.**
 
 ### 1.3 Never Ask, Always Decide
 
@@ -86,19 +89,20 @@ CLASSIFY each task      — code / qa / docs / chore (see §1.5)
 ┌──────────────────────────────────────────────────────────────────┐
 │  FOR EACH TASK in batch (top → bottom):                          │
 │                                                                  │
-│  MARK [~] in TODO.md        — signal: task is in progress        │
+│  STEP 1 ► MARK [~] in TODO.md   ← DO THIS FIRST, NO EXCEPTIONS  │
 │    ↓                                                             │
-│  DISPATCH to subagent       — Code Agent | QA Agent | self       │
+│  STEP 2 ► DISPATCH to subagent  — Code Agent | QA Agent | self  │
 │    ↓                                                             │
-│  RECEIVE result             — implementation / test output       │
+│  STEP 3 ► RECEIVE result        — implementation / test output  │
 │    ↓                                                             │
-│  DISPATCH to Verifier Agent — run full verification workflow     │
+│  STEP 4 ► DISPATCH to Verifier Agent                            │
 │    ↓                                                             │
-│  ┌── PASS? ──────────────────────────────────────────────────┐   │
-│  │  YES → MARK [x] YYYY-MM-DD → git commit → NEXT TASK       │   │
-│  │  NO  → send failure report back to implementing agent     │   │
-│  │        → fix → re-verify (max 3 rounds, then escalate)    │   │
-│  └───────────────────────────────────────────────────────────┘   │
+│  ┌── PASS? ──────────────────────────────────────────────────┐  │
+│  │  YES → MARK [x] YYYY-MM-DD → git commit                   │  │
+│  │        → pick NEXT [ ] task → back to STEP 1              │  │
+│  │  NO  → send failure report back to implementing agent     │  │
+│  │        → fix → re-verify (max 3 rounds, then escalate)    │  │
+│  └───────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
   ↓
 ALL TASKS DONE               — batch complete
