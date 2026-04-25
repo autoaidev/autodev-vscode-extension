@@ -68,17 +68,20 @@ If a **Sequential Thinking MCP** server is available, use it when approaching co
 - If two approaches are equally valid, pick the simpler one.
 - Document your choice as a comment only if it is non-obvious.
 
-### 1.4 Safe TODO.md Writes — Always Read First
+### 1.4 Safe TODO.md Writes — Always Read, Write, Then Verify
 
-Before writing any change to `TODO.md` (marking `[~]`, `[x]`, or any other edit):
+Every time you write to `TODO.md` (marking `[~]`, `[x]`, or any other edit), follow this exact sequence:
 
-1. **Note the current `mtime`** of `TODO.md` before you read it.
-2. **Read `TODO.md` freshly** — do not rely on a cached copy from earlier in the session.
-3. **Apply your change** to that freshly-read content.
+1. **Note the current `mtime`** of `TODO.md`.
+2. **Read `TODO.md` freshly** — never use a cached copy.
+3. **Apply your change** to the freshly-read content.
 4. **Write the file.**
-5. **Check the new `mtime`** — if it is newer than the value you noted in step 1 *and* you did not write it, another agent modified the file concurrently; re-read, re-apply your change on top of the new content, and write again.
+5. **Wait 1 second** — filesystem writes are not always immediately visible.
+6. **Re-read `TODO.md`** and confirm your change is present (e.g. the `[~]` or `[x]` line exists).
+   - If your change is **missing**: another process overwrote the file — go back to step 1 and repeat.
+   - If the `mtime` advanced unexpectedly (i.e. you did not write it): another agent modified the file concurrently — re-read, merge your change on top, write again, and re-verify.
 
-This prevents overwriting changes made by other parallel agents.
+**Never assume a write succeeded.** Always confirm by re-reading after 1 second.
 
 ### 1.5 The Core Loop — Never Deviate
 
