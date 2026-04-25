@@ -735,6 +735,11 @@ export class TaskLoopRunner {
       const timeoutMs  = (settings.taskTimeoutMinutes  ?? 30) * 60 * 1_000;
       const taskStartTime = Date.now();
 
+      // Timeout is based on TODO.md inactivity, not total process runtime.
+      // Every time TODO.md changes (any [~]/[x] write by the AI) this resets.
+      // Only fires if TODO.md has been untouched for the full timeout duration.
+      let lastTodoChangeTime = Date.now();
+
       const found = () => {
         const updated = parseTodo(todoPath);
         // Match by LINE NUMBER — not text — to avoid false positives when multiple
@@ -749,14 +754,12 @@ export class TaskLoopRunner {
       if (found()) { resolve(); return; }
 
       let poller: NodeJS.Timeout | undefined;
-      let timer: NodeJS.Timeout | undefined;
       let stdoutWatcherRef: IDisposable | undefined;
       let exitWatcherRef: IDisposable | undefined;
       let todoWatcher: IDisposable | undefined;
 
       const cleanup = () => {
         this._taskCompletionAbort = null;
-        clearTimeout(timer);
         clearInterval(poller);
         todoWatcher?.dispose();
         stdoutWatcherRef?.dispose();
@@ -768,6 +771,7 @@ export class TaskLoopRunner {
 
       const check = () => {
         if (this._state !== 'running') { cleanup(); resolve(); return; }
+        lastTodoChangeTime = Date.now(); // reset inactivity clock on every TODO.md change
         if (found()) { cleanup(); resolve(); }
       };
 
@@ -1007,32 +1011,35 @@ export class TaskLoopRunner {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
           await this._cb!.sendToAi(reminder, task.text, undefined, reminderFile);
         } catch { /* ignore */ }
-      }, 3_000);
 
-      // Hard timeout
-      timer = setTimeout(() => {
-        cleanup();
-        const minutes = settings.taskTimeoutMinutes ?? 30;
-        if (settings.retryOnTimeout) {
-          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
-          const msg = `⏱ Task timed out after ${minutes}m — retrying: ${discordLabel(task.text)}`;
-          this._cb?.log(msg);
-          this._notifyDiscord(msg);
-          this._notifyWebhook('task_checkin', {
-            iteration:      this._iterations,
-            task:           { text: task.text },
-            elapsedMinutes: minutes,
-            timedOut:       true,
-            retrying:       true,
-            workDir:        this._workspaceRoot,
-            gitRepo:        this._gitRepo,
-            gitBranch:      this._gitBranch,
-          });
-          resolve(); // loop will pick it up again as a fresh [ ] task
-        } else {
-          reject(new Error(`Task timed out after ${minutes} minutes`));
+        // TODO.md inactivity timeout — fires when TODO.md has not been touched
+        // for the full timeout duration (resets on every TODO.md write).
+        const idleMs = Date.now() - lastTodoChangeTime;
+        if (idleMs >= timeoutMs) {
+          cleanup();
+          const minutes = settings.taskTimeoutMinutes ?? 30;
+          if (settings.retryOnTimeout) {
+            try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+            const msg = `⏱ TODO.md idle for ${minutes}m — retrying: ${discordLabel(task.text)}`;
+            this._cb?.log(msg);
+            this._notifyDiscord(msg);
+            this._notifyWebhook('task_checkin', {
+              iteration:      this._iterations,
+              task:           { text: task.text },
+              elapsedMinutes: minutes,
+              timedOut:       true,
+              retrying:       true,
+              workDir:        this._workspaceRoot,
+              gitRepo:        this._gitRepo,
+              gitBranch:      this._gitBranch,
+            });
+            resolve(); // loop will pick it up again as a fresh [ ] task
+          } else {
+            reject(new Error(`Task timed out after ${minutes} minutes of TODO.md inactivity`));
+          }
+          return;
         }
-      }, timeoutMs);
+      }, 3_000);
     });
   }
 

@@ -424,7 +424,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <label class="cfg-label">Agent Profile</label>
     <div style="display:flex;gap:4px;align-items:center">
       <select class="cfg-input" id="cfg_profileSelect" style="flex:1"></select>
-      <button id="openProfileBtn" title="Open profile file" style="flex-shrink:0;padding:3px 7px;cursor:pointer;background:var(--vscode-button-secondaryBackground,transparent);color:var(--vscode-button-secondaryForeground,inherit);border:1px solid var(--vscode-button-border,var(--vscode-input-border));border-radius:3px;font-size:13px;line-height:1" type="button">&#128065;</button>
+      <button id=\"openProfileBtn\" title=\"Open profile file\" style=\"flex-shrink:0;padding:3px 6px;cursor:pointer;background:var(--vscode-button-secondaryBackground,transparent);color:var(--vscode-foreground,inherit);border:1px solid var(--vscode-input-border,transparent);border-radius:3px;line-height:0\" type=\"button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"M13.23 1a2.04 2.04 0 0 0-1.44.6L3 10.39V13h2.61l8.79-8.79A2.04 2.04 0 0 0 15 2.77 2.04 2.04 0 0 0 13.23 1zm0 1c.28 0 .55.12.75.32.41.41.41 1.09 0 1.5L13 4.79l-1.5-1.5.98-.97c.2-.2.47-.32.75-.32zM4 11H3v-1l7.5-7.5 1 1L4 11z\"/></svg></button>
     </div>
     <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
   </div>
