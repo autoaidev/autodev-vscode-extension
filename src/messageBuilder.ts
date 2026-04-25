@@ -119,31 +119,21 @@ function readOrEmpty(filePath: string): string {
 }
 
 function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false): string {
-  const commitStep = noCommit
-    ? '4. Do **NOT** commit — the user is responsible for all git operations.'
-    : '4. Commit all changes with a descriptive conventional commit message.';
+  const commitLine = noCommit
+    ? 'Do **NOT** commit — the user is responsible for all git operations.'
+    : 'Commit each completed task with a descriptive conventional commit message.';
 
-  const parts: string[] = [];
+  return `Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
 
-  if (todoContent) {
-    parts.push(`# Current TODO.md\n\n${todoContent.trim()}`);
-  }
+For each task:
+1. Mark it \`[~]\` in \`TODO.md\` **before** starting any work.
+2. Implement the task fully.
+3. Mark it \`[x] YYYY-MM-DD  task text\` in \`TODO.md\` when done (ISO date, two spaces, original task text).
+4. ${commitLine}
+5. Immediately continue to the next \`[ ]\` task — do not pause or stop.
 
-  parts.push(`# Active Task
-
-${taskText}
-
-## Instructions
-
-0. **First**, mark this task as in-progress in **TODO.md** by changing \`[ ]\` to \`[~]\` on this task's line and saving the file.
-1. Read and understand the full codebase before making changes.
-2. Implement this task completely, including all required files and tests.
-3. When the task is done, mark it as completed in **TODO.md** by replacing \`[~]\` with \`[x] YYYY-MM-DD  task text\` (ISO date, two spaces, then the original task text).
-${commitStep}
-5. Stop after completing this one task — do not start the next task.
-`);
-
-  return parts.join('\n\n---\n\n');
+The session ends only when \`TODO.md\` contains zero \`[ ]\` and zero \`[~]\` entries.
+`;
 }
 
 /**
@@ -174,8 +164,8 @@ export function buildMessage(
   // Read TODO
   const todoContent = readOrEmpty(path.join(todoDir, 'TODO.md'));
 
-  // Build task message
-  const taskMessage = buildTaskInstruction(task.text, todoContent, meta.noCommit);
+  // Build task message (no TODO dump, no specific task text — profile has all instructions)
+  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
 
   // Write split files
   if (includeProfile) {

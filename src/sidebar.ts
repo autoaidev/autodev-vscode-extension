@@ -424,7 +424,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <label class="cfg-label">Agent Profile</label>
     <div style="display:flex;gap:4px;align-items:center">
       <select class="cfg-input" id="cfg_profileSelect" style="flex:1"></select>
-      <button id=\"openProfileBtn\" title=\"Open profile file\" style=\"flex-shrink:0;padding:2px 8px;cursor:pointer;background:var(--vscode-button-secondaryBackground,transparent);color:var(--vscode-foreground,inherit);border:1px solid var(--vscode-input-border);border-radius:3px;font-size:11px;white-space:nowrap\" type=\"button\">Open</button>
+      <button id=\"openProfileBtn\" title=\"Open profile file\" class=\"cfg-save\" style=\"margin-top:0;width:auto;padding:5px 10px\" type=\"button\">Open</button>
     </div>
     <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
   </div>
