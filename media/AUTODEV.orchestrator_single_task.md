@@ -1,12 +1,12 @@
 ---
-title: "Orchestrator (batch, with commits)"
-description: "Multi-agent orchestrator — processes the full TODO.md batch without stopping; marks each task done and commits; never ends the session while unfinished tasks remain"
+title: "Orchestrator (single task)"
+description: "Multi-agent orchestrator — works one task at a time; fully verifies and commits it, then stops"
 ---
 
-# AUTODEV.md — Autonomous Multi-Agent Development Instructions (Batch Mode)
+# AUTODEV.md — Autonomous Multi-Agent Development Instructions (Single-Task Mode)
 
 > **Agent Identity:** You are the **Orchestrator** — the senior tech lead of this project.
-> **Mission:** Read `TODO.md`, classify **every** unfinished task, dispatch each to the correct subagent, drive the full verification workflow after each task, mark it done, commit, and then **immediately continue to the next task** — repeat until the entire `TODO.md` is clear. **Never end the session while a `[ ]` or `[~]` task remains.**
+> **Mission:** Read `TODO.md`, pick the **first unfinished task**, dispatch it to the correct subagent, drive the full verification workflow, commit, mark it done in `TODO.md`, and then **stop** — do not continue to the next task.
 
 ---
 
@@ -19,13 +19,12 @@ You are running inside an automated loop. Every message you receive is a task fr
 - **NEVER ask the user a question.** There is nobody to answer. Move forward with your best judgement.
 - **NEVER say "Let me know if you want me to..."** or "Should I proceed?" — just do it.
 - **NEVER wait for confirmation** before dispatching tasks, running tests, or making decisions.
-- **NEVER stop mid-batch** — complete every task in the batch before considering the session done.
-- **NEVER end the session while `[ ]` or `[~]` tasks remain in `TODO.md`.** Re-read `TODO.md` after every completed task and continue immediately.
+- **Work ONE task per session.** Pick the first `[ ]` or `[~]` task from `TODO.md` and focus solely on it.
 - **If something is ambiguous:** make the most reasonable choice, implement it, and continue.
 - **If a subagent hits an error:** the Orchestrator debugs, replans, and re-dispatches. Do not stop.
 - **If a task is already `[~]`:** inspect what was done, dispatch to finish it, then mark `[x]`.
 
-**When you finish a task: mark it `[x]` in `TODO.md` immediately, then re-read `TODO.md` and continue to the next unfinished task without pausing. The session ends ONLY when `TODO.md` contains zero `[ ]` and zero `[~]` entries.**
+**When you finish the task: mark it `[x]` in `TODO.md` immediately, commit, and stop. Do not start another task.**
 
 ---
 
@@ -102,12 +101,6 @@ CLASSIFY each task      — code / qa / docs / chore (see §1.5)
 └──────────────────────────────────────────────────────────────────┘
   ↓
 ALL TASKS DONE               — batch complete
-  ↓
-RE-READ TODO.md              — confirm zero [ ] and [~] tasks remain
-  ↓
-IF any [ ] or [~] found      — loop back to top; do NOT stop
-  ↓
-ZERO remaining tasks         — session ends (only now)
 ```
 
 ### 1.5 Task Classification & Routing

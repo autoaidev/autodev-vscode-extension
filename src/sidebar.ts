@@ -73,6 +73,14 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'openSettings': void vscode.commands.executeCommand('autodev.openSettings'); break;
+        case 'openFile': {
+          const filePath = msg.filePath as string;
+          if (filePath) {
+            const uri = vscode.Uri.file(filePath);
+            void vscode.workspace.openTextDocument(uri).then(doc => vscode.window.showTextDocument(doc));
+          }
+          break;
+        }
         case 'newSession': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
@@ -414,7 +422,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <div class="cfg-field">
     <label class="cfg-label">Agent Profile</label>
-    <select class="cfg-input" id="cfg_profileSelect"></select>
+    <div style="display:flex;gap:4px;align-items:center">
+      <select class="cfg-input" id="cfg_profileSelect" style="flex:1"></select>
+      <button id="openProfileBtn" title="Open profile file" style="flex-shrink:0;padding:3px 7px;cursor:pointer;background:var(--vscode-button-secondaryBackground,transparent);color:var(--vscode-button-secondaryForeground,inherit);border:1px solid var(--vscode-button-border,var(--vscode-input-border));border-radius:3px;font-size:13px;line-height:1" type="button">&#128065;</button>
+    </div>
     <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
   </div>
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
@@ -623,6 +634,13 @@ function renderProfileSelect(profiles, currentPath){
     if(sel.value==='__custom__'){input.style.display='';input.focus();}
     else{input.style.display='none';}
   };
+  const openBtn=document.getElementById('openProfileBtn');
+  if(openBtn){
+    openBtn.onclick=function(){
+      const path=sel.value==='__custom__'?input.value:sel.value;
+      if(path&&path!=='__custom__'){vscode.postMessage({command:'openFile',filePath:path});}
+    };
+  }
 }
 
 document.getElementById('tabTasks').addEventListener('click',function(){showTab('tasks');});
