@@ -773,6 +773,9 @@ export class TaskLoopRunner {
       // Every time TODO.md changes (any [~]/[x] write by the AI) this resets.
       // Only fires if TODO.md has been untouched for the full timeout duration.
       let lastTodoChangeTime = Date.now();
+      // Shared with the JSONL inactivity poller — reset here so TODO.md changes
+      // prevent the "Still working" reminder from firing unnecessarily.
+      let lastActivityTime   = Date.now();
 
       const found = () => {
         const updated = parseTodo(todoPath);
@@ -806,6 +809,7 @@ export class TaskLoopRunner {
       const check = () => {
         if (this._state !== 'running') { cleanup(); resolve(); return; }
         lastTodoChangeTime = Date.now(); // reset inactivity clock on every TODO.md change
+        lastActivityTime = Date.now();  // also reset JSONL inactivity — TODO change = AI is active
         if (found()) { cleanup(); resolve(); }
       };
 
@@ -952,7 +956,7 @@ export class TaskLoopRunner {
       let endTurnSeen = false;
       let lastJSONLSize = claudeCursor > 0 && this._workspaceRoot
         ? getClaudeSessionCursor(this._workspaceRoot) : 0;
-      let lastActivityTime = Date.now();
+      // lastActivityTime is declared above (shared with check())
       let reminderPending = true; // allow one reminder per quiet period
       let lastActivity: string | undefined;
 
