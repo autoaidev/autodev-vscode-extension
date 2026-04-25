@@ -118,13 +118,13 @@ function readOrEmpty(filePath: string): string {
   } catch { return ''; }
 }
 
-function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false, profileRef?: string): string {
+function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false, profileRef?: string, profileMd5?: string): string {
   const commitLine = noCommit
     ? 'Do **NOT** commit — the user is responsible for all git operations.'
     : 'Commit each completed task with a descriptive conventional commit message.';
 
   const profileNote = profileRef
-    ? `If you have not already read the agent profile, read it now: @${profileRef}\n\n`
+    ? `If you have not already read the agent profile (md5: \`${profileMd5 ?? ''}\`), or it has changed since you last read it, read it now: @${profileRef}\n\n`
     : '';
 
   return `${profileNote}Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
@@ -168,10 +168,11 @@ export function buildMessage(
   // Always write the profile file so the LLM can @-reference it
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, profileBody, 'utf8');
+  const profileMd5 = crypto.createHash('md5').update(profileBody).digest('hex');
 
   // Build the task trigger message — reference the profile file, don't embed it
   const relativeProfile = AGENT_PROFILE_FILE; // always .autodev/AGENT_PROFILE.md
-  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit, relativeProfile);
+  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit, relativeProfile, profileMd5);
 
   const messageFile = writeMessageFile(root, taskMessage);
 
