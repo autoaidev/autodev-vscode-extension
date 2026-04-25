@@ -118,12 +118,16 @@ function readOrEmpty(filePath: string): string {
   } catch { return ''; }
 }
 
-function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false): string {
+function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false, profileRef?: string): string {
   const commitLine = noCommit
     ? 'Do **NOT** commit — the user is responsible for all git operations.'
     : 'Commit each completed task with a descriptive conventional commit message.';
 
-  return `Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
+  const profileNote = profileRef
+    ? `If you have not already read the agent profile, read it now: @${profileRef}\n\n`
+    : '';
+
+  return `${profileNote}Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
 
 For each task:
 1. Mark it \`[~]\` in \`TODO.md\` **before** starting any work.
@@ -154,26 +158,24 @@ export function buildMessage(
 ): { prompt: string; messageFile: string } {
   autodevDir(root);
 
-  // Resolve and read profile (always needed for meta even if not included in output)
+  // Resolve and read profile (needed for meta / noCommit flag only)
   const resolvedProfile = profilePath || path.join(todoDir, 'AUTODEV.md');
   let rawProfile = readOrEmpty(resolvedProfile);
   if (!rawProfile) { rawProfile = readOrEmpty(defaultProfilePath()); }
 
   const { meta, body: profileBody } = parseFrontmatter(rawProfile);
 
-  // Read TODO
-  const todoContent = readOrEmpty(path.join(todoDir, 'TODO.md'));
+  // Always write the profile file so the LLM can @-reference it
+  const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
+  fs.writeFileSync(profileFilePath, profileBody, 'utf8');
 
-  // Build task message (no TODO dump, no specific task text — profile has all instructions)
-  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
+  // Build the task trigger message — reference the profile file, don't embed it
+  const relativeProfile = AGENT_PROFILE_FILE; // always .autodev/AGENT_PROFILE.md
+  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit, relativeProfile);
 
-  // Write split files
-  if (includeProfile) {
-    fs.writeFileSync(path.join(root, AGENT_PROFILE_FILE), profileBody, 'utf8');
-  }
   const messageFile = writeMessageFile(root, taskMessage);
 
-  // Combined string for UI providers
+  // For UI providers (non-CLI) embed the profile inline since they can't read files
   const parts: string[] = [];
   if (includeProfile && profileBody.trim()) {
     parts.push(`# Project Instructions (AUTODEV.md)\n\n${profileBody.trim()}`);
