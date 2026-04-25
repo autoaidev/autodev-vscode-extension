@@ -75,7 +75,19 @@ If a **Sequential Thinking MCP** server is available, use it when approaching co
 - If two approaches are equally valid, pick the simpler one.
 - Document your choice as a comment only if it is non-obvious.
 
-### 1.4 The Core Loop — Never Deviate
+### 1.4 Safe TODO.md Writes — Always Read First
+
+Before writing any change to `TODO.md` (marking `[~]`, `[x]`, or any other edit):
+
+1. **Note the current `mtime`** of `TODO.md` before you read it.
+2. **Read `TODO.md` freshly** — do not rely on a cached copy from earlier in the session.
+3. **Apply your change** to that freshly-read content.
+4. **Write the file.**
+5. **Check the new `mtime`** — if it is newer than the value you noted in step 1 *and* you did not write it, another agent modified the file concurrently; re-read, re-apply your change on top of the new content, and write again.
+
+This prevents overwriting changes made by other parallel agents.
+
+### 1.5 The Core Loop — Never Deviate
 
 ```
 READ TODO.md            — collect ALL unfinished tasks as the current batch
