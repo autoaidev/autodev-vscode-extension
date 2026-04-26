@@ -351,8 +351,9 @@ class WebSocketPoller {
       const relPath   = (msg['path']    as string | undefined) ?? '';
       const content   = msg['content']  as string | undefined;
       const newPath   = msg['newPath']  as string | undefined;
+      const query     = msg['query']    as string | undefined;
       if (requestId && action) {
-        this._handleFbRequest(requestId, action, relPath, content, newPath);
+        this._handleFbRequest(requestId, action, relPath, content, newPath, query);
       }
       return;
     }
@@ -574,7 +575,7 @@ class WebSocketPoller {
   }
 
   /** Handle a file-browser request from the server (originated by the browser UI). */
-  private _handleFbRequest(requestId: string, action: string, relPath: string, content?: string, newPath?: string): void {
+  private _handleFbRequest(requestId: string, action: string, relPath: string, content?: string, newPath?: string, query?: string): void {
     const respond = (ok: boolean, extra?: Record<string, unknown>) => {
       this.sendFrame({ type: 'fb_response', requestId, ok, ...extra });
     };
@@ -674,6 +675,36 @@ class WebSocketPoller {
         case 'download': {
           const buf = fs.readFileSync(absPath);
           respond(true, { base64: buf.toString('base64') });
+          break;
+        }
+
+        case 'mkdir': {
+          fs.mkdirSync(absPath, { recursive: true });
+          respond(true);
+          break;
+        }
+
+        case 'search': {
+          const rawQuery = (query ?? '').toLowerCase().trim();
+          if (!rawQuery) { respond(true, { results: [] }); break; }
+          const results: { path: string; name: string; type: string }[] = [];
+          const walk = (dir: string, relDir: string, depth: number) => {
+            if (depth > 8 || results.length >= 300) return;
+            let dirents: fs.Dirent[];
+            try { dirents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+            for (const e of dirents) {
+              if (results.length >= 300) break;
+              const rel = relDir ? `${relDir}/${e.name}` : e.name;
+              if (e.name.toLowerCase().includes(rawQuery)) {
+                results.push({ path: rel, name: e.name, type: e.isDirectory() ? 'dir' : 'file' });
+              }
+              if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== 'vendor') {
+                walk(path.join(dir, e.name), rel, depth + 1);
+              }
+            }
+          };
+          walk(absPath, '', 0);
+          respond(true, { results });
           break;
         }
 

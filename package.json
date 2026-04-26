@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.37",
+  "version": "1.0.40",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
@@ -21,15 +21,30 @@
   "engines": {
     "vscode": "^1.99.0"
   },
-  "categories": ["AI", "Programming Languages", "Other"],
-  "keywords": ["ai", "claude", "copilot", "opencode", "autonomous", "agent", "todo", "task", "loop", "automation"],
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "claude",
+    "copilot",
+    "opencode",
+    "autonomous",
+    "agent",
+    "todo",
+    "task",
+    "loop",
+    "automation"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "exports": {
-    ".":           "./out/extension.js",
-    "./sdk":       "./out/sdk/index.js",
-    "./todo":      "./out/todo.js",
-    "./settings":  "./out/core/settingsLoader.js",
+    ".": "./out/extension.js",
+    "./sdk": "./out/sdk/index.js",
+    "./todo": "./out/todo.js",
+    "./settings": "./out/core/settingsLoader.js",
     "./providers": "./out/providers.js"
   },
   "contributes": {
