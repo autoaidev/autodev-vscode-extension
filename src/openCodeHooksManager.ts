@@ -35,56 +35,86 @@ import { join, dirname } from 'path';
 
 const JSONL_PATH = join(homedir(), '.autodev', 'hooks-events.jsonl');
 
+// High-frequency / large-payload events that are not useful in the UI
+const SKIP_EVENTS = new Set([
+  'message.part.updated',
+  'message.part.delta',
+  'message.part.removed',
+  'session.diff',
+]);
+
+const SESSION_MAP: Record<string, string> = {
+  'session.created':   'SessionStart',
+  'session.idle':      'Stop',
+  'session.error':     'StopFailure',
+  'session.deleted':   'SessionEnd',
+  'session.compacted': 'PostCompact',
+  'session.updated':   'SessionStatus',
+  'session.status':    'SessionStatus',
+  'message.updated':   'MessageUpdated',
+  'message.removed':   'MessageRemoved',
+  'todo.updated':      'TaskCreated',
+};
+
 function appendEvent(ev: Record<string, unknown>): void {
   try {
     const dir = dirname(JSONL_PATH);
     if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }); }
     ev['timestamp'] = new Date().toISOString();
     appendFileSync(JSONL_PATH, JSON.stringify(ev) + '\\n', 'utf8');
-  } catch { /* ignore write errors */ }
+  } catch { }
 }
 
 export const AutodevHooksPlugin = async () => ({
   'tool.execute.before': async (input: any, callData?: any) => {
     appendEvent({
-      opencode_event: 'tool.execute.before',
+      opencode_event:  'tool.execute.before',
       hook_event_name: 'PreToolUse',
-      provider: 'opencode',
-      tool_name: input?.tool ?? input?.name ?? 'unknown',
-      tool_input: callData?.args ?? input?.args ?? null,
-      session_id: input?.sessionID ?? null,
-      call_id: input?.callID ?? null,
+      provider:        'opencode',
+      tool_name:       input?.tool ?? 'unknown',
+      tool_input:      callData?.args ?? null,
+      session_id:      input?.sessionID ?? null,
+      call_id:         input?.callID ?? null,
     });
   },
 
   'tool.execute.after': async (input: any, callData?: any) => {
+    const rawOut = callData?.output;
+    const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
     appendEvent({
-      opencode_event: 'tool.execute.after',
+      opencode_event:  'tool.execute.after',
       hook_event_name: 'PostToolUse',
-      provider: 'opencode',
-      tool_name: input?.tool ?? input?.name ?? 'unknown',
-      tool_output: callData?.output ?? input?.output ?? null,
-      session_id: input?.sessionID ?? null,
-      call_id: input?.callID ?? null,
+      provider:        'opencode',
+      tool_name:       input?.tool ?? 'unknown',
+      tool_input:      input?.args ?? null,
+      tool_output:     outText != null ? { title: callData?.title ?? null, text: outText } : null,
+      session_id:      input?.sessionID ?? null,
+      call_id:         input?.callID ?? null,
     });
   },
 
-  'event': async ({ event }: { event: any }) => {
-    const t: string = event?.type ?? String(event ?? '');
-    const MAP: Record<string, string> = {
-      'session.created':   'SessionStart',
-      'session.idle':      'Stop',
-      'session.error':     'StopFailure',
-      'session.deleted':   'SessionEnd',
-      'session.compacted': 'PostCompact',
-      'session.updated':   'SessionStatus',
-    };
+  'event': async (ctx: any) => {
+    const evt   = ctx?.event ?? ctx ?? {};
+    const t: string = evt?.type ?? '';
+    if (!t || SKIP_EVENTS.has(t)) return;
+
+    const props     = evt?.properties ?? {};
+    const sessionId = props?.sessionID ?? props?.id ?? null;
+    const msgInfo   = props?.info ?? null;
+    const role      = msgInfo?.role   ?? null;
+    const agent     = msgInfo?.agent  ?? null;
+    const modelId   = msgInfo?.model?.modelID ?? null;
+    const errMsg    = props?.error?.message ?? props?.message ?? null;
+
     appendEvent({
-      opencode_event: t,
-      hook_event_name: MAP[t] ?? t,
-      provider: 'opencode',
-      session_id: event?.sessionID ?? event?.id ?? null,
-      message: event?.error?.message ?? event?.message ?? null,
+      opencode_event:  t,
+      hook_event_name: SESSION_MAP[t] ?? t,
+      provider:        'opencode',
+      session_id:      sessionId,
+      message:         errMsg ?? (agent ? \`\${agent}\${modelId ? \` (\${modelId})\` : ''}\` : role),
+      role,
+      agent,
+      model:           modelId,
     });
   },
 });
