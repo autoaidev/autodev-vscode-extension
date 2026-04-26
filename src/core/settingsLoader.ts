@@ -42,6 +42,7 @@ export interface AutodevSettings {
   gitEnabled: boolean;
   hooksEnabled: boolean;
   hooksScope: 'project' | 'global';
+  openCodeHooksEnabled: boolean;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -76,6 +77,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   gitEnabled: false,
   hooksEnabled: false,
   hooksScope: 'global',
+  openCodeHooksEnabled: false,
 };
 
 /**

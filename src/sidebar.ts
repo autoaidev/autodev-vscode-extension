@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { areHooksInstalled, installHooks, uninstallHooks } from './hooksManager';
+import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from './openCodeHooksManager';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
@@ -206,13 +207,20 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       // Uninstall from both scopes to clean up
       if (wasEnabled || areHooksInstalled('project', root)) { uninstallHooks('project', root); }
       if (wasEnabled || areHooksInstalled('global', root))  { uninstallHooks('global', root); }
-      return;
+    } else {
+      // If scope changed, uninstall from the old scope first
+      if (wasEnabled && prevScope !== scope) { uninstallHooks(prevScope, root); }
+      installHooks(scope, root);
     }
 
-    // If scope changed, uninstall from the old scope first
-    if (wasEnabled && prevScope !== scope) { uninstallHooks(prevScope, root); }
-
-    installHooks(scope, root);
+    // OpenCode hooks — install/uninstall plugin file
+    const wasOcEnabled = prev.openCodeHooksEnabled;
+    const isOcEnabled  = next.openCodeHooksEnabled;
+    if (!isOcEnabled) {
+      if (wasOcEnabled || isOpenCodeHooksInstalled(root)) { uninstallOpenCodeHooks(root); }
+    } else {
+      installOpenCodeHooks(root);
+    }
   }
 
   private _checkCozempic(): boolean {
@@ -251,6 +259,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       profiles: getBuiltinProfiles(),
       cozempicInstalled: this._checkCozempic(),
       hooksInstalled: root ? (areHooksInstalled('project', root) || areHooksInstalled('global', root)) : false,
+      openCodeHooksInstalled: root ? isOpenCodeHooksInstalled(root) : false,
     });
   }
 }
@@ -418,6 +427,10 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
     <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeProject" value="project"> Project <small style="opacity:.6">.claude/settings.json in workspace</small></label></div>
   </div>
   <div id="hooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; Hooks installed — events streaming to Pixel Office</div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_openCodeHooksEnabled"> Stream OpenCode hook events to Pixel Office <small style="opacity:.6">(.opencode/plugins/autodev-hooks.ts)</small></label></div>
+  </div>
+  <div id="openCodeHooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; OpenCode plugin installed — events streaming to Pixel Office</div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <div class="cfg-field">
@@ -602,6 +615,9 @@ function populateSettings(s){
   if(hsp) hsp.checked=hscope==='project';
   const isClaudeProv=state.selectedProvider==='claude-cli';
   document.getElementById('hooksScopeRow').style.display=(!!s.hooksEnabled&&isClaudeProv)?'':'none';
+  // OpenCode hooks
+  const oce=document.getElementById('cfg_openCodeHooksEnabled');
+  if(oce) oce.checked=!!s.openCodeHooksEnabled;
   // Populate profile dropdown
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
@@ -688,6 +704,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     gitEnabled:document.getElementById('cfg_gitEnabled').checked,
     hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,
     hooksScope:document.querySelector('input[name="hooksScope"]:checked')?.value||'global',
+    openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
@@ -717,6 +734,7 @@ window.addEventListener('message',function(e){
     renderProviders();renderLoop();renderTasks();showTab(activeTab);
     document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';
     document.getElementById('hooksStatusBadge').style.display=msg.hooksInstalled?'':'none';
+    document.getElementById('openCodeHooksStatusBadge').style.display=msg.openCodeHooksInstalled?'':'none';
   }
 });
 </script>
