@@ -15,7 +15,6 @@ const HOOK_EVENTS = [
   'PreToolUse',
   'PostToolUse',
   'PostToolUseFailure',
-  'PostToolBatch',
   // Session lifecycle
   'SessionStart',
   'SessionEnd',
@@ -30,7 +29,6 @@ const HOOK_EVENTS = [
   'PermissionDenied',
   // User prompt
   'UserPromptSubmit',
-  'UserPromptExpansion',
   // Tasks
   'TaskCreated',
   'TaskCompleted',
