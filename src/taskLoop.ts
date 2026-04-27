@@ -605,19 +605,25 @@ export class TaskLoopRunner {
         const afterRemaining = countRemaining(afterTasks);
         const totalKnown = this._iterations + afterRemaining;
 
-        // Read the AI's output from the stdout file (most reliable — it's the raw CLI output)
+        // Read the AI's output — prefer clean JSONL assistant text (no tool noise),
+        // fall back to the tail of the raw stdout file.
         let taskOutput = '';
-        if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+        if (this._workspaceRoot && activeProvider === 'claude-cli') {
+          // Primary: clean assistant-only text extracted from the JSONL session file.
+          // This gives just the final summary paragraphs without tool call noise or ANSI codes.
+          taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
+        }
+        if (!taskOutput && this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+          // Fallback: raw stdout file — take only the last 4 KB to avoid huge payloads.
           const outFile = stdoutFilePath(this._workspaceRoot, activeProvider);
           try {
             if (fs.existsSync(outFile)) {
-              taskOutput = readOutputFile(outFile);
+              const raw = readOutputFile(outFile);
+              // Strip ANSI escape codes and take the tail (the meaningful summary is at the end)
+              const clean = raw.replace(/\x1B\[[0-9;]*[mGKHF]/g, '').replace(/\r/g, '');
+              taskOutput = clean.length > 4000 ? '…' + clean.slice(-4000) : clean;
             }
           } catch { /* ignore */ }
-        }
-        // Fallback: JSONL session for claude-cli
-        if (!taskOutput && this._workspaceRoot && activeProvider === 'claude-cli') {
-          taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
         }
 
         this._cb?.log(`\u2705 Task done: ${task.text}`);
