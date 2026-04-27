@@ -92,11 +92,34 @@ function readSettings(filePath: string): any {
 }
 
 export function areHooksInstalled(scope: 'project' | 'global', workspaceRoot: string): boolean {
-  const raw = readSettings(settingsPath(scope, workspaceRoot));
+  const filePath = settingsPath(scope, workspaceRoot);
+  const raw = readSettings(filePath);
   const hooks = raw?.hooks ?? {};
+
+  // Silently clean up obsolete entries whenever we check — fixes agents that
+  // haven't explicitly reinstalled since PostToolBatch/UserPromptExpansion were removed.
+  const hadObsolete = OBSOLETE_HOOK_EVENTS.some(ev => (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER]));
+  if (hadObsolete && raw?.hooks) {
+    purgeObsoleteHooks(raw.hooks);
+    if (Object.keys(raw.hooks).length === 0) { delete raw.hooks; }
+    try { fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8'); } catch { /* ignore */ }
+  }
+
   return HOOK_EVENTS.some(ev =>
     (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER] === true)
   );
+}
+
+/** Hook events that were once registered by autodev but have since been removed from Claude Code. */
+const OBSOLETE_HOOK_EVENTS = ['PostToolBatch', 'UserPromptExpansion'] as const;
+
+/** Remove autodev entries for any obsolete or unrecognised hook events from a hooks object in-place. */
+function purgeObsoleteHooks(hooks: Record<string, any[]>): void {
+  for (const ev of OBSOLETE_HOOK_EVENTS) {
+    if (!hooks[ev]) { continue; }
+    hooks[ev] = hooks[ev].filter((g: any) => !g[AUTODEV_MARKER]);
+    if (hooks[ev].length === 0) { delete hooks[ev]; }
+  }
 }
 
 export function installHooks(
@@ -108,6 +131,9 @@ export function installHooks(
 
   const raw = readSettings(filePath);
   const hooks = raw.hooks ?? {};
+
+  // Clean up stale entries from previously-valid-but-now-removed events
+  purgeObsoleteHooks(hooks);
 
   for (const ev of HOOK_EVENTS) {
     const groups = ((hooks[ev] ?? []) as any[]).filter(g => !g[AUTODEV_MARKER]);
@@ -127,6 +153,8 @@ export function uninstallHooks(scope: 'project' | 'global', workspaceRoot: strin
   const filePath = settingsPath(scope, workspaceRoot);
   const raw = readSettings(filePath);
   if (!raw.hooks) { return; }
+
+  purgeObsoleteHooks(raw.hooks);
 
   for (const ev of HOOK_EVENTS) {
     if (!raw.hooks[ev]) { continue; }

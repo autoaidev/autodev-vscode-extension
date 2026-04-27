@@ -76,7 +76,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   enableFileBrowser: false,
   gitEnabled: false,
   hooksEnabled: false,
-  hooksScope: 'global',
+  hooksScope: 'project',
   openCodeHooksEnabled: false,
 };
 

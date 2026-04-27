@@ -200,17 +200,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _syncHooks(prev: AutodevSettings, next: AutodevSettings, root: string): void {
     const wasEnabled = prev.hooksEnabled;
     const isEnabled  = next.hooksEnabled;
-    const scope      = next.hooksScope ?? 'global';
-    const prevScope  = prev.hooksScope ?? 'global';
 
     if (!isEnabled) {
-      // Uninstall from both scopes to clean up
+      // Uninstall from both scopes to clean up (global may have been set by old versions)
       if (wasEnabled || areHooksInstalled('project', root)) { uninstallHooks('project', root); }
-      if (wasEnabled || areHooksInstalled('global', root))  { uninstallHooks('global', root); }
+      if (areHooksInstalled('global', root))                { uninstallHooks('global', root); }
     } else {
-      // If scope changed, uninstall from the old scope first
-      if (wasEnabled && prevScope !== scope) { uninstallHooks(prevScope, root); }
-      installHooks(scope, root);
+      // Always project scope — also migrate away from global if it was set before
+      if (areHooksInstalled('global', root)) { uninstallHooks('global', root); }
+      installHooks('project', root);
     }
 
     // OpenCode hooks — install/uninstall plugin file
@@ -258,7 +256,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
       cozempicInstalled: this._checkCozempic(),
-      hooksInstalled: root ? (areHooksInstalled('project', root) || areHooksInstalled('global', root)) : false,
+      hooksInstalled: root ? areHooksInstalled('project', root) : false,
       openCodeHooksInstalled: root ? isOpenCodeHooksInstalled(root) : false,
     });
   }
@@ -420,11 +418,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   </div>
   <div class="cfg-section">Hook Events</div>
   <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time</label></div>
-  </div>
-  <div id="hooksScopeRow" class="cfg-row" style="display:none">
-    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeGlobal" value="global"> Global <small style="opacity:.6">~/.claude/settings.json — same file as cozempic</small></label></div>
-    <div class="cfg-field cfg-check"><label><input type="radio" name="hooksScope" id="hooksScopeProject" value="project"> Project <small style="opacity:.6">.claude/settings.json in workspace</small></label></div>
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time <small style="opacity:.6">(.claude/settings.json in workspace)</small></label></div>
   </div>
   <div id="hooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; Hooks installed — events streaming to Pixel Office</div>
   <div class="cfg-row">
@@ -608,13 +602,6 @@ function populateSettings(s){
   // Hooks
   const he=document.getElementById('cfg_hooksEnabled');
   if(he) he.checked=!!s.hooksEnabled;
-  const hscope=s.hooksScope||'project';
-  const hsp=document.getElementById('hooksScopeProject');
-  const hsg=document.getElementById('hooksScopeGlobal');
-  if(hsg) hsg.checked=hscope==='global';
-  if(hsp) hsp.checked=hscope==='project';
-  const isClaudeProv=state.selectedProvider==='claude-cli';
-  document.getElementById('hooksScopeRow').style.display=(!!s.hooksEnabled&&isClaudeProv)?'':'none';
   // OpenCode hooks
   const oce=document.getElementById('cfg_openCodeHooksEnabled');
   if(oce) oce.checked=!!s.openCodeHooksEnabled;
@@ -703,7 +690,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
     gitEnabled:document.getElementById('cfg_gitEnabled').checked,
     hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,
-    hooksScope:document.querySelector('input[name="hooksScope"]:checked')?.value||'global',
+    hooksScope:'project',
     openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     profilePath:profilePath,
