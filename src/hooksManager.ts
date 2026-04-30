@@ -71,15 +71,28 @@ const COPILOT_HOOK_EVENTS = [
 export const HOOKS_JSONL_PATH = path.join(os.homedir(), '.autodev', 'hooks-events.jsonl');
 
 /** Single-line Node.js snippet that reads stdin JSON and appends one JSONL line.
- *  Wrapped in single quotes when used as a shell argument so the inner JS can
- *  use double quotes freely. */
-function nodeAppenderJs(): string {
+ *  Optionally injects a literal hook event name and provider id into the
+ *  payload — needed for Copilot CLI which doesn't include the event name in
+ *  its stdin payload. Wrapped in single quotes so the inner JS can use
+ *  double quotes freely. */
+function nodeAppenderJs(injectEvent?: string, injectProvider?: string): string {
+  const inject = [
+    injectEvent    ? `d.hook="${injectEvent}";`         : '',
+    injectProvider ? `d.provider="${injectProvider}";`  : '',
+  ].join('');
   // eslint-disable-next-line max-len
-  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{s=JSON.stringify(JSON.parse(s))}catch(e){s=s.replace(/[\\r\\n]+/g," ")}const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,s+"\\n")})`;
+  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d;try{d=JSON.parse(s)}catch(e){d={_raw:s.replace(/[\\r\\n]+/g," ")}}${inject}const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")})`;
 }
 
-/** Shell command installed as the hook body — reads stdin JSON, appends JSONL. */
-const HOOK_COMMAND = `node -e '${nodeAppenderJs()}'`;
+/** Shell command for Claude Code — Claude already includes hook_event_name in
+ *  the stdin payload, so we don't need to inject anything. */
+const CLAUDE_HOOK_COMMAND = `node -e '${nodeAppenderJs()}'`;
+
+/** Shell command for one Copilot CLI event — Copilot doesn't include the
+ *  event name in stdin, so we bake it into the JS. */
+function copilotHookCommand(eventName: string): string {
+  return `node -e '${nodeAppenderJs(eventName, 'copilot-cli')}'`;
+}
 
 /** Returns a shell command that synthesises a hook event with no stdin payload.
  *  Used by the dispatcher to emit SessionStart/SessionEnd for providers that
@@ -155,7 +168,7 @@ export function installClaudeHooks(workspaceRoot: string): void {
     groups.push({
       [AUTODEV_MARKER]: true,
       matcher: '',
-      hooks: [{ type: 'command', command: HOOK_COMMAND }],
+      hooks: [{ type: 'command', command: CLAUDE_HOOK_COMMAND }],
     });
     hooks[ev] = groups;
   }
@@ -223,7 +236,7 @@ export function installCopilotHooks(workspaceRoot: string): void {
     const existing = ((hooks[ev] ?? []) as any[]).filter(e => !isAutodevCopilotEntry(e));
     existing.push({
       type: 'command',
-      bash: HOOK_COMMAND,
+      bash: copilotHookCommand(ev),
       timeoutSec: 30,
     });
     hooks[ev] = existing;
