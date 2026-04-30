@@ -3,14 +3,21 @@ import * as os from 'os';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
-// Claude Code hooks manager — installs/removes autodev command hooks that
-// append each event as a JSONL line to ~/.autodev/hooks-events.jsonl.
-// The task loop polls that file every 10 s and forwards events via WebSocket.
+// Hooks manager — installs/removes autodev command hooks for both:
+//   - Claude Code        → <root>/.claude/settings.json   (PascalCase events)
+//   - Copilot CLI        → <root>/.github/copilot/settings.json (camelCase events)
+// Each hook appends its stdin JSON payload (one event) as a JSONL line to
+// ~/.autodev/hooks-events.jsonl. The task-loop polls that file every 10 s and
+// forwards events via WebSocket.
+//
+// Hooks bodies are Node.js (not Python) — autodev already requires Node.js,
+// so we drop the python3 dependency.
 // ---------------------------------------------------------------------------
 
 const AUTODEV_MARKER = '__autodev_hooks__';
 
-const HOOK_EVENTS = [
+// Claude Code uses PascalCase event names.
+const CLAUDE_HOOK_EVENTS = [
   // Tool lifecycle
   'PreToolUse',
   'PostToolUse',
@@ -50,64 +57,58 @@ const HOOK_EVENTS = [
   'Notification',
 ] as const;
 
+// Copilot CLI uses camelCase event names. Only six events are documented.
+const COPILOT_HOOK_EVENTS = [
+  'sessionStart',
+  'sessionEnd',
+  'userPromptSubmitted',
+  'preToolUse',
+  'postToolUse',
+  'errorOccurred',
+] as const;
+
 /** Path of the JSONL sink that hook commands write to. */
 export const HOOKS_JSONL_PATH = path.join(os.homedir(), '.autodev', 'hooks-events.jsonl');
 
-/**
- * Returns a shell command that appends a synthetic hook event to hooks-events.jsonl.
- * The JSON payload is base64-encoded to avoid all shell quoting issues.
- * Used by the dispatcher to emit SessionStart/SessionEnd for providers that lack
- * native hooks (copilot-cli, opencode-cli).
- */
+/** Single-line Node.js snippet that reads stdin JSON and appends one JSONL line.
+ *  Wrapped in single quotes when used as a shell argument so the inner JS can
+ *  use double quotes freely. */
+function nodeAppenderJs(): string {
+  // eslint-disable-next-line max-len
+  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{try{s=JSON.stringify(JSON.parse(s))}catch(e){s=s.replace(/[\\r\\n]+/g," ")}const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,s+"\\n")})`;
+}
+
+/** Shell command installed as the hook body — reads stdin JSON, appends JSONL. */
+const HOOK_COMMAND = `node -e '${nodeAppenderJs()}'`;
+
+/** Returns a shell command that synthesises a hook event with no stdin payload.
+ *  Used by the dispatcher to emit SessionStart/SessionEnd for providers that
+ *  lack native hooks (or before the CLI has a chance to fire its own). */
 export function getManualHookCmd(provider: string, hookEvent: string, sessionName?: string): string {
-  const payload = { hook: hookEvent, provider, _session_name: sessionName ?? '' };
-  const b64 = Buffer.from(JSON.stringify(payload)).toString('base64');
-  return (
-    `python3 -c "import base64,json,os,datetime; ` +
-    `d=json.loads(base64.b64decode('${b64}').decode()); ` +
-    `d['timestamp']=datetime.datetime.utcnow().isoformat()+'Z'; ` +
-    `p=os.path.expanduser('~/.autodev/hooks-events.jsonl'); ` +
-    `os.makedirs(os.path.dirname(p),exist_ok=True); ` +
-    `open(p,'a').write(json.dumps(d)+'\\n')"`
-  );
+  // Build the JSON payload safely with JSON.stringify, then escape single
+  // quotes for the surrounding shell single-quoted argument.
+  const payload = {
+    hook: hookEvent,
+    provider,
+    _session_name: sessionName ?? '',
+  };
+  const payloadJson = JSON.stringify(payload).replace(/'/g, `'\\''`);
+  // eslint-disable-next-line max-len
+  const js = `const d=${payloadJson};d.timestamp=new Date().toISOString();const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")`;
+  return `node -e '${js}'`;
 }
 
-/** Shell command installed as the hook body — minifies stdin JSON and appends a JSONL line. */
-const HOOK_COMMAND =
-  `python3 -c "import sys,json,os; ` +
-  `d=json.load(sys.stdin); ` +
-  `p=os.path.expanduser('~/.autodev/hooks-events.jsonl'); ` +
-  `os.makedirs(os.path.dirname(p),exist_ok=True); ` +
-  `open(p,'a').write(json.dumps(d)+'\\n')"`;
+// ---------------------------------------------------------------------------
+// Claude Code hooks  (.claude/settings.json)
+// ---------------------------------------------------------------------------
 
-function settingsPath(scope: 'project' | 'global', workspaceRoot: string): string {
-  return scope === 'global'
-    ? path.join(os.homedir(), '.claude', 'settings.json')
-    : path.join(workspaceRoot, '.claude', 'settings.json');
+function claudeSettingsPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.claude', 'settings.json');
 }
 
-function readSettings(filePath: string): any {
+function readJson(filePath: string): any {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
   catch { return {}; }
-}
-
-export function areHooksInstalled(scope: 'project' | 'global', workspaceRoot: string): boolean {
-  const filePath = settingsPath(scope, workspaceRoot);
-  const raw = readSettings(filePath);
-  const hooks = raw?.hooks ?? {};
-
-  // Silently clean up obsolete entries whenever we check — fixes agents that
-  // haven't explicitly reinstalled since PostToolBatch/UserPromptExpansion were removed.
-  const hadObsolete = OBSOLETE_HOOK_EVENTS.some(ev => (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER]));
-  if (hadObsolete && raw?.hooks) {
-    purgeObsoleteHooks(raw.hooks);
-    if (Object.keys(raw.hooks).length === 0) { delete raw.hooks; }
-    try { fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8'); } catch { /* ignore */ }
-  }
-
-  return HOOK_EVENTS.some(ev =>
-    (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER] === true)
-  );
 }
 
 /** Hook events that were once registered by autodev but have since been removed from Claude Code. */
@@ -122,20 +123,34 @@ function purgeObsoleteHooks(hooks: Record<string, any[]>): void {
   }
 }
 
-export function installHooks(
-  scope: 'project' | 'global',
-  workspaceRoot: string,
-): void {
-  const filePath = settingsPath(scope, workspaceRoot);
+export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
+  const filePath = claudeSettingsPath(workspaceRoot);
+  const raw = readJson(filePath);
+  const hooks = raw?.hooks ?? {};
+
+  // Silently clean up obsolete entries whenever we check
+  const hadObsolete = OBSOLETE_HOOK_EVENTS.some(ev => (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER]));
+  if (hadObsolete && raw?.hooks) {
+    purgeObsoleteHooks(raw.hooks);
+    if (Object.keys(raw.hooks).length === 0) { delete raw.hooks; }
+    try { fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8'); } catch { /* ignore */ }
+  }
+
+  return CLAUDE_HOOK_EVENTS.some(ev =>
+    (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER] === true)
+  );
+}
+
+export function installClaudeHooks(workspaceRoot: string): void {
+  const filePath = claudeSettingsPath(workspaceRoot);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
-  const raw = readSettings(filePath);
+  const raw = readJson(filePath);
   const hooks = raw.hooks ?? {};
 
-  // Clean up stale entries from previously-valid-but-now-removed events
   purgeObsoleteHooks(hooks);
 
-  for (const ev of HOOK_EVENTS) {
+  for (const ev of CLAUDE_HOOK_EVENTS) {
     const groups = ((hooks[ev] ?? []) as any[]).filter(g => !g[AUTODEV_MARKER]);
     groups.push({
       [AUTODEV_MARKER]: true,
@@ -149,14 +164,14 @@ export function installHooks(
   fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8');
 }
 
-export function uninstallHooks(scope: 'project' | 'global', workspaceRoot: string): void {
-  const filePath = settingsPath(scope, workspaceRoot);
-  const raw = readSettings(filePath);
+export function uninstallClaudeHooks(workspaceRoot: string): void {
+  const filePath = claudeSettingsPath(workspaceRoot);
+  const raw = readJson(filePath);
   if (!raw.hooks) { return; }
 
   purgeObsoleteHooks(raw.hooks);
 
-  for (const ev of HOOK_EVENTS) {
+  for (const ev of CLAUDE_HOOK_EVENTS) {
     if (!raw.hooks[ev]) { continue; }
     raw.hooks[ev] = (raw.hooks[ev] as any[]).filter(g => !g[AUTODEV_MARKER]);
     if (raw.hooks[ev].length === 0) { delete raw.hooks[ev]; }
@@ -164,4 +179,95 @@ export function uninstallHooks(scope: 'project' | 'global', workspaceRoot: strin
 
   if (Object.keys(raw.hooks).length === 0) { delete raw.hooks; }
   fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8');
+}
+
+// ---------------------------------------------------------------------------
+// Copilot CLI hooks  (.github/copilot/settings.json)
+//
+// Copilot CLI loads repo settings from `.github/copilot/settings.json` and
+// `.github/copilot/settings.local.json`. The `hooks` field there has the
+// shape:
+//   { "<eventName>": [ { type, bash, powershell?, cwd?, timeoutSec? }, ... ] }
+// Copilot doesn't support a per-entry "marker" field like Claude does (it
+// validates each command strictly), so we identify our own entries by
+// inspecting the `bash` command for our HOOK_COMMAND fingerprint.
+// ---------------------------------------------------------------------------
+
+function copilotSettingsPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.github', 'copilot', 'settings.json');
+}
+
+/** True if the entry was installed by autodev (matches our HOOK_COMMAND). */
+function isAutodevCopilotEntry(entry: any): boolean {
+  return typeof entry?.bash === 'string'
+    && entry.bash.includes('.autodev/hooks-events.jsonl');
+}
+
+export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
+  const filePath = copilotSettingsPath(workspaceRoot);
+  const raw = readJson(filePath);
+  const hooks = raw?.hooks ?? {};
+  return COPILOT_HOOK_EVENTS.some(ev =>
+    (hooks[ev] ?? []).some(isAutodevCopilotEntry)
+  );
+}
+
+export function installCopilotHooks(workspaceRoot: string): void {
+  const filePath = copilotSettingsPath(workspaceRoot);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  const raw = readJson(filePath);
+  const hooks = raw.hooks ?? {};
+
+  for (const ev of COPILOT_HOOK_EVENTS) {
+    const existing = ((hooks[ev] ?? []) as any[]).filter(e => !isAutodevCopilotEntry(e));
+    existing.push({
+      type: 'command',
+      bash: HOOK_COMMAND,
+      timeoutSec: 30,
+    });
+    hooks[ev] = existing;
+  }
+
+  raw.hooks = hooks;
+  fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8');
+}
+
+export function uninstallCopilotHooks(workspaceRoot: string): void {
+  const filePath = copilotSettingsPath(workspaceRoot);
+  const raw = readJson(filePath);
+  if (!raw.hooks) { return; }
+
+  for (const ev of COPILOT_HOOK_EVENTS) {
+    if (!raw.hooks[ev]) { continue; }
+    raw.hooks[ev] = (raw.hooks[ev] as any[]).filter(e => !isAutodevCopilotEntry(e));
+    if (raw.hooks[ev].length === 0) { delete raw.hooks[ev]; }
+  }
+
+  if (Object.keys(raw.hooks).length === 0) { delete raw.hooks; }
+  fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8');
+}
+
+// ---------------------------------------------------------------------------
+// Combined helpers — install/uninstall both Claude + Copilot in one call so
+// the user doesn't have to think about which provider they're running.
+// ---------------------------------------------------------------------------
+
+export function installHooks(scope: 'project' | 'global', workspaceRoot: string): void {
+  // Scope arg kept for backwards compatibility — always project now.
+  void scope;
+  installClaudeHooks(workspaceRoot);
+  installCopilotHooks(workspaceRoot);
+}
+
+export function uninstallHooks(scope: 'project' | 'global', workspaceRoot: string): void {
+  void scope;
+  uninstallClaudeHooks(workspaceRoot);
+  uninstallCopilotHooks(workspaceRoot);
+}
+
+export function areHooksInstalled(scope: 'project' | 'global', workspaceRoot: string): boolean {
+  void scope;
+  // Either side counts as "installed" — the UI shows a single combined state.
+  return areClaudeHooksInstalled(workspaceRoot) || areCopilotHooksInstalled(workspaceRoot);
 }
