@@ -72,6 +72,16 @@ Capture anything project-specific that would take future sessions time to redisc
 | **Decisions** | "Chose X over Y because Z"; "Deprecated: do not use `oldHelper()`" |
 | **Build & Run** | Exact commands to build, test, lint, and start (dev and production) |
 | **Dependencies** | Non-obvious third-party libraries and why they exist |
+| **Credentials** | API keys, tokens, passwords, connection strings provided by the user |
+
+### Credentials — Save Once, Reuse Always
+
+If the user provides any credential during a session (API key, token, password, connection string, secret, etc.):
+
+1. **Store it immediately** in the Memory MCP server (key: `credentials/<name>`, e.g. `credentials/openai_api_key`).
+2. **Add a reference** to `SUMMARY.md` under `## Credentials` — record the key name and what it is for (never the raw value in plaintext where avoidable; store the actual secret only in the Memory MCP).
+3. **On future sessions**, before asking the user for any credential, query the Memory MCP first. If a stored value exists, use it silently without prompting the user again.
+4. **Never hardcode** credentials into source files. If a config file requires a value, read it from the Memory MCP at runtime or inject it via an environment variable.
 
 ### When to Update SUMMARY.md
 
@@ -108,6 +118,9 @@ Keep entries concise — one clear bullet per fact. No filler.
 
 ## Dependencies (non-obvious)
 - 
+
+## Credentials
+- <!-- key name → what it is for (actual values stored in Memory MCP only) -->
 ```
 
 ---
