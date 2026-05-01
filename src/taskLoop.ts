@@ -6,7 +6,7 @@ import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTod
 import { buildPrompt } from './prompt';
 import { writeMessageFile } from './messageBuilder';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage } from './webhook';
-import { loadSettingsForRoot, AutodevSettings } from './settings';
+import { loadSettingsForRoot, AutodevSettings } from './core/settingsLoader';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';

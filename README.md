@@ -39,6 +39,29 @@
 
 The loop runs until all tasks are done, then waits for new ones.
 
+### Or use the [autodev-cli](https://www.npmjs.com/package/autodev-cli) launcher
+
+`autodev-cli` is a companion command-line tool that scaffolds a workspace, installs this extension, opens it in your IDE, and (optionally) binds it to a [Pixel Office](https://github.com/autoaidev/pixel-office) agent — all in one shot.
+
+```bash
+npm install -g autodev-cli
+
+# Init + open in VS Code or Cursor
+autodev --ide=vscode .
+autodev --ide=cursor ./myproject
+
+# Bind to a Pixel Office agent via a signed setup URL
+autodev --setup-url='https://pixel-office.example.com/api/cli/setup/<id>?expires=…&signature=…' .
+
+# Or paste the WS URL directly
+autodev --connect='wss://host/ws?token=<api_key>&endpoint=<slug>' .
+
+# Combine — init, open the IDE, and bind credentials in one command
+autodev --setup-url='…' --ide=vscode .
+```
+
+The CLI writes settings to `.autodev/settings.json`. The extension picks them up automatically on next activation.
+
 ---
 
 ## How It Works
@@ -485,7 +508,7 @@ The `WebhookPoller` polls `GET <baseUrl>/v1/logs?status=pending&endpoint_slug=<s
 
 ## Settings Reference
 
-Stored in `.vscode/autodev.json` (auto-added to `.gitignore`). Edit via the Settings tab or the raw JSON file.
+Stored in `.autodev/settings.json` (auto-added to `.gitignore`). The legacy path `.vscode/autodev.json` is still read for back-compat — the next save migrates it to the new location automatically. Edit via the Settings tab or the raw JSON file.
 
 ### Server
 
@@ -597,7 +620,7 @@ Click the **AutoDev** icon in the Activity Bar.
 ### Settings tab
 
 - Grouped fields for Server, Discord, Loop, and Paths
-- **Save** — writes `.vscode/autodev.json`
+- **Save** — writes `.autodev/settings.json`
 - **Edit raw JSON** — opens settings file in editor
 - **Profile** dropdown — built-in profiles from `media/*.md`
 
@@ -675,7 +698,7 @@ src/
 ├── sidebar.ts            # Webview sidebar panel (HTML + message handling)
 ├── configManager.ts      # MCP + permission config sync
 ├── sessionState.ts       # Session ID persistence + file paths
-├── settings.ts           # Settings load/save (.vscode/autodev.json)
+├── settings.ts           # Settings load/save (.autodev/settings.json, legacy .vscode/autodev.json)
 ├── todo.ts               # TODO.md parser and writer
 ├── messageBuilder.ts     # Prompt builder (profile + task instruction)
 ├── webhook.ts            # Discord REST + A2A webhook client

@@ -158,10 +158,12 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._sessionWatcher.onDidChange(sessionNotify);
     this._sessionWatcher.onDidCreate(sessionNotify);
 
-    // Watch autodev.json so settings tab refreshes when file is edited externally
+    // Watch the settings file so the settings tab refreshes when edited externally.
+    // Watches both the canonical (.autodev/settings.json) and legacy (.vscode/autodev.json)
+    // locations so existing workspaces keep working until they migrate.
     this._settingsWatcher?.dispose();
     this._settingsWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, '.vscode/autodev.json')
+      new vscode.RelativePattern(root, '{.autodev/settings.json,.vscode/autodev.json}')
     );
     const settingsNotify = () => this._push();
     this._settingsWatcher.onDidChange(settingsNotify);

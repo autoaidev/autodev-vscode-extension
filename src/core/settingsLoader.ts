@@ -97,10 +97,38 @@ export function parseWsUrl(wsUrl: string): { serverBaseUrl: string; serverApiKey
   }
 }
 
-/** Load settings from `<root>/.vscode/autodev.json`, falling back to defaults. */
+// ---------------------------------------------------------------------------
+// Settings file location.
+//
+// Canonical:  <root>/.autodev/settings.json
+// Legacy:     <root>/.vscode/autodev.json   (still read for back-compat)
+//
+// Reads prefer the canonical file. If it is missing but the legacy file
+// exists, the legacy file is read transparently. New writes always go to the
+// canonical path so a workspace migrates automatically on the next save.
+// ---------------------------------------------------------------------------
+
+export const NEW_SETTINGS_REL_PATH = '.autodev/settings.json';
+export const LEGACY_SETTINGS_REL_PATH = '.vscode/autodev.json';
+
+/** Path that should be used for writes (always the new canonical location). */
+export function settingsWritePath(root: string): string {
+  return path.join(root, '.autodev', 'settings.json');
+}
+
+/** Path that should be used for reads — canonical if present, else legacy. */
+export function settingsReadPath(root: string): string {
+  const canonical = path.join(root, '.autodev', 'settings.json');
+  if (fs.existsSync(canonical)) { return canonical; }
+  const legacy = path.join(root, '.vscode', 'autodev.json');
+  if (fs.existsSync(legacy)) { return legacy; }
+  return canonical; // doesn't exist; callers handle missing-file
+}
+
+/** Load settings, preferring `.autodev/settings.json` and falling back to the legacy `.vscode/autodev.json`. */
 export function loadSettingsForRoot(root: string): AutodevSettings {
   try {
-    const file = path.join(root, '.vscode', 'autodev.json');
+    const file = settingsReadPath(root);
     if (!fs.existsSync(file)) { return { ...SETTINGS_DEFAULTS }; }
     const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<AutodevSettings>;
     const merged = { ...SETTINGS_DEFAULTS, ...raw };

@@ -5,7 +5,13 @@ import * as path from 'path';
 // Re-export the pure settings type and loader so VS Code extension code can
 // import from a single place.
 export { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/settingsLoader';
-import { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/settingsLoader';
+import {
+  AutodevSettings,
+  SETTINGS_DEFAULTS,
+  loadSettingsForRoot,
+  settingsWritePath,
+  settingsReadPath,
+} from './core/settingsLoader';
 
 // ---------------------------------------------------------------------------
 // VS Code-aware settings helpers
@@ -14,7 +20,13 @@ import { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/
 function settingsPath(): string | undefined {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) { return undefined; }
-  return path.join(folders[0].uri.fsPath, '.vscode', 'autodev.json');
+  return settingsWritePath(folders[0].uri.fsPath);
+}
+
+function settingsPathForReading(): string | undefined {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) { return undefined; }
+  return settingsReadPath(folders[0].uri.fsPath);
 }
 
 /** Load settings using the VS Code workspace root (falls back to defaults). */
@@ -30,7 +42,7 @@ export function saveSettings(settings: AutodevSettings): void {
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
   fs.writeFileSync(file, JSON.stringify(settings, null, 2), 'utf8');
-  ensureGitignore(path.dirname(dir), '.vscode/autodev.json');
+  ensureGitignore(path.dirname(dir), '.autodev/');
 }
 
 /** Add `entry` to the project .gitignore if not already present. */
@@ -46,13 +58,15 @@ function ensureGitignore(root: string, entry: string): void {
   } catch { /* ignore — .gitignore may not be writable */ }
 }
 
-/** Open .vscode/autodev.json in the editor (create with defaults if missing). */
+/** Open the settings file in the editor (create with defaults at the canonical path if missing). */
 export async function openSettingsFile(): Promise<void> {
-  const file = settingsPath();
-  if (!file) {
+  const readFile  = settingsPathForReading();
+  const writeFile = settingsPath();
+  if (!writeFile) {
     vscode.window.showWarningMessage('AutoDev: No workspace folder open.');
     return;
   }
+  const file = readFile && fs.existsSync(readFile) ? readFile : writeFile;
   if (!fs.existsSync(file)) {
     saveSettings(SETTINGS_DEFAULTS);
   }
