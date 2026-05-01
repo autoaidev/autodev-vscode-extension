@@ -44,6 +44,70 @@ If a **Computer Use MCP** server is available, use it to directly control the de
 
 ---
 
+## 0.1 Learning Protocol — SUMMARY.md
+
+**`SUMMARY.md` is your persistent project memory.** It survives across sessions and accumulates hard-won knowledge about this specific codebase.
+
+### On Session Start — Read First
+
+Before reading `TODO.md`, before exploring the codebase, check for `SUMMARY.md` in the project root:
+
+- **If `SUMMARY.md` exists:** read it in full before doing anything else. Treat every entry as authoritative — it captures decisions and discoveries made in prior sessions that are not obvious from the code.
+- **If `SUMMARY.md` does not exist:** create it now using the skeleton below, then fill it in as you orient yourself.
+
+### What Belongs in SUMMARY.md
+
+Capture anything project-specific that would take future sessions time to rediscover:
+
+| Category | Examples |
+|---|---|
+| **Architecture** | "Frontend is a React SPA; API lives at `/api`"; "Auth uses JWT in httpOnly cookies" |
+| **Naming Conventions** | "Service classes: `*Service.ts`; repositories: `*Repo.ts`"; "Tests co-located as `*.test.ts`" |
+| **Key Files** | Entry point, config loader, router, DB schema, env template |
+| **Gotchas / Known Issues** | "`npm test` hangs without `--forceExit`"; "ORM requires raw SQL for bulk inserts" |
+| **Decisions** | "Chose X over Y because Z"; "Deprecated: do not use `oldHelper()`" |
+| **Build & Run** | Exact commands to build, test, lint, and start (dev and production) |
+| **Dependencies** | Non-obvious third-party libraries and why they exist |
+
+### When to Update SUMMARY.md
+
+Update it whenever you:
+- Discover something non-obvious during codebase orientation.
+- Make an architectural or convention decision that future sessions must honour.
+- Resolve a tricky bug whose root cause could recur.
+- Complete a task that changes how the project is built, run, or structured.
+
+Keep entries concise — one clear bullet per fact. No filler.
+
+### SUMMARY.md Skeleton (create if missing)
+
+```markdown
+# Project Summary
+
+## Architecture
+- 
+
+## Naming & Conventions
+- 
+
+## Key Files
+- 
+
+## Build & Run
+- 
+
+## Gotchas & Known Issues
+- 
+
+## Decisions
+- 
+
+## Dependencies (non-obvious)
+- 
+```
+
+---
+
 ## 1. Non-Negotiable Rules
 
 ### 1.1 Read Before You Touch Anything
