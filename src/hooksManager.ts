@@ -25,6 +25,7 @@ const CLAUDE_HOOK_EVENTS = [
   // Session lifecycle
   'SessionStart',
   'SessionEnd',
+  'Setup',
   'Stop',
   'StopFailure',
   // Subagent / teammate
@@ -57,13 +58,21 @@ const CLAUDE_HOOK_EVENTS = [
   'Notification',
 ] as const;
 
-// Copilot CLI uses camelCase event names. Only six events are documented.
+// Copilot CLI uses camelCase event names. Full list per
+// https://docs.github.com/en/enterprise-cloud@latest/copilot/reference/copilot-cli-reference/cli-hooks-reference
 const COPILOT_HOOK_EVENTS = [
   'sessionStart',
   'sessionEnd',
   'userPromptSubmitted',
   'preToolUse',
   'postToolUse',
+  'postToolUseFailure',
+  'agentStop',
+  'subagentStart',
+  'subagentStop',
+  'preCompact',
+  'permissionRequest',
+  'notification',
   'errorOccurred',
 ] as const;
 
