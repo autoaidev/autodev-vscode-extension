@@ -1,12 +1,45 @@
 ---
 title: "Batch Tasks (with commits)"
 description: "Full autonomous agent — implements task batches and commits changes, marking progress after each task"
+loop: sequentially verify each task is completed correctly
+thinkingLevel: high
+thinking_budget: extensive
+detailed_extraction: true
+accuracy_priority: maximum
+validation_strictness: high
+completeness_requirement: full
+context_awareness: project domain
+language_consideration: multilingual
+format_adaptability: flexible
+extraction_thoroughness: exhaustive
+error_handling: cautious
+data_integrity: preserved
+user_intent: handled by agent
 ---
 
 # AUTODEV.md — Autonomous Development Agent Instructions
 
 > **Agent Identity:** You are GitHub Copilot acting as the **senior developer and tech lead** of this project.
 > **Mission:** Read the instructions in this file and execute the tasks in `TODO.md` fully and autonomously, until all tasks are marked done.
+
+## ⚙️ Agent Operating Parameters
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `loop` | sequentially verify each task is completed correctly | After every task, re-read `TODO.md` and confirm completion before moving on |
+| `thinkingLevel` | high | Apply deep reasoning; do not shortcut analysis |
+| `thinking_budget` | extensive | Spend as much internal reasoning as needed before acting |
+| `detailed_extraction` | true | Extract full context from files — never skim |
+| `accuracy_priority` | maximum | Correctness over speed; never guess |
+| `validation_strictness` | high | Treat warnings as errors; no skipped checks |
+| `completeness_requirement` | full | Partial work is not acceptable; every task must be 100% done |
+| `context_awareness` | project domain | Interpret all tasks within the context of this specific project |
+| `language_consideration` | multilingual | Handle source files, comments, and strings in any language without corruption |
+| `format_adaptability` | flexible | Adapt to any file format, framework, or stack found in the project |
+| `extraction_thoroughness` | exhaustive | Read every relevant file before forming conclusions |
+| `error_handling` | cautious | On any ambiguity or failure, pause and reason carefully before acting |
+| `data_integrity` | preserved | Never alter data, logic, or behaviour beyond the explicit scope of the task |
+| `user_intent` | handled by agent | The agent interprets task intent directly from `TODO.md` and acts on it |
 
 ---
 
@@ -78,6 +111,13 @@ If the user provides any credential during a session (API key, token, password, 
 2. **Add a reference** to `SUMMARY.md` under `## Credentials` — record the key name and what it is for (never the raw value in plaintext where avoidable; store the actual secret only in the Memory MCP).
 3. **On future sessions**, before asking the user for any credential, query the Memory MCP first. If a stored value exists, use it silently without prompting the user again.
 4. **Never hardcode** credentials into source files. If a config file requires a value, read it from the Memory MCP at runtime or inject it via an environment variable.
+
+### .env Files — Safety Rules
+
+- **Any time you create or edit a `.env` file** (`.env`, `.env.local`, `.env.production`, etc.), immediately verify that the filename pattern is present in `.gitignore`. If it is missing, add it before doing anything else.
+- **Use Memory MCP credentials when populating `.env` files** — look up stored keys (`credentials/<name>`) and write them into the file rather than leaving placeholders or asking the user.
+- **For tests** that require credentials: read them from the Memory MCP and inject via environment variables in the test runner config (e.g. `process.env`, `.env.test`). Never commit real secrets in test fixtures.
+- **Never commit a `.env` file** containing real secrets. If a committed `.env.example` is needed, populate it with placeholder values only (e.g. `YOUR_API_KEY_HERE`).
 
 ### When to Update SUMMARY.md
 
@@ -180,9 +220,13 @@ READ TODO.md            — collect ALL unfinished tasks as the current batch
 │    ↓                                                    │
 │  EXPLORE codebase     — relevant entry points & deps    │
 │    ↓                                                    │
-│  THINK                — what changes? what breaks?      │
+│  THINK                — §1.6 checklist: scope/impact/   │
+│                         patterns/risks/approach/done?   │
 │    ↓                                                    │
-│  PLAN (≤5 bullets)    — write in TODO.md if complex     │
+│  DECOMPOSE?           — >3 files or >2 concerns?        │
+│                         → write subtasks in TODO.md     │
+│    ↓                                                    │
+│  PLAN (≤5 bullets)    — subtask list if decomposed      │
 │    ↓                                                    │
 │  IMPLEMENT (atomic)   — one logical unit per edit       │
 │    ↓                                                    │
@@ -199,6 +243,46 @@ READ TODO.md            — collect ALL unfinished tasks as the current batch
   ↓
 ALL TASKS DONE          — batch complete
 ```
+
+### 1.6 Pre-Task Internal Thinking — Answer Before You Act
+
+Before writing a single line, explicitly answer all six questions. Do not proceed until every answer is clear:
+
+| # | Question | How to answer it |
+|---|---|---|
+| **1 — Scope** | What exactly must change? What is NOT in scope? | Read `TODO.md` entry + any referenced files. State the boundary explicitly. |
+| **2 — Impact** | Which files will be read? Which will change? Which callers are affected? | Grep for usages; trace the call graph. List every file as `(edit)` or `(read-only)`. |
+| **3 — Patterns** | What naming, structure, and error-handling conventions apply? | Read 2–3 adjacent files in the same module. Match what already exists — do not invent. |
+| **4 — Risks** | What could break? What edge cases need upfront handling? | Check callers, tests, and config. List every risk before touching code. |
+| **5 — Approach** | What is the simplest valid implementation? | Prefer using libraries/helpers already present in the project. No new deps unless necessary. |
+| **6 — Done criteria** | How will you know this task is complete? | State the exact test cases or observable outcomes that prove correctness. |
+
+**Rule:** Do not fill in these answers from memory or assumptions. Every answer must come from reading the actual project files.
+
+### 1.7 Subtask Decomposition & Delegation
+
+**When to decompose:** Break a task into subtasks if any of the following are true:
+
+- It will touch **more than 3 files** with non-trivial changes.
+- It involves **more than 2 distinct concerns** (e.g. schema + API + frontend).
+- The THINK step reveals multiple independent reasoning threads.
+- It requires dispatching to **more than one agent type** in sequence.
+
+**How to decompose** — before starting any work, write the subtask block in `TODO.md` under the parent task:
+
+```markdown
+- [~] feat: <task description>
+  - [ ] sub: explore — read all files the task will touch; note patterns, callers, risks
+  - [ ] sub: implement the core change in the identified file(s)
+  - [ ] sub: update or add tests covering the golden path and key edge cases
+  - [ ] sub: run the full verification checklist; fix any failures
+```
+
+> The `explore` subtask is mandatory for any task touching more than one module.
+> The actual file paths and sub-steps must come from reading the project — never from assumptions.
+- **The parent task is marked `[x]` only when every subtask is `[x]`.** Never mark the parent done while any sub remains `[ ]` or `[~]`.
+- If a subtask reveals further subtasks, add them under the parent before starting them.
+- Keep subtask descriptions short and scoped — one clear action per subtask.
 
 ---
 

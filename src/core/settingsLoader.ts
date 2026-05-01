@@ -43,6 +43,13 @@ export interface AutodevSettings {
   hooksEnabled: boolean;
   hooksScope: 'project' | 'global';
   openCodeHooksEnabled: boolean;
+  /**
+   * If true, the VS Code extension auto-starts the task loop on activation
+   * (when a wsUrl is set). Useful for `autodev --setup-url=… --ide=vscode`
+   * where the user expects the agent to come online immediately on launch.
+   * Default false — opt in via .autodev/settings.json (the CLI sets it true).
+   */
+  autoStartLoop: boolean;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -78,6 +85,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   hooksEnabled: false,
   hooksScope: 'project',
   openCodeHooksEnabled: false,
+  autoStartLoop: false,
 };
 
 /**

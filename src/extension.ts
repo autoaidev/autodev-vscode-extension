@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { taskLoopRunner } from './taskLoop';
-import { openSettingsFile } from './settings';
+import { openSettingsFile, loadSettings } from './settings';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
@@ -84,6 +84,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('autodev.openSettings', () => openSettingsFile()),
   );
+
+  // Auto-start the task loop when a workspace was bound via the autodev CLI
+  // (`--setup-url` / `--connect`) and `autoStartLoop: true` is set in
+  // .autodev/settings.json. Without this, the user has to click ▶ Start every
+  // time they reopen the IDE — which is surprising for the CLI-driven flow.
+  if (root) {
+    try {
+      const s = loadSettings();
+      if (s.autoStartLoop && s.wsUrl) {
+        log(`autoStartLoop=true and wsUrl set → starting task loop in 1s`);
+        setTimeout(() => {
+          if (taskLoopRunner.state === 'idle') {
+            void vscode.commands.executeCommand('autodev.startTaskLoop');
+          }
+        }, 1000);
+      }
+    } catch (err) {
+      log(`autoStart check failed: ${(err as Error).message}`);
+    }
+  }
 }
 
 export function deactivate(): void {}
