@@ -25,18 +25,102 @@ export const PROMPT_FILE = '.autodev/TEMP_PROMPT.md';
 /** .autodev/AGENT_PROFILE.md — profile instructions written per task */
 export const AGENT_PROFILE_FILE = '.autodev/AGENT_PROFILE.md';
 
-/**.autodev/output/<providerId>.txt — stdout capture per provider */
-export function stdoutFilePath(root: string, providerId: string): string {
+// ---------------------------------------------------------------------------
+// Per-message output files
+// ───────────────────────────────────────────────────────────────────────────
+// Each CLI dispatch gets a unique messageId. Output and exit files live at:
+//   .autodev/output/<providerId>/<messageId>.txt        ← stdout capture
+//   .autodev/output/<providerId>/<messageId>.exit.txt   ← exit code
+// A pointer file `.autodev/output/<providerId>.latest` always contains the
+// current messageId, so existing callers of `stdoutFilePath/exitFilePath`
+// transparently see the latest message's files without API changes.
+//
+// This prevents the previous bug where the shared per-provider file got
+// overwritten between back-to-back tasks, sometimes losing the final output.
+// ---------------------------------------------------------------------------
+
+const MAX_MESSAGES_KEPT = 100; // delete older than this per provider
+
+function outputBase(root: string): string {
   const dir = path.join(autodevDir(root), 'output');
   if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-  return path.join(dir, `${providerId}.txt`);
+  return dir;
 }
 
-/** .autodev/output/<providerId>-exit.txt — written with exit code when CLI process finishes */
-export function exitFilePath(root: string, providerId: string): string {
-  const dir = path.join(autodevDir(root), 'output');
+function pointerPath(root: string, providerId: string): string {
+  return path.join(outputBase(root), `${providerId}.latest`);
+}
+
+function legacyStdoutPath(root: string, providerId: string): string {
+  return path.join(outputBase(root), `${providerId}.txt`);
+}
+
+function legacyExitPath(root: string, providerId: string): string {
+  return path.join(outputBase(root), `${providerId}-exit.txt`);
+}
+
+/** Read the messageId currently pointed at, or null if none yet. */
+export function latestMessageId(root: string, providerId: string): string | null {
+  try {
+    const p = pointerPath(root, providerId);
+    if (!fs.existsSync(p)) { return null; }
+    const id = fs.readFileSync(p, 'utf8').trim();
+    return id || null;
+  } catch { return null; }
+}
+
+/** Path of the latest message's stdout file. Falls back to legacy path if
+ *  no message has been rotated yet (so first-time installs keep working). */
+export function stdoutFilePath(root: string, providerId: string): string {
+  const id = latestMessageId(root, providerId);
+  if (!id) { return legacyStdoutPath(root, providerId); }
+  const dir = path.join(outputBase(root), providerId);
   if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-  return path.join(dir, `${providerId}-exit.txt`);
+  return path.join(dir, `${id}.txt`);
+}
+
+/** Path of the latest message's exit file. */
+export function exitFilePath(root: string, providerId: string): string {
+  const id = latestMessageId(root, providerId);
+  if (!id) { return legacyExitPath(root, providerId); }
+  const dir = path.join(outputBase(root), providerId);
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  return path.join(dir, `${id}.exit.txt`);
+}
+
+/** Rotate to a fresh messageId and return the empty stdout/exit file paths
+ *  the dispatcher should write to and tee into. Updates the pointer file so
+ *  every subsequent call to stdoutFilePath/exitFilePath returns these paths. */
+export function newMessageOutput(
+  root: string,
+  providerId: string,
+): { messageId: string; stdoutFile: string; exitFile: string } {
+  const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const dir = path.join(outputBase(root), providerId);
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  const stdoutFile = path.join(dir, `${messageId}.txt`);
+  const exitFile   = path.join(dir, `${messageId}.exit.txt`);
+  // Atomically point at the new id BEFORE returning so concurrent readers see it
+  fs.writeFileSync(pointerPath(root, providerId), messageId, 'utf8');
+  // Best-effort cleanup of older messages
+  pruneOldMessages(dir, MAX_MESSAGES_KEPT);
+  return { messageId, stdoutFile, exitFile };
+}
+
+function pruneOldMessages(dir: string, keep: number): void {
+  try {
+    const files = fs.readdirSync(dir);
+    // Distinct message IDs derived from filenames `<id>.txt` / `<id>.exit.txt`
+    const ids = Array.from(new Set(
+      files.map(f => f.replace(/\.exit\.txt$|\.txt$/, ''))
+           .filter(id => id && id !== '')
+    )).sort(); // lexicographic = chronological since IDs start with Date.now()
+    const toDelete = ids.slice(0, Math.max(0, ids.length - keep));
+    for (const id of toDelete) {
+      try { fs.unlinkSync(path.join(dir, `${id}.txt`)); } catch { /* ignore */ }
+      try { fs.unlinkSync(path.join(dir, `${id}.exit.txt`)); } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
 }
 
 type SessionMap = Partial<Record<string, string>>;
@@ -103,8 +187,10 @@ export function captureAndSaveSessionId(
   fallbackSessionId?: string,
 ): void {
   try {
-    // For claude-cli and opencode-cli, session ID is in the per-provider stdout capture file
-    const captureFile = (providerId === 'claude-cli' || providerId === 'opencode-cli')
+    // All CLI providers tee stdout to the per-message capture file now.
+    // Falls back to the legacy SESSION_OUT_FILE only if the latest-message
+    // file is absent (e.g. very first dispatch hasn't created a pointer yet).
+    const captureFile = fs.existsSync(stdoutFilePath(root, providerId))
       ? stdoutFilePath(root, providerId)
       : path.join(root, SESSION_OUT_FILE);
     if (fs.existsSync(captureFile)) {

@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
 import { IProcessLauncher } from './core/adapters';
-import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, stdoutFilePath, exitFilePath, autodevDir } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, newMessageOutput, autodevDir } from './sessionState';
 import { loadSettingsForRoot } from './core/settingsLoader';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -133,31 +133,34 @@ export async function sendPromptToAi(
       }
     }
 
+    // Allocate a fresh per-message stdout + exit file pair so back-to-back
+    // tasks don't overwrite each other's output. The pointer file also moves
+    // so subsequent reads from taskLoop transparently target this message.
+    const { messageId, stdoutFile, exitFile } = newMessageOutput(root, providerId);
+    try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
+    try { fs.writeFileSync(exitFile,   '', 'utf8'); } catch { /* ignore */ }
+    log(`Message id: ${messageId} (output: ${path.basename(stdoutFile)})`);
+
     let cmd: string;
     if (providerId === 'claude-cli') {
       cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
-      const stdoutFile = stdoutFilePath(root, providerId);
-      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
+      cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
         cmd = wrapWithSyntheticHooks(cmd, 'copilot-cli', path.basename(root));
       }
     } else {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId);
-      const stdoutFile = stdoutFilePath(root, providerId);
-      try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
       cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
         cmd = wrapWithSyntheticHooks(cmd, 'opencode-cli', path.basename(root));
       }
     }
 
-    const exitFile = exitFilePath(root, providerId);
-    try { fs.writeFileSync(exitFile, '', 'utf8'); } catch { /* ignore */ }
     cmd = withExitFile(cmd, exitFile);
 
     const termName = `AutoDev: ${providerCfg.label}`;
