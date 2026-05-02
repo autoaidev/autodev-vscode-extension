@@ -1,4 +1,4 @@
-name: Publish to VS Code Marketplace
+name: Publish (npm + VS Code Marketplace)
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'package.json'   # only run when package.json changes (version bump)
+  workflow_dispatch:     # allow manual re-run from the Actions tab
 
 jobs:
   publish:
@@ -14,12 +15,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need HEAD~1 for the version diff below
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
         run: npm ci
@@ -27,20 +31,46 @@ jobs:
       - name: Compile
         run: npm run compile
 
-      - name: Check version changed
+      - name: Detect version change
         id: version_check
         run: |
-          # Compare version in current commit vs the previous commit
           CURRENT=$(node -p "require('./package.json').version")
-          PREVIOUS=$(git show HEAD~1:package.json 2>/dev/null | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" || echo "0.0.0")
-          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          PREVIOUS=$(git show HEAD~1:package.json 2>/dev/null \
+            | node -p "JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).version" || echo "0.0.0")
+          echo "current=$CURRENT"   >> $GITHUB_OUTPUT
           echo "previous=$PREVIOUS" >> $GITHUB_OUTPUT
           if [ "$CURRENT" != "$PREVIOUS" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true"  >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
+          echo "Local version: $CURRENT, previous commit: $PREVIOUS"
 
-      - name: Publish to Marketplace
+      # ── npm ──────────────────────────────────────────────────────────────
+      - name: Check npm registry version
+        id: npm_check
         if: steps.version_check.outputs.changed == 'true'
-        run: npx @vscode/vsce publish -p ${{ secrets.VSCE_PAT }}
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          REMOTE=$(npm view "$NAME" version 2>/dev/null || echo "0.0.0")
+          LOCAL="${{ steps.version_check.outputs.current }}"
+          echo "remote=$REMOTE" >> $GITHUB_OUTPUT
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "publish=true"  >> $GITHUB_OUTPUT
+          else
+            echo "publish=false" >> $GITHUB_OUTPUT
+          fi
+          echo "npm registry: $REMOTE, local: $LOCAL"
+
+      - name: Publish to npm
+        if: steps.npm_check.outputs.publish == 'true'
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── VS Code Marketplace ──────────────────────────────────────────────
+      - name: Publish to VS Code Marketplace
+        if: steps.version_check.outputs.changed == 'true' && env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce publish -p "$VSCE_PAT"
