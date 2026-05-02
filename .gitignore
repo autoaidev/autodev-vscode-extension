@@ -5,3 +5,9 @@
 /.vscode/settings.json
 /.vscode/tasks.json
 /.idea
+/.claude/settings.json
+/.claude/settings.local.json
+/.mcp.json
+/.vscode/mcp.json
+/opencode.json
+/*.vsix

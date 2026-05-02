@@ -40,6 +40,13 @@
   ],
   "activationEvents": [],
   "main": "./out/extension.js",
+  "files": [
+    "out",
+    "media",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "exports": {
     ".": "./out/extension.js",
     "./sdk": "./out/sdk/index.js",
