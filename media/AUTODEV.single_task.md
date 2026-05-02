@@ -211,6 +211,287 @@ Before marking `[x]` and committing, write at minimum one Memory MCP node captur
 
 ---
 
+## 0.3 Continuous Self-Improvement — Living Project Docs
+
+Beyond `SUMMARY.md` and Memory MCP, the agent maintains four **living documents** in the project root. These are never deleted — they grow with every session.
+
+---
+
+### PROJECT.md — Project Knowledge Base
+
+**Purpose:** Deep, evergreen knowledge about this project — architecture, domain logic, module map, data models, integrations, deployment topology.
+
+**Update when:**
+- A new module, service, or integration is added or understood.
+- The data model or API contract changes.
+- Infrastructure or deployment details are discovered or modified.
+- Any fact is learned that future developers would need to understand the system.
+
+**Format:**
+```markdown
+# Project Knowledge Base
+
+## Overview
+- 
+
+## Architecture & Module Map
+- 
+
+## Domain Logic
+- 
+
+## Data Models
+- 
+
+## Integrations & External Services
+- 
+
+## Deployment & Infrastructure
+- 
+
+## Environment Variables
+- 
+```
+
+**Rule:** Create `PROJECT.md` at the start of the first session if it does not exist. Add at least one new entry per session.
+
+---
+
+### TROUBLESHOOTING.md — Failure & Fix Register
+
+**Purpose:** A searchable record of every error, failure, and gotcha encountered — with root cause and fix. Prevents the same problem from consuming time twice.
+
+**Update when:**
+- Any error, exception, test failure, or build break is resolved.
+- A confusing behaviour is explained.
+- A workaround is applied (document the real fix too, if known).
+
+**Entry format (append, never overwrite):**
+```markdown
+## YYYY-MM-DD — <short title>
+
+**Symptom:** What went wrong / what the error message said.
+**Root cause:** Why it happened.
+**Fix:** Exact change or command that resolved it.
+**Recurrence signal:** How to detect this problem early next time.
+```
+
+**Rule:** Create `TROUBLESHOOTING.md` if it does not exist. Every resolved error must get an entry before the task is marked `[x]`.
+
+---
+
+### SETUP.md — Installation & Onboarding Guide
+
+**Purpose:** Exact, tested steps to get the project running from scratch on a clean machine. Updated every time the setup process changes.
+
+**Update when:**
+- A new dependency or tool is required.
+- An environment variable is added or renamed.
+- The build, test, or start commands change.
+- A prerequisite (runtime version, service, credentials) is discovered.
+
+**Format:**
+```markdown
+# Setup & Installation
+
+## Prerequisites
+- 
+
+## Installation
+
+```bash
+# step-by-step, tested commands only
+```
+
+## Environment Variables
+| Variable | Required | Description |
+|---|---|---|
+| `VAR_NAME` | yes | what it does |
+
+## Running the Project
+
+```bash
+# dev
+# test
+# build
+# production
+```
+
+## Known Setup Gotchas
+- 
+```
+
+**Rule:** Create `SETUP.md` if it does not exist. Commands in `SETUP.md` must be verified to actually work — never copy-paste without testing.
+
+---
+
+### CHANGELOG.md — Completed Work Log
+
+**Purpose:** A permanent, human-readable record of every task completed. Written at the moment a task is marked `[x]` in `TODO.md`.
+
+**Rule: Every task completion MUST produce a CHANGELOG.md entry.** This is not optional. The entry is written before the git commit.
+
+**Entry format (prepend — newest first):**
+```markdown
+## [YYYY-MM-DD] <task text exactly as it appeared in TODO.md>
+
+- **What changed:** Files modified and the nature of each change.
+- **Why:** The reason for the change (task goal).
+- **Impact:** Anything downstream that may be affected.
+- **Notes:** Edge cases handled, decisions made, follow-ups needed.
+```
+
+**Skeleton (create if missing):**
+```markdown
+# Changelog
+
+All completed tasks are recorded here in reverse-chronological order.
+
+---
+```
+
+**Rule:** Create `CHANGELOG.md` if it does not exist. Never edit or delete past entries. The Done section of `TODO.md` is a status list; `CHANGELOG.md` is the detailed record.
+
+---
+
+## 0.4 Automatic Skill Development — Live Project Skills
+
+As the agent learns about the project it **automatically creates and live-updates three agent instruction files** — one for each AI tool used in this project — so that every future session (regardless of which tool is used) starts with full project context already baked in.
+
+### The Three Skill Files
+
+| File | Tool that reads it | Format requirement |
+|---|---|---|
+| `.github/copilot-instructions.md` | GitHub Copilot | YAML frontmatter `applyTo: '**'` |
+| `CLAUDE.md` | Claude Code CLI | Plain markdown, no frontmatter |
+| `AGENTS.md` | OpenCode | Plain markdown, no frontmatter |
+
+**All three files contain the same project knowledge.** They are kept in sync — when one is updated, all three are updated in the same operation.
+
+### What Goes In All Three Files
+
+A curated, agent-readable distillation of confirmed project knowledge. Not a dump — only actionable, reusable facts:
+
+| Category | What to write |
+|---|---|
+| **Project identity** | One-line purpose, primary language/framework, entry points |
+| **Architecture rules** | Module boundaries, forbidden cross-module calls, key patterns |
+| **Naming conventions** | File names, class names, variable styles confirmed from the codebase |
+| **Build & run** | Exact commands to build, test, start in dev and prod |
+| **Code style** | Formatting, lint rules, patterns the team uses consistently |
+| **Domain vocabulary** | Project-specific terms and what they mean |
+| **What NOT to do** | Anti-patterns seen in the codebase, known footguns |
+| **Key files** | Most important files every contributor should know |
+
+### Update Triggers
+
+Update all three files whenever:
+- A new architectural pattern or module boundary is confirmed.
+- A naming or style convention is discovered or enforced.
+- A domain term is clarified.
+- A footgun or anti-pattern is encountered.
+- The build/run/test process changes.
+- **At minimum: once per session**, even if only to add a single bullet.
+
+### Skeletons
+
+**`.github/copilot-instructions.md`** (Copilot — requires frontmatter):
+```markdown
+---
+applyTo: '**'
+---
+# <Project Name> — Copilot Instructions
+
+## Project Identity
+- 
+
+## Architecture Rules
+- 
+
+## Naming Conventions
+- 
+
+## Build & Run
+
+## Code Style
+- 
+
+## Domain Vocabulary
+- 
+
+## Do NOT Do
+- 
+
+## Key Files
+- 
+```
+
+**`CLAUDE.md`** (Claude Code — no frontmatter):
+```markdown
+# <Project Name> — Claude Instructions
+
+## Project Identity
+- 
+
+## Architecture Rules
+- 
+
+## Naming Conventions
+- 
+
+## Build & Run
+
+## Code Style
+- 
+
+## Domain Vocabulary
+- 
+
+## Do NOT Do
+- 
+
+## Key Files
+- 
+```
+
+**`AGENTS.md`** (OpenCode — no frontmatter):
+```markdown
+# <Project Name> — Agent Instructions
+
+## Project Identity
+- 
+
+## Architecture Rules
+- 
+
+## Naming Conventions
+- 
+
+## Build & Run
+
+## Code Style
+- 
+
+## Domain Vocabulary
+- 
+
+## Do NOT Do
+- 
+
+## Key Files
+- 
+```
+
+### Rules
+
+- **Create all three on first session** if they do not exist, using the skeletons above.
+- **Always update all three together** — never update one without the others.
+- **Never truncate** — append and refine, never delete confirmed knowledge.
+- **Verify before writing** — only write conventions confirmed by reading actual code, not assumptions.
+- After updating, add a one-line note to `SUMMARY.md` under `## Key Files`.
+
+---
+
 ## 1. Non-Negotiable Rules
 
 ### 1.1 Read Before You Touch Anything

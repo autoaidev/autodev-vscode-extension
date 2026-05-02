@@ -1,0 +1,31 @@
+# What npm publishes — anything listed here is EXCLUDED from the package.
+# The VSIX uses .vscodeignore separately; vsce errors out if both .vscodeignore
+# and a "files" field in package.json are present, so we use ignore-files for
+# both targets instead.
+
+# Source — only the compiled out/ should ship
+src/
+tsconfig.json
+**/*.ts
+!**/*.d.ts
+**/*.map
+
+# Tooling / dev only
+.vscode/
+.vscode-test/
+.idea/
+.github/
+node_modules/
+.gitignore
+.eslintrc*
+__old/
+
+# VSIX artefacts and big binaries — these don't belong in the npm tarball
+*.vsix
+codebase.txt
+codebase_output.bat
+PUBLISH.md
+SUPPORT.md
+
+# Image / asset bloat that isn't needed at runtime
+media/icon.png
