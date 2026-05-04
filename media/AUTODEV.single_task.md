@@ -690,6 +690,45 @@ After implementation is complete, run all four personas **before the verificatio
 
 ---
 
+### 1.9 Parallel Specialist Panel — Swap-Test Sub-Agents
+
+Every non-trivial task is executed by **five isolated specialist sub-agents**. They do not share context. They do not read each other's output during execution. Each receives only what it needs to do its specific job.
+
+```
+ARCHITECT ──┐
+CODER    ────┤
+REVIEWER ────┤── no shared context
+TESTER   ────┤
+OPS      ──┘
+```
+
+**Agent 1 — Architect:** Designs structure. Breaks feature into tasks. Decides build order. Produces interface contracts. Never writes implementation code.
+
+**Agent 2 — Coder:** Implements based solely on Architect's spec. Reads every file before editing. Matches existing patterns. No dead code, no magic values. Does NOT run tests or deploy.
+
+**Agent 3 — Reviewer:** Receives only the diff. Checks for bugs, edge cases, injection surfaces, auth gaps, secret leaks, resource leaks, concurrency issues. Verdicts: `APPROVED` or `CHANGES-REQUIRED: [file:line severity fix]`. BLOCKERs must be fixed before Tester runs.
+
+**Agent 4 — Tester:** Generates and runs tests. Covers golden path, boundary values, failure paths, regression. Reports failures back to Coder with exact error text. Does not edit implementation code.
+
+**Agent 5 — Ops:** Deploys, runs health checks, manages env vars and secrets, documents in `CHANGELOG.md`. Does not deploy if Reviewer or Tester have open issues. Rolls back immediately on failed health check.
+
+**Execution order:**
+```
+Architect → Coder → Reviewer → (fix loop if needed) → Tester → Ops
+```
+
+**TODO.md format:**
+```markdown
+- [~] feat: <task>
+  - [ ] architect: spec + task breakdown
+  - [ ] coder: implement per spec
+  - [ ] reviewer: diff review → verdict
+  - [ ] tester: tests written + passing
+  - [ ] ops: deployed + health-check green
+```
+
+---
+
 ## 2. Codebase Orientation
 
 Before writing a single line, orient yourself:
