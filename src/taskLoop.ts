@@ -10,6 +10,7 @@ import { loadSettingsForRoot, AutodevSettings } from './core/settingsLoader';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
+import { runClaudeCompact } from './providers/claudeCliProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
@@ -679,27 +680,49 @@ export class TaskLoopRunner {
           if (this._state !== 'running') { break; }
           continue; // pick up the same task at the top of the loop
         }
-        // --- Context length (OpenCode): run /compact once then retry ------
+        // --- Context length (OpenCode + Claude): run /compact once then retry
         if (err instanceof ContextLengthError && !this._compactedTaskLines.has(task.line)) {
           this._compactedTaskLines.add(task.line);
           const rawMsg = err.rawMessage.slice(0, 300);
-          this._cb?.log(`🗜 Context length exceeded — running /compact: ${rawMsg}`);
-          this._notifyDiscord(`🗜 **Context length exceeded** — running \`/compact\`…\n\`\`\`\n${rawMsg}\n\`\`\``);
-          let sessionId = getSessionId(this._workspaceRoot!, 'opencode-cli');
-          if (!sessionId) {
-            sessionId = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg));
-          }
-          if (sessionId) {
-            try {
-              await runOpenCodeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
-              this._cb?.log('🗜 Compact complete — retrying task');
-              this._notifyDiscord('🗜 Compact complete — retrying task');
-            } catch (compactErr) {
-              const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
-              this._cb?.log(`⚠️ Compact failed: ${compactMsg} — retrying anyway`);
+          const provider = this._cb?.getActiveProvider() ?? '';
+          this._cb?.log(`🗜 Context length exceeded (${provider}) — running /compact: ${rawMsg}`);
+          this._notifyDiscord(`🗜 **Context length exceeded** (${provider}) — running \`/compact\`…\n\`\`\`\n${rawMsg}\n\`\`\``);
+
+          if (provider === 'claude-cli') {
+            // Resolve a Claude session ID — prefer the saved one, else scan
+            // the .claude/projects jsonl folder for the most recent.
+            let sessionId = getSessionId(this._workspaceRoot!, 'claude-cli');
+            if (!sessionId) { sessionId = findLatestClaudeSession(this._workspaceRoot!); }
+            if (sessionId) {
+              try {
+                await runClaudeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Claude compact complete — retrying task');
+                this._notifyDiscord('🗜 Claude compact complete — retrying task');
+              } catch (compactErr) {
+                const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+                this._cb?.log(`⚠️ Claude compact failed: ${compactMsg} — retrying anyway`);
+              }
+            } else {
+              this._cb?.log('⚠️ No Claude session ID found for compact — retrying task without compact');
             }
           } else {
-            this._cb?.log('⚠️ No OpenCode session ID found for compact — retrying task without compact');
+            // OpenCode (existing behaviour)
+            let sessionId = getSessionId(this._workspaceRoot!, 'opencode-cli');
+            if (!sessionId) {
+              sessionId = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg));
+            }
+            if (sessionId) {
+              try {
+                await runOpenCodeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Compact complete — retrying task');
+                this._notifyDiscord('🗜 Compact complete — retrying task');
+              } catch (compactErr) {
+                const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+                this._cb?.log(`⚠️ Compact failed: ${compactMsg} — retrying anyway`);
+              }
+            } else {
+              this._cb?.log('⚠️ No OpenCode session ID found for compact — retrying task without compact');
+            }
           }
           try { resetToTodo(todoPath, task); } catch { /* ignore */ }
           continue;
@@ -879,6 +902,22 @@ export class TaskLoopRunner {
         if (isOpenCodeCli && content.toLowerCase().includes('maximum context length')) {
           cleanup();
           reject(new ContextLengthError(content.trim()));
+          return;
+        }
+
+        // Context length error detection (Claude). Patterns observed:
+        //   "prompt is too long: 1018289 tokens > 1000000 maximum"
+        //   "Prompt is too long" (last_assistant_message in StopFailure hook)
+        //   "context_length_exceeded"
+        if (isClaudeCli) {
+          const lc = content.toLowerCase();
+          if (lc.includes('prompt is too long')
+              || lc.includes('context_length_exceeded')
+              || /tokens?\s*>\s*\d+\s*maximum/.test(lc)) {
+            cleanup();
+            reject(new ContextLengthError(content.trim()));
+            return;
+          }
         }
       };
 

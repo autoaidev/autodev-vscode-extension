@@ -241,3 +241,31 @@ export function probeClaudeSession(
     });
   });
 }
+
+/**
+ * Run `/compact` on an existing Claude session to summarise conversation
+ * history and free up context window space. Used after Claude returns
+ * `prompt is too long: N tokens > MAX maximum` (HTTP 400). Resolves on exit
+ * (success or failure — caller decides what to do).
+ */
+export function runClaudeCompact(
+  sessionId: string,
+  cwd: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // /compact is a slash-command Claude understands in non-interactive mode.
+    // --resume re-attaches to the same session before running it.
+    const cmd = `claude --dangerously-skip-permissions --resume ${sessionId} -p "/compact"`;
+    log(`Claude compact: ${cmd}`);
+    exec(cmd, { cwd, encoding: 'utf8', timeout: 180_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+      if (err) {
+        log(`Claude compact stderr: ${(err.message ?? '').slice(0, 300)}`);
+        reject(err);
+      } else {
+        log(`Claude compact done (${stdout.length} bytes of output)`);
+        resolve();
+      }
+    });
+  });
+}
