@@ -84,6 +84,15 @@ class WebSocketPoller {
   private _onConnect: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
 
+  // Heartbeat: send a WS Ping every 25 s and expect a Pong. If 2 pings in a
+  // row come back without a pong (≈55 s), force-reconnect. Without this the
+  // server's 10-min stale-connection sweep silently drops idle agents and the
+  // client doesn't notice until the next manual restart.
+  private static readonly PING_INTERVAL_MS = 25_000;
+  private static readonly PONG_GRACE_MS    = 55_000;
+  private _pingTimer: ReturnType<typeof setInterval> | null = null;
+  private _lastPongAt = 0;
+
   constructor(
     private readonly wsUrl: string,
     private readonly apiKey: string,
@@ -105,6 +114,7 @@ class WebSocketPoller {
   /** Tear down the connection permanently. */
   destroy(): void {
     this._destroyed = true;
+    this._stopHeartbeat();
     this._stopAllVncSessions();
     this._stopAllRdpSessions();
     if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
@@ -203,6 +213,9 @@ class WebSocketPoller {
         // Subscribe to the deliveries channel so the server pushes webhook events
         this._sendTextFrame(JSON.stringify({ type: 'subscribe', data: { channels: ['deliveries'] } }));
 
+        // Start the WS-level keepalive (server drops idle conns after ~10 min)
+        this._startHeartbeat();
+
         // Any bytes after the headers belong to the first WS frame
         const remaining = Buffer.from(headerBuf.slice(sep + 4), 'binary');
         if (remaining.length > 0) {
@@ -246,6 +259,7 @@ class WebSocketPoller {
   }
 
   private _scheduleReconnect(): void {
+    this._stopHeartbeat();
     this._stopAllVncSessions();
     this._stopAllRdpSessions();
     if (this._destroyed) { return; }
@@ -323,8 +337,14 @@ class WebSocketPoller {
 
   private _onFrame(opcode: number, payload: Buffer): void {
     if (opcode === 0x9) {
-      // Ping — reply with pong
+      // Ping from server — reply with pong + treat as proof of life
       this._sendPong(payload);
+      this._lastPongAt = Date.now();
+      return;
+    }
+    if (opcode === 0xa) {
+      // Pong from server (reply to one of our pings) — heartbeat alive
+      this._lastPongAt = Date.now();
       return;
     }
     if (opcode === 0x8) {
@@ -885,6 +905,38 @@ class WebSocketPoller {
     const maskedPayload = Buffer.from(payload);
     for (let i = 0; i < maskedPayload.length; i++) { maskedPayload[i] ^= mask[i % 4]; }
     this._socket.write(Buffer.concat([header, maskedPayload]));
+  }
+
+  /** Send a zero-payload Ping frame. Server's WS server replies with Pong. */
+  private _sendPing(): void {
+    if (!this._socket || !this._connected) { return; }
+    try {
+      // FIN + opcode 0x9 (ping), masked, zero-length payload
+      const mask = crypto.randomBytes(4);
+      this._socket.write(Buffer.from([0x89, 0x80, mask[0], mask[1], mask[2], mask[3]]));
+    } catch { /* socket may be dead — close handler will reconnect */ }
+  }
+
+  /** Start the heartbeat. Cleared automatically on close/destroy/reconnect. */
+  private _startHeartbeat(): void {
+    this._stopHeartbeat();
+    this._lastPongAt = Date.now();
+    this._pingTimer = setInterval(() => {
+      // If the server hasn't responded in PONG_GRACE_MS, the link is dead
+      // even though TCP still thinks we're connected (proxy/NAT timeout).
+      const silence = Date.now() - this._lastPongAt;
+      if (silence > WebSocketPoller.PONG_GRACE_MS) {
+        this._log(`WS heartbeat timeout (no pong for ${Math.round(silence/1000)}s) — forcing reconnect`);
+        this._connected = false;
+        this._scheduleReconnect();
+        return;
+      }
+      this._sendPing();
+    }, WebSocketPoller.PING_INTERVAL_MS);
+  }
+
+  private _stopHeartbeat(): void {
+    if (this._pingTimer) { clearInterval(this._pingTimer); this._pingTimer = null; }
   }
 }
 
