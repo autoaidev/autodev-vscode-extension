@@ -655,17 +655,26 @@ export class TaskLoopRunner {
       } catch (err) {
         // --- Rate limit: pause loop, schedule auto-resume -----------------
         if (err instanceof RateLimitError) {
-          const resetAt = err.resetAt;
-          const resumeMs = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : undefined;
-          const resumeStr = resetAt ? resetAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
-          const rawMsg = err.rawMessage;
-          this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (+15 min)`);
-          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (+15 min)\n\`\`\`\n${rawMsg}\n\`\`\``);
+          // Two flavours:
+          //   1. Daily usage limit — message includes "resets 9pm (Europe/Sofia)"
+          //      → resume 15 min after the parsed reset time.
+          //   2. Transient server throttle — "API Error: Server is temporarily
+          //      limiting requests (not your usage limit) · Rate limited"
+          //      → no reset time given, retry in 30 minutes by default.
+          const DEFAULT_RETRY_MS = 30 * 60_000;
+          const resetAt   = err.resetAt;
+          const resumeMs  = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : DEFAULT_RETRY_MS;
+          const resumeAt  = resetAt ?? new Date(Date.now() + DEFAULT_RETRY_MS);
+          const resumeStr = resumeAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const suffix    = resetAt ? '+15 min' : 'retry in 30m (no reset time given)';
+          const rawMsg    = err.rawMessage;
+          this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
+          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
             iteration:   this._iterations,
             task:        { text: task.text },
             message:     rawMsg,
-            resumeAt:    resetAt?.toISOString(),
+            resumeAt:    resumeAt.toISOString(),
             provider:    this._cb?.getActiveProvider() ?? 'unknown',
             workDir:     this._workspaceRoot,
             gitRepo:     this._gitRepo,
@@ -674,7 +683,7 @@ export class TaskLoopRunner {
           // Reset task so it gets picked up again after resume
           try { resetToTodo(todoPath, task); } catch { /* ignore */ }
           // Block here until resumed (timer or user clicks Retry Now)
-          this._resumeAt = resetAt;
+          this._resumeAt = resumeAt;
           await this._pauseLoop(resumeMs);
           // After resume, if user stopped while paused, exit the while loop
           if (this._state !== 'running') { break; }
