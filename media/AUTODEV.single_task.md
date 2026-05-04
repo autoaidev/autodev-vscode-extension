@@ -630,6 +630,45 @@ Every time you write to `TODO.md` (marking `[~]`, `[x]`, or any other edit), fol
 
 **Never assume a write succeeded.** Always confirm by re-reading after 1 second.
 
+### 1.4.1 TODO.md Archival — Archive `[x]` Items to DONE.md When Scope Changes
+
+Agents must **never** delete or truncate `TODO.md`. `TODO.md` is always scoped to the **current task set**. When the scope changes — i.e. a new batch of tasks begins that is distinct from the current one — completed items from the old scope are archived to `DONE.md` so `TODO.md` stays focused.
+
+**Archive file:** `DONE.md` in the project root — one file, append-only, grows forever, never overwritten.
+
+**When to archive (trigger: scope change):**
+- A new request/batch arrives that is clearly a different scope from what is in `TODO.md`.
+- The user explicitly signals "start fresh", "new task", "new sprint", or similar.
+- All tasks are `[x]` **and** there is confirmed new work coming in on a different topic.
+- Do **not** archive mid-scope: while the current batch is running, `[x]` items stay in `TODO.md` as a live completion record.
+
+**Archive procedure:**
+
+1. Read `TODO.md` freshly.
+2. Collect every line that starts with `- [x]` (and any indented subtask lines under it).
+3. Append those lines to `DONE.md` under a dated heading:
+   ```markdown
+   ## Session YYYY-MM-DD
+
+   - [x] YYYY-MM-DD  feat: example task
+     - [x] architect: spec + task breakdown
+     - [x] coder: implement per spec
+     ...
+   ```
+4. Remove those `[x]` lines (and their subtasks) from `TODO.md`.
+5. Write both files.
+6. Re-read both to verify: `TODO.md` must contain **zero** `[x]` lines; `DONE.md` must contain the moved lines at the bottom.
+
+**What stays in `TODO.md` after archival:**
+- `## Todo` section with any remaining `[ ]` items for the new scope.
+- `## In Progress` section empty or absent.
+- All instructional headers, rules, status key, and format examples — **never remove these**.
+- The `## Done` section header stays — leave it as an empty section.
+
+**Reading previous history:** If the agent needs context about previously completed work (e.g. to avoid re-implementing something, to understand past decisions, or to continue a long-running feature), **read `DONE.md`** — it contains the full chronological record of all archived task completions.
+
+**Note:** `CHANGELOG.md` is the detailed technical record (what changed and why). `DONE.md` is the task-completion log (what was done and when). Both are kept.
+
 ### 1.5 The Core Loop — Never Deviate
 
 ```
@@ -695,6 +734,7 @@ Before writing a single line, explicitly answer all six questions. Do not procee
 > The actual file paths and sub-steps must come from reading the project — never from assumptions.** Never mark the parent done while any sub remains `[ ]` or `[~]`.
 - If a subtask reveals further subtasks, add them under the parent before starting them.
 - Keep subtask descriptions short and scoped — one clear action per subtask.
+- **Every line in `TODO.md` — parent tasks and sub-items at any depth — must carry a status tag (`[ ]`, `[~]`, or `[x]`). Never write a bullet without a tag. This applies when creating subtasks, adding notes, or updating any item.**
 
 ---
 
