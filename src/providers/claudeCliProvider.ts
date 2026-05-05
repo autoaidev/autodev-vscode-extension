@@ -11,41 +11,44 @@ function claudeProjectFolder(workspacePath: string): string {
   return workspacePath.replace(/[:\\/]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
 
-export function findLatestClaudeSession(workspacePath: string): string | undefined {
+/**
+ * Resolve the Claude `~/.claude/projects/<encoded>` folder for this workspace.
+ * Match is exact (case-insensitive on Windows) — never prefix. The previous
+ * fuzzy match (`startsWith(encoded.slice(0,8))`) caused two VS Code instances
+ * opened in sibling directories like `home-code-foo` and `home-code1-bar` —
+ * both starting with `home-cod` — to pick up each other's session JSONLs and
+ * end up resuming the same Claude session.
+ */
+function findClaudeProjectDir(workspacePath: string): string | undefined {
   try {
     const claudeDir = process.env['CLAUDE_CONFIG_DIR'] ?? path.join(os.homedir(), '.claude');
     const projectsDir = path.join(claudeDir, 'projects');
-    const folders = fs.readdirSync(projectsDir);
     const encoded = claudeProjectFolder(workspacePath);
-    const match = folders.find(f => f === encoded || encoded.startsWith(f) || f.startsWith(encoded.slice(0, 8)));
-    if (!match) { return undefined; }
-    const sessionsDir = path.join(projectsDir, match);
-    const files = fs.readdirSync(sessionsDir)
+    const folders = fs.readdirSync(projectsDir);
+    const isWindows = process.platform === 'win32';
+    const target = isWindows ? encoded.toLowerCase() : encoded;
+    const match = folders.find(f => (isWindows ? f.toLowerCase() : f) === target);
+    return match ? path.join(projectsDir, match) : undefined;
+  } catch { return undefined; }
+}
+
+function listClaudeSessionFiles(workspacePath: string): Array<{ name: string; mtime: number; full: string }> {
+  const sessionsDir = findClaudeProjectDir(workspacePath);
+  if (!sessionsDir) { return []; }
+  try {
+    return fs.readdirSync(sessionsDir)
       .filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs }))
+      .map(f => ({ name: f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs, full: path.join(sessionsDir, f) }))
       .sort((a, b) => b.mtime - a.mtime);
-    return files[0]?.name.replace('.jsonl', '');
-  } catch {
-    return undefined;
-  }
+  } catch { return []; }
+}
+
+export function findLatestClaudeSession(workspacePath: string): string | undefined {
+  return listClaudeSessionFiles(workspacePath)[0]?.name.replace('.jsonl', '');
 }
 
 function resolveClaudeJsonl(workspacePath: string): string | undefined {
-  try {
-    const claudeDir = process.env['CLAUDE_CONFIG_DIR'] ?? path.join(os.homedir(), '.claude');
-    const projectsDir = path.join(claudeDir, 'projects');
-    const encoded = claudeProjectFolder(workspacePath);
-    const folders = fs.readdirSync(projectsDir);
-    const match = folders.find(f => f === encoded || encoded.startsWith(f) || f.startsWith(encoded.slice(0, 8)));
-    if (!match) { return undefined; }
-    const sessionsDir = path.join(projectsDir, match);
-    const files = fs.readdirSync(sessionsDir)
-      .filter(f => f.endsWith('.jsonl') && !f.startsWith('agent-'))
-      .map(f => ({ name: f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs }))
-      .sort((a, b) => b.mtime - a.mtime);
-    if (!files[0]) { return undefined; }
-    return path.join(sessionsDir, files[0].name);
-  } catch { return undefined; }
+  return listClaudeSessionFiles(workspacePath)[0]?.full;
 }
 
 export function getClaudeSessionCursor(workspacePath: string): number {

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
 import { buildPrompt } from './prompt';
@@ -163,6 +164,12 @@ export class TaskLoopRunner {
   private _webhookPoller: WebhookPoller | null = null;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _hooksFileOffset = 0;
+  /** Recently-forwarded hook-line hashes → first-seen timestamp (ms).
+   *  Used to suppress byte-identical hook events that get appended multiple
+   *  times to the shared JSONL (Copilot CLI fires the same hook from every
+   *  parallel session in the same workspace, all writing to one homedir
+   *  file). Entries older than HOOKS_DEDUPE_WINDOW_MS are pruned each tick. */
+  private _hookLineSeen = new Map<string, number>();
   private _taskCompletionAbort: (() => void) | null = null;
   private _retryScheduler = new RetryScheduler();
   private _resumeResolve: (() => void) | null = null;
@@ -425,6 +432,12 @@ export class TaskLoopRunner {
           : 0;
       } catch { this._hooksFileOffset = 0; }
 
+      // Dedupe window: any hook line byte-identical to one forwarded within
+      // this many ms is dropped. The shared homedir JSONL is written by every
+      // parallel CLI process running on this host, so the same Copilot
+      // sessionEnd/postToolUse can land 5–10 times within the same second.
+      const HOOKS_DEDUPE_WINDOW_MS = 30_000;
+
       const hooksInterval = setInterval(() => {
         if (this._state !== 'running') { return; }
         try {
@@ -438,7 +451,21 @@ export class TaskLoopRunner {
           this._hooksFileOffset = size;
           const sessionName = this._workspaceRoot ? path.basename(this._workspaceRoot) : undefined;
           const lines = buf.toString('utf8').split('\n').filter(l => l.trim());
+          // Prune dedupe map of stale entries before this tick's run
+          const now = Date.now();
+          for (const [hash, ts] of this._hookLineSeen) {
+            if (now - ts > HOOKS_DEDUPE_WINDOW_MS) { this._hookLineSeen.delete(hash); }
+          }
           for (const line of lines) {
+            const hash = crypto.createHash('sha1').update(line).digest('hex');
+            const seenAt = this._hookLineSeen.get(hash);
+            if (seenAt !== undefined && now - seenAt <= HOOKS_DEDUPE_WINDOW_MS) {
+              // Byte-identical hook within the window — drop silently. Distinct
+              // tool invocations have at least one differing byte (timestamp,
+              // tool input args, runId) and survive this check.
+              continue;
+            }
+            this._hookLineSeen.set(hash, now);
             try {
               const ev = JSON.parse(line);
               // Inject session name (workspace folder) so pixel office can display it
