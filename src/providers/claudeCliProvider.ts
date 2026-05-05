@@ -7,27 +7,39 @@ import { exec } from 'child_process';
 // Claude project-folder / JSONL session helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Encode a workspace path the way Claude Code names its `~/.claude/projects/`
+ * folders: every `:`, `\`, `/` becomes `-`, and runs of dashes are collapsed.
+ * Note: Claude **keeps the leading dash** that comes from a leading slash on
+ * POSIX paths (e.g. `/home/x/foo` → `-home-x-foo`), so we don't strip `^-`.
+ * Trailing dashes are dropped.
+ */
 function claudeProjectFolder(workspacePath: string): string {
-  return workspacePath.replace(/[:\\/]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return workspacePath.replace(/[:\\/]/g, '-').replace(/-+/g, '-').replace(/-$/g, '');
 }
 
 /**
  * Resolve the Claude `~/.claude/projects/<encoded>` folder for this workspace.
- * Match is exact (case-insensitive on Windows) — never prefix. The previous
- * fuzzy match (`startsWith(encoded.slice(0,8))`) caused two VS Code instances
- * opened in sibling directories like `home-code-foo` and `home-code1-bar` —
- * both starting with `home-cod` — to pick up each other's session JSONLs and
- * end up resuming the same Claude session.
+ * Match is **exact** (case-insensitive only on Windows). We try the primary
+ * encoding and a no-leading-dash fallback so historical folders created by
+ * older Claude versions still resolve. Prefix matching is intentionally NOT
+ * used — the previous fuzzy match (`startsWith(encoded.slice(0,8))`) caused
+ * two VS Code instances opened in sibling directories like
+ * `-home-code-foo` and `-home-code1-bar` (sharing prefix `-home-cod`) to
+ * pick up each other's session JSONLs and end up resuming the same Claude
+ * session.
  */
 function findClaudeProjectDir(workspacePath: string): string | undefined {
   try {
     const claudeDir = process.env['CLAUDE_CONFIG_DIR'] ?? path.join(os.homedir(), '.claude');
     const projectsDir = path.join(claudeDir, 'projects');
     const encoded = claudeProjectFolder(workspacePath);
+    const candidates = [encoded, encoded.replace(/^-+/, '')];
     const folders = fs.readdirSync(projectsDir);
     const isWindows = process.platform === 'win32';
-    const target = isWindows ? encoded.toLowerCase() : encoded;
-    const match = folders.find(f => (isWindows ? f.toLowerCase() : f) === target);
+    const norm = (s: string) => (isWindows ? s.toLowerCase() : s);
+    const targets = new Set(candidates.map(norm));
+    const match = folders.find(f => targets.has(norm(f)));
     return match ? path.join(projectsDir, match) : undefined;
   } catch { return undefined; }
 }
