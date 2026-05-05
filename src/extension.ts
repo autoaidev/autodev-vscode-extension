@@ -8,6 +8,7 @@ import { sendPromptToAi } from './dispatcher';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
 import { PROVIDERS } from './providers';
+import { areHooksInstalled, installHooks } from './hooksManager';
 
 let _out: vscode.OutputChannel;
 export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
@@ -26,6 +27,24 @@ export function activate(context: vscode.ExtensionContext): void {
   ConfigManager.applyAll(root, log);
   const extVersion = context.extension.packageJSON?.version ?? 'unknown';
   log(`Extension activated v${extVersion}`);
+
+  // Migrate legacy hooks (homedir-scoped JSONL sink) to the per-workspace
+  // form on every activation. `installHooks` is idempotent — it strips any
+  // existing autodev entries and writes fresh commands carrying this
+  // workspace's absolute path. Required because two VS Code instances on
+  // the same host would otherwise both write to ~/.autodev/hooks-events.jsonl
+  // and each forward every line under its own slug, mis-attributing hooks.
+  if (root) {
+    try {
+      const s = loadSettings();
+      if (s.hooksEnabled && !areHooksInstalled('project', root)) {
+        log('Migrating hook commands to per-workspace JSONL sink…');
+        installHooks('project', root);
+      }
+    } catch (err) {
+      log(`Hook migration check failed: ${(err as Error).message}`);
+    }
+  }
 
   context.subscriptions.push(
     _out,

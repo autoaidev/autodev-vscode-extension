@@ -58,13 +58,13 @@ function ensureProjectGitignore(root: string, entry: string): void {
 
 /**
  * Wrap a shell command with synthetic SessionStart / SessionEnd hook events
- * written to ~/.autodev/hooks-events.jsonl.  Used for providers that don't
- * have native hooks (copilot-cli, opencode-cli).  Post hook always runs even
- * if the main command fails.
+ * written to <workspaceRoot>/.autodev/hooks-events.jsonl. Used for providers
+ * that don't have native hooks (copilot-cli, opencode-cli). Post hook always
+ * runs even if the main command fails.
  */
-function wrapWithSyntheticHooks(cmd: string, provider: string, sessionName: string): string {
-  const pre  = getManualHookCmd(provider, 'SessionStart', sessionName);
-  const post = getManualHookCmd(provider, 'SessionEnd',   sessionName);
+function wrapWithSyntheticHooks(cmd: string, provider: string, workspaceRoot: string, sessionName: string): string {
+  const pre  = getManualHookCmd(provider, 'SessionStart', workspaceRoot, sessionName);
+  const post = getManualHookCmd(provider, 'SessionEnd',   workspaceRoot, sessionName);
   if (os.platform() === 'win32') {
     return `${pre}; ${cmd}; ${post}`;
   }
@@ -150,14 +150,14 @@ export async function sendPromptToAi(
       cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
       cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
-        cmd = wrapWithSyntheticHooks(cmd, 'copilot-cli', path.basename(root));
+        cmd = wrapWithSyntheticHooks(cmd, 'copilot-cli', root, path.basename(root));
       }
     } else {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId);
       cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
-        cmd = wrapWithSyntheticHooks(cmd, 'opencode-cli', path.basename(root));
+        cmd = wrapWithSyntheticHooks(cmd, 'opencode-cli', root, path.basename(root));
       }
     }
 

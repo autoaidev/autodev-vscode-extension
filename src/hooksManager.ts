@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
@@ -76,37 +75,56 @@ const COPILOT_HOOK_EVENTS = [
   'errorOccurred',
 ] as const;
 
-/** Path of the JSONL sink that hook commands write to. */
-export const HOOKS_JSONL_PATH = path.join(os.homedir(), '.autodev', 'hooks-events.jsonl');
+/**
+ * Path of the JSONL sink for a given workspace.
+ *
+ * Per-workspace, NOT homedir. When two VS Code instances run on the same
+ * machine, they share `os.homedir()` — so a homedir-scoped sink causes both
+ * pollers to see (and forward, attributed to themselves) every hook from
+ * every instance. The result was hooks from `tester-1` showing up under
+ * `A1` in pixel-office because A1's poller read the line first. Scoping
+ * the sink to the workspace avoids the cross-talk entirely.
+ */
+export function hooksJsonlPath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+}
 
-/** Single-line Node.js snippet that reads stdin JSON and appends one JSONL line.
- *  Optionally injects a literal hook event name and provider id into the
- *  payload — needed for Copilot CLI which doesn't include the event name in
- *  its stdin payload. Wrapped in single quotes so the inner JS can use
- *  double quotes freely. */
-function nodeAppenderJs(injectEvent?: string, injectProvider?: string): string {
+/**
+ * Build a Node.js one-liner that reads stdin JSON and appends one JSONL line
+ * to `<workspaceRoot>/.autodev/hooks-events.jsonl`. The workspace path is
+ * baked into the string at install time (escaped via JSON.stringify) so the
+ * hook always writes to the right place, regardless of cwd when it fires.
+ *
+ * Optionally injects a hook event name and provider id into the payload —
+ * needed for Copilot CLI which doesn't include the event name in its stdin.
+ */
+function nodeAppenderJs(workspaceRoot: string, injectEvent?: string, injectProvider?: string): string {
   const inject = [
-    injectEvent    ? `d.hook="${injectEvent}";`         : '',
-    injectProvider ? `d.provider="${injectProvider}";`  : '',
+    injectEvent    ? `d.hook=${JSON.stringify(injectEvent)};`        : '',
+    injectProvider ? `d.provider=${JSON.stringify(injectProvider)};` : '',
   ].join('');
+  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot));
   // eslint-disable-next-line max-len
-  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d;try{d=JSON.parse(s)}catch(e){d={_raw:s.replace(/[\\r\\n]+/g," ")}}${inject}const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")})`;
+  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d;try{d=JSON.parse(s)}catch(e){d={_raw:s.replace(/[\\r\\n]+/g," ")}}${inject}const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")})`;
 }
 
 /** Shell command for Claude Code — Claude already includes hook_event_name in
  *  the stdin payload, so we don't need to inject anything. */
-const CLAUDE_HOOK_COMMAND = `node -e '${nodeAppenderJs()}'`;
+function claudeHookCommand(workspaceRoot: string): string {
+  return `node -e '${nodeAppenderJs(workspaceRoot)}'`;
+}
 
 /** Shell command for one Copilot CLI event — Copilot doesn't include the
  *  event name in stdin, so we bake it into the JS. */
-function copilotHookCommand(eventName: string): string {
-  return `node -e '${nodeAppenderJs(eventName, 'copilot-cli')}'`;
+function copilotHookCommand(eventName: string, workspaceRoot: string): string {
+  return `node -e '${nodeAppenderJs(workspaceRoot, eventName, 'copilot-cli')}'`;
 }
 
 /** Returns a shell command that synthesises a hook event with no stdin payload.
  *  Used by the dispatcher to emit SessionStart/SessionEnd for providers that
- *  lack native hooks (or before the CLI has a chance to fire its own). */
-export function getManualHookCmd(provider: string, hookEvent: string, sessionName?: string): string {
+ *  lack native hooks (or before the CLI has a chance to fire its own).
+ *  `workspaceRoot` controls which workspace's JSONL sink the hook writes to. */
+export function getManualHookCmd(provider: string, hookEvent: string, workspaceRoot: string, sessionName?: string): string {
   // Build the JSON payload safely with JSON.stringify, then escape single
   // quotes for the surrounding shell single-quoted argument.
   const payload = {
@@ -115,8 +133,9 @@ export function getManualHookCmd(provider: string, hookEvent: string, sessionNam
     _session_name: sessionName ?? '',
   };
   const payloadJson = JSON.stringify(payload).replace(/'/g, `'\\''`);
+  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot));
   // eslint-disable-next-line max-len
-  const js = `const d=${payloadJson};d.timestamp=new Date().toISOString();const fs=require("fs"),p=require("path"),h=require("os").homedir(),f=p.join(h,".autodev","hooks-events.jsonl");fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")`;
+  const js = `const d=${payloadJson};d.timestamp=new Date().toISOString();const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")`;
   return `node -e '${js}'`;
 }
 
@@ -145,6 +164,20 @@ function purgeObsoleteHooks(hooks: Record<string, any[]>): void {
   }
 }
 
+/**
+ * True if the entry's command writes to *this* workspace's JSONL sink.
+ * Legacy entries from <= v1.0.71 wrote to `os.homedir()/.autodev/...` (shared
+ * across every VS Code instance on the host) — we treat those as not
+ * installed so the install flow naturally migrates them on next call.
+ */
+function isCurrentClaudeEntry(group: any, workspaceRoot: string): boolean {
+  if (!group || group[AUTODEV_MARKER] !== true) return false;
+  const cmd = group.hooks?.[0]?.command;
+  if (typeof cmd !== 'string') return false;
+  const expectedSink = hooksJsonlPath(workspaceRoot);
+  return cmd.includes(JSON.stringify(expectedSink));
+}
+
 export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
   const filePath = claudeSettingsPath(workspaceRoot);
   const raw = readJson(filePath);
@@ -159,7 +192,7 @@ export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
   }
 
   return CLAUDE_HOOK_EVENTS.some(ev =>
-    (hooks[ev] ?? []).some((g: any) => g[AUTODEV_MARKER] === true)
+    (hooks[ev] ?? []).some((g: any) => isCurrentClaudeEntry(g, workspaceRoot))
   );
 }
 
@@ -172,12 +205,13 @@ export function installClaudeHooks(workspaceRoot: string): void {
 
   purgeObsoleteHooks(hooks);
 
+  const claudeCmd = claudeHookCommand(workspaceRoot);
   for (const ev of CLAUDE_HOOK_EVENTS) {
     const groups = ((hooks[ev] ?? []) as any[]).filter(g => !g[AUTODEV_MARKER]);
     groups.push({
       [AUTODEV_MARKER]: true,
       matcher: '',
-      hooks: [{ type: 'command', command: CLAUDE_HOOK_COMMAND }],
+      hooks: [{ type: 'command', command: claudeCmd }],
     });
     hooks[ev] = groups;
   }
@@ -225,12 +259,19 @@ function isAutodevCopilotEntry(entry: any): boolean {
     && entry.bash.includes('.autodev/hooks-events.jsonl');
 }
 
+/** True if the entry's bash command writes to *this* workspace's JSONL sink. */
+function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
+  if (!isAutodevCopilotEntry(entry)) return false;
+  const expectedSink = hooksJsonlPath(workspaceRoot);
+  return typeof entry.bash === 'string' && entry.bash.includes(JSON.stringify(expectedSink));
+}
+
 export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
   const filePath = copilotSettingsPath(workspaceRoot);
   const raw = readJson(filePath);
   const hooks = raw?.hooks ?? {};
   return COPILOT_HOOK_EVENTS.some(ev =>
-    (hooks[ev] ?? []).some(isAutodevCopilotEntry)
+    (hooks[ev] ?? []).some((e: any) => isCurrentCopilotEntry(e, workspaceRoot))
   );
 }
 
@@ -245,7 +286,7 @@ export function installCopilotHooks(workspaceRoot: string): void {
     const existing = ((hooks[ev] ?? []) as any[]).filter(e => !isAutodevCopilotEntry(e));
     existing.push({
       type: 'command',
-      bash: copilotHookCommand(ev),
+      bash: copilotHookCommand(ev, workspaceRoot),
       timeoutSec: 30,
     });
     hooks[ev] = existing;

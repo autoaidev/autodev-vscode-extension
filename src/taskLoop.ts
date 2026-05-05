@@ -18,7 +18,6 @@ import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
-import { HOOKS_JSONL_PATH } from './hooksManager';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -423,28 +422,34 @@ export class TaskLoopRunner {
       this._pollerIntervals.push(webhookInterval);
     }
 
-    // Poll ~/.autodev/hooks-events.jsonl every 10 s and forward new lines via WS
-    if (this._webhookPoller?.isWebSocket) {
+    // Poll <workspace>/.autodev/hooks-events.jsonl every 10s and forward new
+    // lines via WS. Per-workspace, NOT homedir: two VS Code instances on the
+    // same machine would otherwise both poll one shared file and each ship
+    // every line under their own slug — making hooks from `tester-1` show
+    // up as `A1` (and vice-versa) in pixel-office.
+    if (this._webhookPoller?.isWebSocket && this._workspaceRoot) {
+      const hooksJsonl = path.join(this._workspaceRoot, '.autodev', 'hooks-events.jsonl');
+
       // Start at current file size so we don't replay old events on loop restart
       try {
-        this._hooksFileOffset = fs.existsSync(HOOKS_JSONL_PATH)
-          ? fs.statSync(HOOKS_JSONL_PATH).size
+        this._hooksFileOffset = fs.existsSync(hooksJsonl)
+          ? fs.statSync(hooksJsonl).size
           : 0;
       } catch { this._hooksFileOffset = 0; }
 
       // Dedupe window: any hook line byte-identical to one forwarded within
-      // this many ms is dropped. The shared homedir JSONL is written by every
-      // parallel CLI process running on this host, so the same Copilot
-      // sessionEnd/postToolUse can land 5–10 times within the same second.
+      // this many ms is dropped. Even with per-workspace sinks, parallel
+      // copilot/claude processes inside the same workspace can write the
+      // same payload several times in one second.
       const HOOKS_DEDUPE_WINDOW_MS = 30_000;
 
       const hooksInterval = setInterval(() => {
         if (this._state !== 'running') { return; }
         try {
-          if (!fs.existsSync(HOOKS_JSONL_PATH)) { return; }
-          const size = fs.statSync(HOOKS_JSONL_PATH).size;
+          if (!fs.existsSync(hooksJsonl)) { return; }
+          const size = fs.statSync(hooksJsonl).size;
           if (size <= this._hooksFileOffset) { return; }
-          const fd = fs.openSync(HOOKS_JSONL_PATH, 'r');
+          const fd = fs.openSync(hooksJsonl, 'r');
           const buf = Buffer.alloc(size - this._hooksFileOffset);
           fs.readSync(fd, buf, 0, buf.length, this._hooksFileOffset);
           fs.closeSync(fd);
