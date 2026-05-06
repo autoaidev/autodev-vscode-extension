@@ -128,6 +128,9 @@ export const mcpConfigHtml = `
       <div class="cfg-field cfg-check"><label><input type="checkbox" id="mcpEmail_attachments"> Enable attachment download</label></div>
       <div class="cfg-field cfg-check"><label><input type="checkbox" id="mcpEmail_saveSent" checked> Save sent emails to IMAP Sent folder</label></div>
       <div class="cfg-field"><label class="cfg-label">Sent folder name <small style="opacity:.6">(optional — auto-detected)</small></label><input class="cfg-input" id="mcpEmail_sentFolder" placeholder="INBOX.Sent"></div>
+      <div class="cfg-section" style="margin:10px 0 4px;padding-top:6px">Receive tasks from email</div>
+      <div class="cfg-field cfg-check"><label><input type="checkbox" id="mcpEmail_receiveTasks"> Enable receiving tasks from email</label></div>
+      <div class="cfg-field"><label class="cfg-label">Allowed sender emails <small style="opacity:.6">(CSV — leave empty to allow all)</small></label><input class="cfg-input" id="mcpEmail_allowedSenders" placeholder="alice@example.com, bob@example.com"></div>
       <div class="mcp-card-actions" style="justify-content:space-between;gap:6px">
         <button class="mcp-install-btn" id="mcpEmail_testBtn" style="padding:4px 10px;font-size:11px">Test connection</button>
         <button class="mcp-remove-btn" id="removeMcpEmailBtn">Remove</button>
@@ -308,6 +311,8 @@ function populateMcp(s, defaults){
   _setCheck('mcpEmail_attachments',   _parseBool(menv.MCP_EMAIL_SERVER_ENABLE_ATTACHMENT_DOWNLOAD, false));
   _setCheck('mcpEmail_saveSent',      _parseBool(menv.MCP_EMAIL_SERVER_SAVE_TO_SENT, true));
   _setVal('mcpEmail_sentFolder',  menv.MCP_EMAIL_SERVER_SENT_FOLDER_NAME || '');
+  _setCheck('mcpEmail_receiveTasks', _parseBool(menv.AUTODEV_EMAIL_RECEIVE_TASKS, false));
+  _setVal('mcpEmail_allowedSenders', menv.AUTODEV_EMAIL_ALLOWED_SENDERS || '');
 
   // Custom JSON textarea — show only entries NOT managed by preset accordions.
   const ta = document.getElementById('mcpJsonArea');
@@ -414,6 +419,9 @@ function _gatherEmail(){
   const fullName   = _getVal('mcpEmail_fullName');   if(fullName)   env.MCP_EMAIL_SERVER_FULL_NAME = fullName;
   const userName   = _getVal('mcpEmail_userName');   if(userName)   env.MCP_EMAIL_SERVER_USER_NAME = userName;
   const sentFolder = _getVal('mcpEmail_sentFolder'); if(sentFolder) env.MCP_EMAIL_SERVER_SENT_FOLDER_NAME = sentFolder;
+  env.AUTODEV_EMAIL_RECEIVE_TASKS = String(_getCheck('mcpEmail_receiveTasks'));
+  const allowedSenders = _getVal('mcpEmail_allowedSenders');
+  if(allowedSenders) env.AUTODEV_EMAIL_ALLOWED_SENDERS = allowedSenders;
   const out = { command: 'uvx', args: ['mcp-email-server@latest', 'stdio'], env: env };
   if(!enabled) out.enabled = false;
   return out;

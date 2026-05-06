@@ -18,6 +18,7 @@ import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
+import { EmailTaskPoller } from './emailPoller';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -161,6 +162,7 @@ export class TaskLoopRunner {
   private _discordPoller: DiscordPoller | null = null;
   private _discordGateway: DiscordGateway | null = null;
   private _webhookPoller: WebhookPoller | null = null;
+  private _emailPoller: EmailTaskPoller | null = null;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _hooksFileOffset = 0;
   /** Recently-forwarded hook-line hashes → first-seen timestamp (ms).
@@ -246,6 +248,10 @@ export class TaskLoopRunner {
       ? new WebhookPoller(settings.serverBaseUrl, settings.serverApiKey, settings.webhookSlug)
       : null;
 
+    // Email task ingestion — pulls IMAP creds from the Email MCP entry's env
+    // block. Disabled unless AUTODEV_EMAIL_RECEIVE_TASKS is "true".
+    this._emailPoller = this._buildEmailPoller(settings);
+
     // When the poller is WebSocket-backed, route outbound events through the
     // same WS connection instead of HTTP POST (which fails for ws:// URLs).
     if (this._webhook && this._webhookPoller?.isWebSocket) {
@@ -304,6 +310,11 @@ export class TaskLoopRunner {
     // Seed Discord cursor to ignore history before the loop started
     if (this._discordPoller) {
       await this._discordPoller.initialize();
+    }
+
+    if (this._emailPoller) {
+      try { await this._emailPoller.initialize(); }
+      catch (e) { callbacks.log(`Email poller init failed: ${e instanceof Error ? e.message : String(e)}`); }
     }
 
     // Connect to Discord Gateway so the bot appears online
@@ -374,6 +385,7 @@ export class TaskLoopRunner {
     this._discordGateway?.destroy();
     this._discordGateway = null;
     this._webhookPoller = null;
+    if (this._emailPoller) { void this._emailPoller.dispose(); this._emailPoller = null; }
     this._setState('idle');
     callbacks.log('Task loop stopped');
   }
@@ -400,6 +412,27 @@ export class TaskLoopRunner {
   // -------------------------------------------------------------------------
 
   /**
+   * Build an EmailTaskPoller from the Email MCP entry's env block, or return
+   * null if the feature is disabled or required IMAP creds are missing.
+   */
+  private _buildEmailPoller(settings: AutodevSettings): EmailTaskPoller | null {
+    const entry = settings.mcpServers?.['zerolib-email'];
+    const env = entry?.env ?? {};
+    if (entry?.enabled === false) return null;
+    if (String(env.AUTODEV_EMAIL_RECEIVE_TASKS).toLowerCase() !== 'true') return null;
+    const host = env.MCP_EMAIL_SERVER_IMAP_HOST;
+    const user = env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS;
+    const pass = env.MCP_EMAIL_SERVER_PASSWORD;
+    if (!host || !user || !pass) return null;
+    const port = parseInt(env.MCP_EMAIL_SERVER_IMAP_PORT || '993', 10) || 993;
+    const secure = String(env.MCP_EMAIL_SERVER_IMAP_SSL ?? 'true').toLowerCase() !== 'false';
+    const verify = String(env.MCP_EMAIL_SERVER_IMAP_VERIFY_SSL ?? 'true').toLowerCase() !== 'false';
+    const allowed = (env.AUTODEV_EMAIL_ALLOWED_SENDERS || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    return new EmailTaskPoller({ host, port, secure, user, pass, allowedSenders: allowed, rejectUnauthorized: verify });
+  }
+
+  /**
    * Start Discord and webhook server pollers as independent setInterval loops.
    * They run continuously in the background — even while the AI is processing a task.
    */
@@ -420,6 +453,15 @@ export class TaskLoopRunner {
         try { await this._webhookPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(webhookInterval);
+    }
+
+    if (this._emailPoller) {
+      // IMAP servers throttle aggressive polling — every 10s is plenty.
+      const emailInterval = setInterval(async () => {
+        if (this._state !== 'running') { return; }
+        try { await this._emailPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
+      }, 10_000);
+      this._pollerIntervals.push(emailInterval);
     }
 
     // Poll <workspace>/.autodev/hooks-events.jsonl every 10s and forward new

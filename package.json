@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.89",
+  "version": "1.0.90",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
@@ -39,9 +39,9 @@
     "automation"
   ],
   "activationEvents": [],
-  "main": "./out/extension.js",
+  "main": "./out/extension.bundle.js",
   "exports": {
-    ".": "./out/extension.js",
+    ".": "./out/extension.bundle.js",
     "./sdk": "./out/sdk/index.js",
     "./todo": "./out/todo.js",
     "./settings": "./out/core/settingsLoader.js",
@@ -106,13 +106,19 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && esbuild ./out/extension.js --bundle --platform=node --target=node20 --external:vscode --outfile=./out/extension.bundle.js --format=cjs --minify",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts"
   },
+  "dependencies": {
+    "imapflow": "^1.0.171",
+    "mailparser": "^3.7.1"
+  },
   "devDependencies": {
+    "@types/mailparser": "^3.4.4",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.99.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.8.0"
   }
 }
