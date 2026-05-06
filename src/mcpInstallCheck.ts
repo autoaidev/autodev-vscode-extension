@@ -137,11 +137,11 @@ export function getMcpInstallSnapshot(target: CheckTarget): McpInstallInfo {
     return { status: _pkgCache.get(key) ? 'installed' : 'missing-package', runner, pkg };
   }
   if (runner === 'uvx') {
-    if (!arg) return { status: 'installed', runner };
-    const pkg = _bareUvPkg(arg);
-    const key = `uv:${pkg.toLowerCase()}`;
-    if (!_pkgCache.has(key)) return { status: 'unknown', runner, pkg };
-    return { status: _pkgCache.get(key) ? 'installed' : 'missing-package', runner, pkg };
+    // uvx auto-fetches packages on demand (like npx). If uvx is on PATH,
+    // treat the package as installed — `uv tool list` only shows packages
+    // installed via `uv tool install`, which uvx does not require.
+    const pkg = arg ? _bareUvPkg(arg) : undefined;
+    return { status: 'installed', runner, pkg };
   }
   return { status: 'installed', runner, pkg: arg };
 }
@@ -159,9 +159,9 @@ export async function checkMcpInstallAsync(target: CheckTarget): Promise<McpInst
     return { status: (await _hasNpmGlobal(pkg)) ? 'installed' : 'missing-package', runner, pkg };
   }
   if (runner === 'uvx') {
-    if (!arg) return { status: 'installed', runner };
-    const pkg = _bareUvPkg(arg);
-    return { status: (await _hasUvTool(pkg)) ? 'installed' : 'missing-package', runner, pkg };
+    // uvx auto-fetches on demand — runner present is enough.
+    const pkg = arg ? _bareUvPkg(arg) : undefined;
+    return { status: 'installed', runner, pkg };
   }
   return { status: 'installed', runner, pkg: arg };
 }

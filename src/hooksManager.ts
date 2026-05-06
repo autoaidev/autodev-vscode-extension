@@ -103,7 +103,12 @@ function nodeAppenderJs(workspaceRoot: string, injectEvent?: string, injectProvi
     injectEvent    ? `d.hook=${JSON.stringify(injectEvent)};`        : '',
     injectProvider ? `d.provider=${JSON.stringify(injectProvider)};` : '',
   ].join('');
-  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot));
+  // Forward slashes only — Windows paths with backslashes get partially
+  // unescaped by the shell before node parses the JS source, turning
+  // `\t`, `\h`, `\a` etc. into escape sequences (TAB, `h`, `a`) and
+  // producing a corrupt path like `h:\ai\foo\ai<TAB>est_dev.autodev...`.
+  // Node accepts forward slashes on Windows.
+  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot).replace(/\\/g, '/'));
   // eslint-disable-next-line max-len
   return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d;try{d=JSON.parse(s)}catch(e){d={_raw:s.replace(/[\\r\\n]+/g," ")}}${inject}const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")})`;
 }
@@ -133,7 +138,8 @@ export function getManualHookCmd(provider: string, hookEvent: string, workspaceR
     _session_name: sessionName ?? '',
   };
   const payloadJson = JSON.stringify(payload).replace(/'/g, `'\\''`);
-  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot));
+  // See nodeAppenderJs for why we strip backslashes — same shell escaping bug.
+  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot).replace(/\\/g, '/'));
   // eslint-disable-next-line max-len
   const js = `const d=${payloadJson};d.timestamp=new Date().toISOString();const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")`;
   return `node -e '${js}'`;
@@ -174,7 +180,7 @@ function isCurrentClaudeEntry(group: any, workspaceRoot: string): boolean {
   if (!group || group[AUTODEV_MARKER] !== true) return false;
   const cmd = group.hooks?.[0]?.command;
   if (typeof cmd !== 'string') return false;
-  const expectedSink = hooksJsonlPath(workspaceRoot);
+  const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
   return cmd.includes(JSON.stringify(expectedSink));
 }
 
@@ -277,7 +283,7 @@ function isAutodevCopilotEntry(entry: any): boolean {
 /** True if the entry's bash command writes to *this* workspace's JSONL sink. */
 function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
   if (!isAutodevCopilotEntry(entry)) return false;
-  const expectedSink = hooksJsonlPath(workspaceRoot);
+  const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
   return typeof entry.bash === 'string' && entry.bash.includes(JSON.stringify(expectedSink));
 }
 
