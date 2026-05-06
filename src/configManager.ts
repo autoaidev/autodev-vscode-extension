@@ -130,14 +130,32 @@ export class ConfigManager {
     }
     const servers = [...byName.values()];
 
-    // Claude CLI project-local (not committed per-user): .claude/settings.local.json
-    _mergeJson(path.join(root, '.claude', 'settings.local.json'), (cfg) => {
-      const mcp = _obj(cfg['mcpServers']);
+    // Claude CLI project-level: .claude/settings.json
+    // (We used to write to .claude/settings.local.json — that file was loaded
+    // inconsistently and conflicted with hooks living in settings.json.
+    // Migrate any pre-existing mcpServers from settings.local.json into
+    // settings.json, then clear them from the local file.)
+    const claudeLocalPath = path.join(root, '.claude', 'settings.local.json');
+    let migrated: Record<string, unknown> = {};
+    if (fs.existsSync(claudeLocalPath)) {
+      try {
+        const local = JSON.parse(fs.readFileSync(claudeLocalPath, 'utf8')) as Record<string, unknown>;
+        if (local && typeof local.mcpServers === 'object' && local.mcpServers) {
+          migrated = local.mcpServers as Record<string, unknown>;
+          delete local.mcpServers;
+          fs.writeFileSync(claudeLocalPath, JSON.stringify(local, null, 2) + '\n', 'utf8');
+          log?.(`ConfigManager: migrated mcpServers out of .claude/settings.local.json`);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    _mergeJson(path.join(root, '.claude', 'settings.json'), (cfg) => {
+      const mcp = { ..._obj(cfg['mcpServers']), ...migrated };
       for (const s of servers) {
         mcp[s.name] = { command: s.command, args: s.args, ...(s.env ? { env: s.env } : {}) };
       }
       cfg['mcpServers'] = mcp;
-    }, log, 'Claude project-local MCP (.claude/settings.local.json)');
+    }, log, 'Claude project MCP (.claude/settings.json)');
 
     // VS Code workspace MCP: .vscode/mcp.json
     _mergeJson(path.join(root, '.vscode', 'mcp.json'), (cfg) => {

@@ -696,6 +696,7 @@ Agents must **never** delete or truncate `TODO.md`. `TODO.md` is always scoped t
 
 ```
 READ TODO.md            — collect ALL unfinished tasks as the current batch
+                          (read each task with surrounding lines — descriptions may span multiple lines)
 CLASSIFY each task      — code / qa / docs / chore (see §1.5)
   ↓
 ┌──────────────────────────────────────────────────────────────────┐
@@ -742,7 +743,7 @@ Before dispatching any subagent or writing a single line, explicitly answer all 
 
 | # | Question | How to answer it |
 |---|---|---|
-| **1 — Scope** | What exactly must change? What is NOT in scope? | Read `TODO.md` entry + any referenced files. State the boundary explicitly. |
+| **1 — Scope** | What exactly must change? What is NOT in scope? | Read the `TODO.md` entry **plus the lines immediately above and below it** — descriptions often span multiple lines. State the full boundary explicitly. |
 | **2 — Impact** | Which files will be read? Which will change? Which callers are affected? | Grep for usages; trace the call graph. List every file as `(edit)` or `(read-only)`. |
 | **3 — Patterns** | What naming, structure, and error-handling conventions apply? | Read 2–3 adjacent files in the same module. Match what already exists — do not invent. |
 | **4 — Risks** | What could break? What edge cases need upfront handling? | Check callers, tests, and config. List every risk before touching code. |
