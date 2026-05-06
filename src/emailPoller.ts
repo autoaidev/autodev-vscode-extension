@@ -41,6 +41,12 @@ export class EmailTaskPoller {
    * loop started and aren't "new tasks". Cleared after the first poll.
    */
   private skipUids: Set<number> | null = null;
+  /** Wall-clock time of the last successful connect — used to force a periodic
+   *  reconnect so a long-running session doesn't sit on a half-dead socket the
+   *  IMAP server has silently dropped. */
+  private connectedAt = 0;
+  /** Force a fresh IMAP connection every 15 minutes regardless of state. */
+  private static readonly MAX_CONN_AGE_MS = 15 * 60 * 1000;
 
   constructor(private readonly opts: EmailPollerOptions) {
     this.allowed = new Set(opts.allowedSenders.map(s => s.toLowerCase().trim()).filter(Boolean));
@@ -134,6 +140,12 @@ export class EmailTaskPoller {
   // -------------------------------------------------------------------------
 
   private async _ensureConnected(): Promise<void> {
+    // Force a periodic reconnect — IMAP servers drop idle sockets without
+    // warning, and `client.usable` lies until the next round-trip fails.
+    if (this.client && this.client.usable && (Date.now() - this.connectedAt) > EmailTaskPoller.MAX_CONN_AGE_MS) {
+      try { await this.client.logout(); } catch { /* ignore */ }
+      this.client = null;
+    }
     if (this.client && this.client.usable) return;
     if (this.connecting) return this.connecting;
     this.connecting = (async () => {
@@ -147,6 +159,7 @@ export class EmailTaskPoller {
       });
       await c.connect();
       this.client = c;
+      this.connectedAt = Date.now();
     })().finally(() => { this.connecting = null; });
     return this.connecting;
   }
