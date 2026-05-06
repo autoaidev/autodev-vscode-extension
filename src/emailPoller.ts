@@ -160,21 +160,38 @@ export class EmailTaskPoller {
     const parsed: ParsedMail = await simpleParser(source);
     const subject = (parsed.subject || envelope?.subject || '(no subject)').trim();
     const fromAddr = parsed.from?.value?.[0]?.address ?? envelope?.from?.[0]?.address ?? 'unknown';
+    const fromName = parsed.from?.value?.[0]?.name ?? '';
+    const dateStr = (parsed.date ?? envelope?.date ?? new Date()).toISOString();
     const body = (parsed.text || '').trim();
+
+    // Group attachments + the message file under one folder so they stay together.
+    const groupId = `email_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
     const attachmentLines: string[] = [];
     if (parsed.attachments && parsed.attachments.length > 0) {
-      const groupId = `email_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       for (const att of parsed.attachments) {
         const name = att.filename || `attachment_${attachmentLines.length + 1}`;
         const rel = saveAttachment(workspaceRoot, name, att.content, groupId);
-        attachmentLines.push(`- [${name}](${rel})`);
+        attachmentLines.push(`- [${name}](/${rel})`);
       }
     }
 
-    const parts = [`${subject} (from ${fromAddr})`];
-    if (body) parts.push('', body);
-    if (attachmentLines.length) parts.push('', 'Attachments:', ...attachmentLines);
-    return parts.join(' \\\\ ');
+    // Write the full email as a markdown file so the TODO line stays short
+    // and the agent can read the whole message + attachment list from one file.
+    const messageMd = [
+      `# ${subject}`,
+      '',
+      `- **From:** ${fromName ? `${fromName} <${fromAddr}>` : fromAddr}`,
+      `- **Date:** ${dateStr}`,
+      attachmentLines.length ? `- **Attachments:** ${parsed.attachments!.length}` : '',
+      '',
+      '---',
+      '',
+      body || '_(no text body)_',
+      attachmentLines.length ? '\n## Attachments\n\n' + attachmentLines.join('\n') : '',
+    ].filter(Boolean).join('\n');
+    const messageRel = saveAttachment(workspaceRoot, 'message.md', messageMd, groupId);
+
+    return `Read the email message and work on the tasks mentioned: [${subject}](/${messageRel}) (from ${fromAddr})`;
   }
 }
