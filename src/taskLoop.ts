@@ -313,8 +313,21 @@ export class TaskLoopRunner {
     }
 
     if (this._emailPoller) {
-      try { await this._emailPoller.initialize(); }
+      try {
+        await this._emailPoller.initialize();
+        callbacks.log('📧 Email task poller started — checking inbox every 10s');
+      }
       catch (e) { callbacks.log(`Email poller init failed: ${e instanceof Error ? e.message : String(e)}`); }
+    } else {
+      const entry = settings.mcpServers?.['zerolib-email'];
+      const env = entry?.env ?? {};
+      const reasons: string[] = [];
+      if (entry?.enabled === false) reasons.push('Email MCP is disabled');
+      if (String(env.AUTODEV_EMAIL_RECEIVE_TASKS).toLowerCase() !== 'true') reasons.push('AUTODEV_EMAIL_RECEIVE_TASKS != "true"');
+      if (!env.MCP_EMAIL_SERVER_IMAP_HOST) reasons.push('IMAP host missing');
+      if (!(env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS)) reasons.push('IMAP user/email missing');
+      if (!env.MCP_EMAIL_SERVER_PASSWORD) reasons.push('IMAP password missing');
+      if (reasons.length) callbacks.log(`📧 Email task poller NOT started: ${reasons.join('; ')}`);
     }
 
     // Connect to Discord Gateway so the bot appears online

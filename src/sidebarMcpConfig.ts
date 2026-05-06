@@ -330,6 +330,7 @@ function populateMcp(s, defaults){
   }
 
   setMcpStatus('', '');
+  window.__mcpFormReady = true;
 }
 
 function _parseMcpInput(raw){
@@ -364,10 +365,12 @@ function _parseMcpInput(raw){
 // unchecked state survives across reloads (configManager skips enabled:false
 // entries when syncing, so no harm done).
 function _gatherJira(){
-  const url     = _getVal('mcpJira_url');
-  const user    = _getVal('mcpJira_user');
-  const token   = _getVal('mcpJira_token');
   const enabled = _getCheck('mcpJira_enabled');
+  const savedEntry = (state && state.settings && state.settings.mcpServers && state.settings.mcpServers[RESERVED_MCP.jira]) || null;
+  const savedEnv = (savedEntry && savedEntry.env) || {};
+  const url     = _getVal('mcpJira_url')   || savedEnv.JIRA_URL || '';
+  const user    = _getVal('mcpJira_user')  || savedEnv.JIRA_USERNAME || '';
+  const token   = _getVal('mcpJira_token') || savedEnv.JIRA_API_TOKEN || '';
   if(!url && !user && !token){
     if(!enabled) return { command: 'uvx', args: ['mcp-atlassian'], env: {}, enabled: false };
     throw new Error('Jira: enabled but no fields filled in — fill URL, username and API token, or uncheck Enable.');
@@ -376,9 +379,9 @@ function _gatherJira(){
     throw new Error('Jira: URL, username and API token are all required (or clear all three to remove).');
   }
   const env = { JIRA_URL: url, JIRA_USERNAME: user, JIRA_API_TOKEN: token };
-  const cu = _getVal('mcpJira_confUrl'); if(cu) env.CONFLUENCE_URL = cu;
-  const cn = _getVal('mcpJira_confUser'); if(cn) env.CONFLUENCE_USERNAME = cn;
-  const ct = _getVal('mcpJira_confToken'); if(ct) env.CONFLUENCE_API_TOKEN = ct;
+  const cu = _getVal('mcpJira_confUrl')   || savedEnv.CONFLUENCE_URL || '';        if(cu) env.CONFLUENCE_URL = cu;
+  const cn = _getVal('mcpJira_confUser')  || savedEnv.CONFLUENCE_USERNAME || '';   if(cn) env.CONFLUENCE_USERNAME = cn;
+  const ct = _getVal('mcpJira_confToken') || savedEnv.CONFLUENCE_API_TOKEN || ''; if(ct) env.CONFLUENCE_API_TOKEN = ct;
   const out = { command: 'uvx', args: ['mcp-atlassian'], env: env };
   if(!enabled) out.enabled = false;
   return out;
@@ -386,12 +389,19 @@ function _gatherJira(){
 
 // Build the Email entry from form fields. Same semantics as _gatherJira:
 // empty + unchecked → stub with enabled:false so the unchecked state persists.
+//
+// Defensive: if the form's required fields are empty but we already have a
+// saved env in state.settings, reuse it. This stops an early auto-save from
+// wiping IMAP creds when the form hasn't been populated yet (e.g. user toggled
+// the checkbox on a freshly-opened tab before populateMcp ran).
 function _gatherEmail(){
-  const email    = _getVal('mcpEmail_address');
-  const password = _getVal('mcpEmail_password');
-  const imapHost = _getVal('mcpEmail_imapHost');
-  const smtpHost = _getVal('mcpEmail_smtpHost');
   const enabled  = _getCheck('mcpEmail_enabled');
+  const savedEntry = (state && state.settings && state.settings.mcpServers && state.settings.mcpServers[RESERVED_MCP.email]) || null;
+  const savedEnv = (savedEntry && savedEntry.env) || {};
+  const email    = _getVal('mcpEmail_address')  || savedEnv.MCP_EMAIL_SERVER_EMAIL_ADDRESS || '';
+  const password = _getVal('mcpEmail_password') || savedEnv.MCP_EMAIL_SERVER_PASSWORD || '';
+  const imapHost = _getVal('mcpEmail_imapHost') || savedEnv.MCP_EMAIL_SERVER_IMAP_HOST || '';
+  const smtpHost = _getVal('mcpEmail_smtpHost') || savedEnv.MCP_EMAIL_SERVER_SMTP_HOST || '';
   if(!email && !password && !imapHost && !smtpHost){
     if(!enabled) return { command: 'uvx', args: ['mcp-email-server@latest', 'stdio'], env: {}, enabled: false };
     throw new Error('Email: enabled but no fields filled in — fill address, password, IMAP host and SMTP host, or uncheck Enable.');
@@ -399,28 +409,28 @@ function _gatherEmail(){
   if(!email || !password || !imapHost || !smtpHost){
     throw new Error('Email: address, password, IMAP host and SMTP host are required (or clear all to remove).');
   }
-  const account = _getVal('mcpEmail_account') || 'default';
+  const account = _getVal('mcpEmail_account') || savedEnv.MCP_EMAIL_SERVER_ACCOUNT_NAME || 'default';
   const env = {
     MCP_EMAIL_SERVER_ACCOUNT_NAME: account,
     MCP_EMAIL_SERVER_EMAIL_ADDRESS: email,
     MCP_EMAIL_SERVER_PASSWORD: password,
     MCP_EMAIL_SERVER_IMAP_HOST: imapHost,
-    MCP_EMAIL_SERVER_IMAP_PORT: _getVal('mcpEmail_imapPort') || '993',
+    MCP_EMAIL_SERVER_IMAP_PORT: _getVal('mcpEmail_imapPort') || savedEnv.MCP_EMAIL_SERVER_IMAP_PORT || '993',
     MCP_EMAIL_SERVER_IMAP_SSL: String(_getCheck('mcpEmail_imapSsl')),
     MCP_EMAIL_SERVER_IMAP_VERIFY_SSL: String(_getCheck('mcpEmail_imapVerifySsl')),
     MCP_EMAIL_SERVER_SMTP_HOST: smtpHost,
-    MCP_EMAIL_SERVER_SMTP_PORT: _getVal('mcpEmail_smtpPort') || '465',
+    MCP_EMAIL_SERVER_SMTP_PORT: _getVal('mcpEmail_smtpPort') || savedEnv.MCP_EMAIL_SERVER_SMTP_PORT || '465',
     MCP_EMAIL_SERVER_SMTP_SSL: String(_getCheck('mcpEmail_smtpSsl')),
     MCP_EMAIL_SERVER_SMTP_START_SSL: String(_getCheck('mcpEmail_smtpStartTls')),
     MCP_EMAIL_SERVER_SMTP_VERIFY_SSL: String(_getCheck('mcpEmail_smtpVerifySsl')),
     MCP_EMAIL_SERVER_ENABLE_ATTACHMENT_DOWNLOAD: String(_getCheck('mcpEmail_attachments')),
     MCP_EMAIL_SERVER_SAVE_TO_SENT: String(_getCheck('mcpEmail_saveSent')),
   };
-  const fullName   = _getVal('mcpEmail_fullName');   if(fullName)   env.MCP_EMAIL_SERVER_FULL_NAME = fullName;
-  const userName   = _getVal('mcpEmail_userName');   if(userName)   env.MCP_EMAIL_SERVER_USER_NAME = userName;
-  const sentFolder = _getVal('mcpEmail_sentFolder'); if(sentFolder) env.MCP_EMAIL_SERVER_SENT_FOLDER_NAME = sentFolder;
+  const fullName   = _getVal('mcpEmail_fullName')   || savedEnv.MCP_EMAIL_SERVER_FULL_NAME   || ''; if(fullName)   env.MCP_EMAIL_SERVER_FULL_NAME = fullName;
+  const userName   = _getVal('mcpEmail_userName')   || savedEnv.MCP_EMAIL_SERVER_USER_NAME   || ''; if(userName)   env.MCP_EMAIL_SERVER_USER_NAME = userName;
+  const sentFolder = _getVal('mcpEmail_sentFolder') || savedEnv.MCP_EMAIL_SERVER_SENT_FOLDER_NAME || ''; if(sentFolder) env.MCP_EMAIL_SERVER_SENT_FOLDER_NAME = sentFolder;
   env.AUTODEV_EMAIL_RECEIVE_TASKS = String(_getCheck('mcpEmail_receiveTasks'));
-  const allowedSenders = _getVal('mcpEmail_allowedSenders');
+  const allowedSenders = _getVal('mcpEmail_allowedSenders') || savedEnv.AUTODEV_EMAIL_ALLOWED_SENDERS || '';
   if(allowedSenders) env.AUTODEV_EMAIL_ALLOWED_SENDERS = allowedSenders;
   const out = { command: 'uvx', args: ['mcp-email-server@latest', 'stdio'], env: env };
   if(!enabled) out.enabled = false;
@@ -490,20 +500,30 @@ function _bindMcpEvents(){
     });
   });
 
-  // Per-card enable/disable checkboxes — visual only here. The checked state
-  // is captured into the entry on the next "Save All & Sync".
+  // Per-card enable/disable checkboxes — clicking the checkbox auto-saves
+  // with the current form values, so the saved entry never lags behind the
+  // form (and toggling Off doesn't drop your filled-in IMAP/Jira creds).
+  function _saveAllNow(){
+    if(!window.__mcpFormReady){ setMcpStatus('error', 'Form not ready yet — open the MCP tab first.'); return; }
+    let entries;
+    try { entries = _gatherMcpEntries(); }
+    catch(err){ setMcpStatus('error', String(err && err.message ? err.message : err)); return; }
+    setMcpStatus('', 'Saving…');
+    vscode.postMessage({command:'saveMcpBulk', entries: entries});
+  }
+
   const jEn = document.getElementById('mcpJira_enabled');
   if(jEn){
     jEn.addEventListener('change', function(){
       _setAccDisabled('mcpAcc_jira', !jEn.checked);
-      setMcpStatus('', 'Click "Save All & Sync" to apply.');
+      _saveAllNow();
     });
   }
   const eEn = document.getElementById('mcpEmail_enabled');
   if(eEn){
     eEn.addEventListener('change', function(){
       _setAccDisabled('mcpAcc_email', !eEn.checked);
-      setMcpStatus('', 'Click "Save All & Sync" to apply.');
+      _saveAllNow();
     });
   }
 
@@ -543,13 +563,7 @@ function _bindMcpEvents(){
 
   // Global Save All & Sync — gathers Jira + Email + Custom JSON in one shot.
   const sa = document.getElementById('saveMcpAllBtn');
-  if(sa){ sa.addEventListener('click',function(){
-    let entries;
-    try { entries = _gatherMcpEntries(); }
-    catch(err){ setMcpStatus('error', String(err && err.message ? err.message : err)); return; }
-    setMcpStatus('', 'Saving…');
-    vscode.postMessage({command:'saveMcpBulk', entries: entries});
-  });}
+  if(sa){ sa.addEventListener('click',function(){ _saveAllNow(); });}
 }
 
 // Wire up DOM event listeners once the DOM is ready.
