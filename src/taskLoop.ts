@@ -1025,6 +1025,22 @@ export class TaskLoopRunner {
         // writes (session ID capture etc.) to settle before we declare it undone.
         await sleep(3_000);
         if (found()) { return; } // task already marked done — nothing to do
+
+        // If the AI deliberately moved the task to [~] (in-progress / deferred —
+        // typically because it scheduled a wakeup), don't keep the loop pinned to
+        // it. Resolve so pickNextTask grabs the next [ ] task; the deferred task
+        // remains [~] in TODO.md and will be picked up later.
+        try {
+          const updated = parseTodo(todoPath);
+          const byLine = updated.find(t => t.line === task.line);
+          if (byLine?.status === 'in-progress') {
+            this._cb?.log(`↪︎ CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
+            cleanup();
+            resolve();
+            return;
+          }
+        } catch { /* ignore */ }
+
         if (exitReminderSent) { return; } // only send once
         exitReminderSent = true;
         const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);

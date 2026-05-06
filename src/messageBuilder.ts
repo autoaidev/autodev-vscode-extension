@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Task } from './todo';
 import { autodevDir } from './sessionState';
+import { applyProtocolSections } from './protocolSections';
+import { loadSettingsForRoot } from './core/settingsLoader';
 
 // ---------------------------------------------------------------------------
 // File path constants — all files live under <workspace>/.autodev/
@@ -165,10 +167,17 @@ export function buildMessage(
 
   const { meta, body: profileBody } = parseFrontmatter(rawProfile);
 
+  // Inject protocol sections (email, jira, ...) for any MCP currently enabled
+  // in the workspace settings. Toggling an MCP off cleanly removes its block
+  // on the next regeneration.
+  let settings: { mcpServers?: Record<string, { enabled?: boolean }> } | undefined;
+  try { settings = loadSettingsForRoot(root); } catch { /* ignore */ }
+  const finalProfileBody = applyProtocolSections(profileBody, settings);
+
   // Always write the profile file so the LLM can @-reference it
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
-  fs.writeFileSync(profileFilePath, profileBody, 'utf8');
-  const profileMd5 = crypto.createHash('md5').update(profileBody).digest('hex');
+  fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
+  const profileMd5 = crypto.createHash('md5').update(finalProfileBody).digest('hex');
 
   // Build the task trigger message — reference the profile file, don't embed it
   const relativeProfile = AGENT_PROFILE_FILE; // always .autodev/AGENT_PROFILE.md
@@ -178,8 +187,8 @@ export function buildMessage(
 
   // For UI providers (non-CLI) embed the profile inline since they can't read files
   const parts: string[] = [];
-  if (includeProfile && profileBody.trim()) {
-    parts.push(`# Project Instructions (AUTODEV.md)\n\n${profileBody.trim()}`);
+  if (includeProfile && finalProfileBody.trim()) {
+    parts.push(`# Project Instructions (AUTODEV.md)\n\n${finalProfileBody.trim()}`);
   }
   parts.push(taskMessage);
   return { prompt: parts.join('\n\n---\n\n'), messageFile };
