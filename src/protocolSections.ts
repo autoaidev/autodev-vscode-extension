@@ -1,36 +1,19 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
 // ---------------------------------------------------------------------------
-// Protocol sections — injected into the agent profile based on which MCPs
-// are enabled. Wrapped in BEGIN/END markers so toggling an MCP off cleanly
-// removes the corresponding rules on the next regeneration.
+// Protocol sections — for each MCP server enabled in settings, look up
+// `media/mcp/<server-name>.md` and inject its contents into the agent profile,
+// wrapped in BEGIN/END markers. Toggling an MCP off cleanly removes its block
+// on the next regeneration.
+//
+// To add a new protocol: drop a markdown file in `media/mcp/` named exactly
+// after the MCP server (e.g. `media/mcp/zerolib-email.md`). No code changes
+// required.
 // ---------------------------------------------------------------------------
 
-const EMAIL_BEGIN = '<!-- AUTODEV:email-protocol:begin -->';
-const EMAIL_END   = '<!-- AUTODEV:email-protocol:end -->';
-const JIRA_BEGIN  = '<!-- AUTODEV:jira-protocol:begin -->';
-const JIRA_END    = '<!-- AUTODEV:jira-protocol:end -->';
-
-const EMAIL_BLOCK = `## Email protocol (zerolib-email MCP)
-
-The \`zerolib-email\` MCP is connected. Use it to communicate with stakeholders.
-
-**Reply rules — to avoid email loops:**
-- **Do NOT** send a reply just to confirm a task is completed. Mark the TODO item done and move on.
-- **Only reply** when you hit a real problem the sender needs to know about: blocker, missing info, ambiguity, failed dependency, permissions issue.
-- One reply per problem. Never reply to your own outgoing messages.
-- Do not CC, forward, or escalate to anyone the original sender did not include.
-- Subject line: prefix problem replies with \`[needs input]\`. Keep it short.
-- Never include credentials, API keys, or secrets in email bodies.`;
-
-const JIRA_BLOCK = `## Jira protocol (mcp-atlassian MCP)
-
-The \`mcp-atlassian\` MCP is connected. Use it to read and update Jira tickets tied to your tasks.
-
-**Comment rules — to avoid notification loops:**
-- **Do NOT** comment just to say a ticket is done. Transition status (\`In Progress\` → \`Done\`) and move on.
-- **Only comment** when you hit a real problem reviewers need to see: blocker, decision required, scope change, failed acceptance criteria.
-- One comment per problem. Never reply to your own previous comments.
-- Do not @-mention anyone who isn't already a watcher / assignee / reporter.
-- Never include credentials or secrets in comments or descriptions.`;
+const BEGIN_MARKER = '<!-- AUTODEV:mcp-protocol:';
+const END_MARKER   = ':end -->';
 
 interface SettingsLike {
   mcpServers?: Record<string, { enabled?: boolean } | undefined>;
@@ -42,30 +25,41 @@ function _isEnabled(s: SettingsLike | undefined, name: string): boolean {
   return entry.enabled !== false;
 }
 
-function _stripBlock(body: string, begin: string, end: string): string {
-  const re = new RegExp(`\\n*${_escape(begin)}[\\s\\S]*?${_escape(end)}\\n*`, 'g');
-  return body.replace(re, '\n').replace(/\n{3,}/g, '\n\n');
+function _mcpDir(): string {
+  return path.join(__dirname, '..', 'media', 'mcp');
 }
 
-function _escape(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Strip every existing `<!-- AUTODEV:mcp-protocol:*:begin -->...end -->` block. */
+function _stripAllProtocolBlocks(body: string): string {
+  // Greedy-safe non-greedy match across newlines
+  const re = /\n*<!-- AUTODEV:mcp-protocol:[^:]+:begin -->[\s\S]*?<!-- AUTODEV:mcp-protocol:[^:]+:end -->\n*/g;
+  return body.replace(re, '\n').replace(/\n{3,}/g, '\n\n');
 }
 
 /**
  * Strip any existing protocol markers from `body`, then append fresh blocks
- * for each MCP currently enabled in `settings`. Returns the new body.
+ * from `media/mcp/<name>.md` for each MCP currently enabled in `settings`.
  */
 export function applyProtocolSections(body: string, settings: SettingsLike | undefined): string {
-  let out = _stripBlock(body, EMAIL_BEGIN, EMAIL_END);
-  out = _stripBlock(out, JIRA_BEGIN, JIRA_END);
-  out = out.trimEnd();
+  let out = _stripAllProtocolBlocks(body).trimEnd();
+
+  const dir = _mcpDir();
+  if (!fs.existsSync(dir)) return out + '\n';
+
+  const enabledNames = Object.keys(settings?.mcpServers ?? {})
+    .filter(name => _isEnabled(settings, name))
+    .sort();
 
   const additions: string[] = [];
-  if (_isEnabled(settings, 'zerolib-email')) {
-    additions.push(`${EMAIL_BEGIN}\n\n${EMAIL_BLOCK}\n\n${EMAIL_END}`);
-  }
-  if (_isEnabled(settings, 'mcp-atlassian')) {
-    additions.push(`${JIRA_BEGIN}\n\n${JIRA_BLOCK}\n\n${JIRA_END}`);
+  for (const name of enabledNames) {
+    const file = path.join(dir, `${name}.md`);
+    if (!fs.existsSync(file)) continue;
+    let content: string;
+    try { content = fs.readFileSync(file, 'utf8').trim(); } catch { continue; }
+    if (!content) continue;
+    additions.push(
+      `${BEGIN_MARKER}${name}:begin -->\n\n${content}\n\n${BEGIN_MARKER}${name}${END_MARKER}`,
+    );
   }
 
   if (additions.length === 0) return out + '\n';
