@@ -3,12 +3,17 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { areHooksInstalled, installHooks, uninstallHooks } from './hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from './openCodeHooksManager';
+import { ConfigManager } from './configManager';
+import { DEFAULT_MCP_SERVERS } from './mcpManager';
+import { getMcpInstallSnapshot, checkMcpInstallAsync, refreshMcpInstall, installCommandFor, invalidateMcpInstallCache } from './mcpInstallCheck';
+import { testEmailViaMcp } from './mcpEmailTest';
 import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
 import { Task, parseTodo, appendTask } from './todo';
 import { getSessionId, clearSessionId } from './sessionState';
+import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
@@ -87,6 +92,92 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
           break;
         }
+        case 'saveMcpBulk': {
+          // Global Save All & Sync — full replace of mcpServers from the
+          // gathered Jira + Email + Custom JSON forms.
+          const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
+          const current = loadSettings();
+          saveSettings({ ...current, mcpServers: entries });
+          this._syncAndPushMcp();
+          vscode.window.showInformationMessage(
+            `AutoDev: ${Object.keys(entries).length} MCP server(s) saved & synced.`
+          );
+          break;
+        }
+        case 'removeMcpEntry': {
+          const name = String(msg.name ?? '').trim();
+          if (!name) break;
+          const current = loadSettings();
+          const merged = { ...(current.mcpServers ?? {}) };
+          if (!(name in merged)) break;
+          delete merged[name];
+          saveSettings({ ...current, mcpServers: merged });
+          this._syncAndPushMcp();
+          vscode.window.showInformationMessage(`AutoDev: '${name}' removed.`);
+          break;
+        }
+        case 'toggleBuiltinMcp': {
+          const name = String(msg.name ?? '').trim();
+          const enabled = !!msg.enabled;
+          if (!name) break;
+          const current = loadSettings();
+          const set = new Set(current.disabledBuiltinMcp ?? []);
+          if (enabled) set.delete(name); else set.add(name);
+          saveSettings({ ...current, disabledBuiltinMcp: [...set] });
+          this._syncAndPushMcp();
+          break;
+        }
+        case 'installMcpServer': {
+          // Find the target server (built-in or user-configured) by name and
+          // open a terminal running the right install command (npm i -g pkg /
+          // uv tool install pkg / uv self-install). After it returns, we
+          // invalidate the install-check cache and push so badges update.
+          const name = String(msg.name ?? '').trim();
+          if (!name) break;
+          const allServers = [
+            ...DEFAULT_MCP_SERVERS,
+            ...Object.entries(loadSettings().mcpServers ?? {}).map(([n, e]) => ({
+              name: n, command: e.command, args: e.args ?? [],
+            })),
+          ];
+          const target = allServers.find(s => s.name === name);
+          if (!target) break;
+          // Async probe — must not block the extension host.
+          checkMcpInstallAsync({ command: target.command, args: target.args }).then(info => {
+            const cmd = installCommandFor(info);
+            if (!cmd) {
+              if (info.status === 'missing-runner' && (info.runner === 'npx' || info.runner === 'node' || info.runner === 'npm')) {
+                vscode.env.openExternal(vscode.Uri.parse('https://nodejs.org/'));
+              } else {
+                vscode.window.showWarningMessage(
+                  `AutoDev: no automatic install for '${name}' (${info.status}, runner=${info.runner}). Install manually.`,
+                );
+              }
+              return;
+            }
+            const term = vscode.window.createTerminal(`Install: ${name}`);
+            term.show(true);
+            term.sendText(cmd);
+            setTimeout(() => { invalidateMcpInstallCache(); this._refreshMcpInstall(); }, 6000);
+          });
+          break;
+        }
+        case 'testMcpEmail': {
+          // Live test: spawn the actual mcp-email-server with the form env,
+          // run init + tools/list + an IMAP-reading tool, post result back.
+          const env = (msg.env ?? {}) as Record<string, string>;
+          const view = this._view;
+          (async () => {
+            const r = await testEmailViaMcp(env as Parameters<typeof testEmailViaMcp>[0]);
+            view?.webview.postMessage({ command: 'mcpEmailTestResult', result: r });
+          })().catch(err => {
+            view?.webview.postMessage({
+              command: 'mcpEmailTestResult',
+              result: { ok: false, message: 'Test crashed: ' + String(err), steps: [] },
+            });
+          });
+          break;
+        }
       }
     });
 
@@ -101,6 +192,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._cozempicInstalled = null; // re-check each time the panel opens
     this._startWatcher();
     this._refreshTasks();
+    // Defer install probes so the webview's service worker has time to
+    // register before we spawn child processes that hog the event loop.
+    setTimeout(() => this._refreshMcpInstall(), 8000);
   }
 
   setLoopState(state: LoopState, task?: string): void {
@@ -223,6 +317,39 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * Sync MCP servers from `.autodev/settings.json` into every per-project
+   * provider config (.mcp.json, .claude/settings.local.json, opencode.json,
+   * .vscode/mcp.json) and re-push the webview state. Used by every MCP
+   * write path (custom JSON, Jira form, Email form, remove).
+   */
+  private _syncAndPushMcp(): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (root) {
+      try { ConfigManager.syncProjectMcpServers(root); }
+      catch (err) { vscode.window.showErrorMessage(`AutoDev: MCP sync failed: ${err}`); }
+    }
+    invalidateMcpInstallCache();
+    this._push();
+    this._refreshMcpInstall(); // re-probe in background, push when done
+  }
+
+  /**
+   * Probe MCP runner/package install state in the background. Spawning
+   * `where`/`which` + `npm ls -g` + `uv tool list` for every default server is
+   * slow on cold start, so we never block _push() on it. Once probes settle,
+   * we re-push so the badges update.
+   */
+  private _refreshMcpInstall(): void {
+    const settings = loadSettings();
+    const userMcp = settings.mcpServers ?? {};
+    const targets = [
+      ...DEFAULT_MCP_SERVERS.map(s => ({ command: s.command, args: s.args })),
+      ...Object.entries(userMcp).map(([, e]) => ({ command: e.command, args: e.args ?? [] })),
+    ];
+    refreshMcpInstall(targets).then(() => this._push()).catch(() => { /* ignore */ });
+  }
+
   private _checkCozempic(): boolean {
     if (this._cozempicInstalled !== null) { return this._cozempicInstalled; }
     // VS Code's process doesn't inherit the user's full shell PATH (e.g. ~/.local/bin
@@ -240,6 +367,22 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _push(): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const sessionId = root ? (getSessionId(root, this._selectedProvider) ?? null) : null;
+    const settings = loadSettings();
+    const userMcp = settings.mcpServers ?? {};
+    const allMcp = [
+      ...DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
+      ...Object.entries(userMcp).map(([n, e]) => ({ name: n, command: e.command, args: e.args ?? [] })),
+    ];
+    const mcpInstall: Record<string, { status: string; runner: string; pkg?: string; canInstall: boolean }> = {};
+    for (const s of allMcp) {
+      const info = getMcpInstallSnapshot({ command: s.command, args: s.args });
+      mcpInstall[s.name] = {
+        status: info.status,
+        runner: info.runner,
+        ...(info.pkg ? { pkg: info.pkg } : {}),
+        canInstall: !!installCommandFor(info) || (info.status === 'missing-runner' && (info.runner === 'npx' || info.runner === 'node' || info.runner === 'npm')),
+      };
+    }
     this._view?.webview.postMessage({
       command: 'update',
       selectedProvider: this._selectedProvider,
@@ -253,13 +396,16 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       loopState: this._loopState,
       loopTask: this._loopTask,
       claudeActivity: this._claudeActivity,
-      settings: loadSettings(),
+      settings,
       sessionId,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
       cozempicInstalled: this._checkCozempic(),
       hooksInstalled: root ? areHooksInstalled('project', root) : false,
       openCodeHooksInstalled: root ? isOpenCodeHooksInstalled(root) : false,
+      mcpDefaults: DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
+      disabledBuiltinMcp: settings.disabledBuiltinMcp ?? [],
+      mcpInstall,
     });
   }
 }
@@ -336,6 +482,11 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .cfg-save:hover{opacity:.88}
 .cfg-json{display:block;width:100%;padding:4px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-textLink-foreground);font-size:11px;font-family:var(--vscode-font-family);margin-top:5px;text-align:center}
 .cfg-json:hover{background:var(--vscode-list-hoverBackground)}
+.mcp-subtabs{display:flex;gap:2px;margin-bottom:8px;border:1px solid var(--vscode-panel-border);border-radius:3px;padding:2px;background:var(--vscode-editor-background)}
+.mcp-subtab{flex:1;padding:5px 8px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--vscode-descriptionForeground);border-radius:2px;font-family:var(--vscode-font-family)}
+${mcpConfigCss}
+.mcp-subtab:hover{background:var(--vscode-list-hoverBackground)}
+.mcp-subtab.active{background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600}
 </style>
 </head>
 <body>
@@ -359,6 +510,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 </div>
 <div class="tab-bar">
   <button class="tab-btn active" id="tabTasks">Tasks</button>
+  <button class="tab-btn" id="tabMcp">MCP</button>
   <button class="tab-btn" id="tabSettings">&#9881; Settings</button>
 </div>
 <div id="panelTasks">
@@ -372,6 +524,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 </div>
 <div id="taskList"></div>
 </div>
+${mcpConfigHtml}
 <div id="panelSettings" style="display:none">
 <div id="cozempicBanner" style="display:none;padding:8px 10px;margin-bottom:10px;border-radius:4px;background:color-mix(in srgb,var(--vscode-statusBarItem-warningBackground,#b5630d) 15%,transparent);border:1px solid var(--vscode-statusBarItem-warningBackground,#b5630d);font-size:12px;line-height:1.6">
   <strong>Cozempic not detected</strong> &mdash; prunes bloated Claude Code sessions.<br>
@@ -392,6 +545,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_retryOnTimeout"> Retry on timeout</label></div>
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoResetPendingTasks"> Auto-reset pending tasks on start</label></div>
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoStartLoop"> Auto-start task loop on VS Code launch</label></div>
   </div>
   <div class="cfg-section">VNC</div>
   <div class="cfg-row">
@@ -448,12 +602,16 @@ let _pendingResume = null; // user's in-flight resumeSession toggle (null = no p
 
 function showTab(tab) {
   activeTab = tab;
-  document.getElementById('tabTasks').className   = 'tab-btn' + (tab==='tasks'?' active':'');
+  document.getElementById('tabTasks').className    = 'tab-btn' + (tab==='tasks'?' active':'');
+  document.getElementById('tabMcp').className      = 'tab-btn' + (tab==='mcp'?' active':'');
   document.getElementById('tabSettings').className = 'tab-btn' + (tab==='settings'?' active':'');
   document.getElementById('panelTasks').style.display    = tab==='tasks'?'':'none';
+  document.getElementById('panelMcp').style.display      = tab==='mcp'?'':'none';
   document.getElementById('panelSettings').style.display = tab==='settings'?'':'none';
   if(tab==='settings'){populateSettings(state.settings||{});}
+  if(tab==='mcp'){populateMcp(state.settings||{}, state.mcpDefaults||[]);}
 }
+
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -575,6 +733,8 @@ function populateSettings(s){
   if(rot) rot.checked=!!s.retryOnTimeout;
   const arp=document.getElementById('cfg_autoResetPendingTasks');
   if(arp) arp.checked=s.autoResetPendingTasks!==false;
+  const asl=document.getElementById('cfg_autoStartLoop');
+  if(asl) asl.checked=!!s.autoStartLoop;
   const vnce=document.getElementById('cfg_vncEnabled');
   if(vnce) vnce.checked=!!s.vncEnabled;
   const efb=document.getElementById('cfg_enableFileBrowser');
@@ -649,7 +809,10 @@ function renderProfileSelect(profiles, currentPath){
 }
 
 document.getElementById('tabTasks').addEventListener('click',function(){showTab('tasks');});
+document.getElementById('tabMcp').addEventListener('click',function(){showTab('mcp');});
 document.getElementById('tabSettings').addEventListener('click',function(){showTab('settings');});
+
+${mcpConfigScript}
 
 document.getElementById('addForm').addEventListener('submit',function(e){
   e.preventDefault();
@@ -678,6 +841,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
+    autoStartLoop:document.getElementById('cfg_autoStartLoop').checked,
     vncEnabled:document.getElementById('cfg_vncEnabled').checked,
     vncHost:document.getElementById('cfg_vncHost').value.trim(),
     vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
@@ -724,6 +888,8 @@ window.addEventListener('message',function(e){
     document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';
     document.getElementById('hooksStatusBadge').style.display=msg.hooksInstalled?'':'none';
     document.getElementById('openCodeHooksStatusBadge').style.display=msg.openCodeHooksInstalled?'':'none';
+  } else if(msg.command==='mcpEmailTestResult' && typeof window.renderMcpEmailTestResult==='function'){
+    window.renderMcpEmailTestResult(msg);
   }
 });
 </script>

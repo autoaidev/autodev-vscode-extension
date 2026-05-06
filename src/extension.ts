@@ -8,7 +8,7 @@ import { sendPromptToAi } from './dispatcher';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
 import { PROVIDERS } from './providers';
-import { areHooksInstalled, installHooks } from './hooksManager';
+import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from './hooksManager';
 
 let _out: vscode.OutputChannel;
 export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
@@ -37,7 +37,10 @@ export function activate(context: vscode.ExtensionContext): void {
   if (root) {
     try {
       const s = loadSettings();
-      if (s.hooksEnabled && !areHooksInstalled('project', root)) {
+      // Check Claude and Copilot independently — areHooksInstalled is an OR
+      // (either side is enough for the UI badge), but we want to migrate if
+      // *either* side is stale or has duplicate legacy entries lingering.
+      if (s.hooksEnabled && (!areClaudeHooksInstalled(root) || !areCopilotHooksInstalled(root))) {
         log('Migrating hook commands to per-workspace JSONL sink…');
         installHooks('project', root);
       }

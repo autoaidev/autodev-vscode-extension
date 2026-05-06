@@ -50,6 +50,20 @@ export interface AutodevSettings {
    * Default false — opt in via .autodev/settings.json (the CLI sets it true).
    */
   autoStartLoop: boolean;
+  /**
+   * Per-project MCP server definitions managed by autodev. Stored in the
+   * standard `mcpServers` shape (`{ <name>: { command, args, env } }`) so
+   * users can paste server snippets verbatim from MCP docs (e.g.
+   * mcp-atlassian for Jira). On save, the extension fans these out to every
+   * provider's project-local config (.mcp.json, .claude/settings.local.json,
+   * opencode.json, .vscode/mcp.json) alongside the autodev defaults.
+   */
+  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
+  /**
+   * Names of built-in MCP servers (from DEFAULT_MCP_SERVERS) that the user
+   * has explicitly disabled. Built-ins default to enabled when not listed.
+   */
+  disabledBuiltinMcp: string[];
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -86,6 +100,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   hooksScope: 'project',
   openCodeHooksEnabled: false,
   autoStartLoop: false,
+  mcpServers: {},
+  disabledBuiltinMcp: [],
 };
 
 /**

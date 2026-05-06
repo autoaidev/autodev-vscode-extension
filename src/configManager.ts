@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { McpServerManager, DEFAULT_MCP_SERVERS } from './mcpManager';
+import { McpServerManager, DEFAULT_MCP_SERVERS, McpServerEntry } from './mcpManager';
+import { loadSettingsForRoot } from './core/settingsLoader';
 
 // ---------------------------------------------------------------------------
 // ConfigManager — applies permission/settings files for each CLI provider
@@ -81,11 +82,16 @@ export class ConfigManager {
    * Write MCP server definitions to project-local config files only.
    * Covers: .claude/settings.local.json, .vscode/mcp.json, opencode.json, .mcp.json
    * The memory server uses <root>/.autodev/MEMORY.jsonl as its storage file.
+   *
+   * The full server set is `DEFAULT_MCP_SERVERS` ∪ user-defined entries from
+   * `.autodev/settings.json:mcpServers`. User entries with the same name as
+   * a default override the default — that lets users tune env vars / args of
+   * the built-in servers (e.g. point `memory` at a different file).
    */
   static syncProjectMcpServers(root: string, log?: (m: string) => void): void {
     const memoryFilePath = '.autodev/MEMORY.jsonl';
 
-    const servers = [
+    const baseServers: McpServerEntry[] = [
       ...DEFAULT_MCP_SERVERS,
       {
         name: 'memory',
@@ -95,6 +101,34 @@ export class ConfigManager {
         tools: ['*'] as string[],
       },
     ];
+
+    // Merge user-defined per-project MCPs from .autodev/settings.json.
+    // A user entry with the same name overrides the default.
+    let userMcp: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }> = {};
+    let disabledBuiltins: string[] = [];
+    try {
+      const s = loadSettingsForRoot(root);
+      userMcp = s.mcpServers ?? {};
+      disabledBuiltins = s.disabledBuiltinMcp ?? [];
+    } catch { /* ignore */ }
+
+    const byName = new Map<string, McpServerEntry>();
+    for (const s of baseServers) {
+      if (disabledBuiltins.includes(s.name)) continue;
+      byName.set(s.name, s);
+    }
+    for (const [name, raw] of Object.entries(userMcp)) {
+      if (!raw || typeof raw.command !== 'string') continue;
+      if (raw.enabled === false) { byName.delete(name); continue; }
+      byName.set(name, {
+        name,
+        command: raw.command,
+        args: Array.isArray(raw.args) ? raw.args : [],
+        ...(raw.env && typeof raw.env === 'object' ? { env: raw.env } : {}),
+        tools: ['*'],
+      });
+    }
+    const servers = [...byName.values()];
 
     // Claude CLI project-local (not committed per-user): .claude/settings.local.json
     _mergeJson(path.join(root, '.claude', 'settings.local.json'), (cfg) => {

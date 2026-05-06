@@ -191,9 +191,15 @@ export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
     try { fs.writeFileSync(filePath, JSON.stringify(raw, null, 2), 'utf8'); } catch { /* ignore */ }
   }
 
-  return CLAUDE_HOOK_EVENTS.some(ev =>
-    (hooks[ev] ?? []).some((g: any) => isCurrentClaudeEntry(g, workspaceRoot))
+  // Collect every autodev-marked group across all events
+  const allAutodev = CLAUDE_HOOK_EVENTS.flatMap(ev =>
+    ((hooks[ev] ?? []) as any[]).filter(g => g[AUTODEV_MARKER] === true)
   );
+  if (allAutodev.length === 0) return false;
+  // Treat as "not installed" if ANY autodev entry is stale (legacy
+  // homedir-pointing form, or any other shape) so the migration step
+  // re-runs and overwrites the lot with the current per-workspace form.
+  return allAutodev.every(g => isCurrentClaudeEntry(g, workspaceRoot));
 }
 
 export function installClaudeHooks(workspaceRoot: string): void {
@@ -253,10 +259,19 @@ function copilotSettingsPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, '.github', 'copilot', 'settings.json');
 }
 
-/** True if the entry was installed by autodev (matches our HOOK_COMMAND). */
+/**
+ * True if the entry was installed by autodev (matches our HOOK_COMMAND, in
+ * either the legacy homedir form or the per-workspace form). The legacy
+ * command built the path via `p.join(h,".autodev","hooks-events.jsonl")` —
+ * separate strings, no slash between them — so a literal `.autodev/...`
+ * substring check would miss it. We match on the basename instead, which
+ * appears in both forms (legacy as a separate quoted string, current as
+ * part of the JSON-stringified absolute path).
+ */
 function isAutodevCopilotEntry(entry: any): boolean {
   return typeof entry?.bash === 'string'
-    && entry.bash.includes('.autodev/hooks-events.jsonl');
+    && entry.bash.includes('hooks-events.jsonl')
+    && entry.bash.includes('.autodev');
 }
 
 /** True if the entry's bash command writes to *this* workspace's JSONL sink. */
@@ -270,9 +285,12 @@ export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
   const filePath = copilotSettingsPath(workspaceRoot);
   const raw = readJson(filePath);
   const hooks = raw?.hooks ?? {};
-  return COPILOT_HOOK_EVENTS.some(ev =>
-    (hooks[ev] ?? []).some((e: any) => isCurrentCopilotEntry(e, workspaceRoot))
+  const allAutodev = COPILOT_HOOK_EVENTS.flatMap(ev =>
+    ((hooks[ev] ?? []) as any[]).filter(isAutodevCopilotEntry)
   );
+  if (allAutodev.length === 0) return false;
+  // Same migration trigger as Claude: any stale entry → reinstall.
+  return allAutodev.every(e => isCurrentCopilotEntry(e, workspaceRoot));
 }
 
 export function installCopilotHooks(workspaceRoot: string): void {
