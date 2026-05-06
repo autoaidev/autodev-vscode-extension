@@ -170,20 +170,21 @@ export class ConfigManager {
       cfg['mcp'] = mcp;
     }, log, 'OpenCode project MCP (opencode.json)');
 
-    // Copilot CLI project-level: .mcp.json (standard project MCP config)
+    // Project-level .mcp.json — shared by Claude Code and Copilot CLI.
+    // Schema is the strict MCP one: { command, args, env, alwaysLoad, _meta }.
     _mergeJson(path.join(root, '.mcp.json'), (cfg) => {
       const mcp = _obj(cfg['mcpServers']);
       for (const s of servers) {
         mcp[s.name] = {
-          type: 'local',
           command: s.command,
           args: s.args,
           ...(s.env ? { env: s.env } : {}),
-          tools: s.tools ?? ['*'],
+          alwaysLoad: true,
+          _meta: { managedBy: 'autoaidev', name: s.name },
         };
       }
       cfg['mcpServers'] = mcp;
-    }, log, 'Copilot CLI project MCP (.mcp.json)');
+    }, log, 'Project MCP (.mcp.json)');
   }
 
   /**
