@@ -1,19 +1,21 @@
-import { ImapFlow, type FetchMessageObject } from 'imapflow';
+import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import { saveAttachment } from './messageBuilder';
 import { appendTask, shortId } from './todo';
 
 // ---------------------------------------------------------------------------
-// EmailTaskPoller — mirrors discordPoller / webhookPoller for IMAP inboxes.
+// EmailTaskPoller — IMAP poller that ingests new mail as TODO.md tasks.
 //
-// Connects via imapflow, watches INBOX, and for each new message from an
-// allowed sender:
-//   • parses MIME with mailparser
-//   • saves every attachment via saveAttachment() to .autodev/messages/attachments/
-//   • appends a task to TODO.md combining subject + body + attachment paths
-//   • marks the message \Seen so it isn't reprocessed after a restart
+// Strategy:
+//   • Each poll: SEARCH UNSEEN, fetch each result, parse with mailparser,
+//     save attachments via saveAttachment(), append a task via appendTask(),
+//     then mark the message \Seen so the next SEARCH UNSEEN ignores it.
+//   • SEARCH always round-trips to the server, so it picks up mail that
+//     arrived after the connection was opened — unlike a cached UID watermark.
+//   • Restart-safe: \Seen state lives on the server, so processed messages
+//     are never re-ingested across VS Code restarts.
 //
-// Connection is opened lazily and reused across polls. Recreated on error.
+// Per https://imapflow.com/docs/examples/fetching-messages
 // ---------------------------------------------------------------------------
 
 export interface EmailPollerOptions {
@@ -31,54 +33,84 @@ export interface EmailPollerOptions {
 export class EmailTaskPoller {
   private client: ImapFlow | null = null;
   private connecting: Promise<void> | null = null;
+  private polling = false;
   private readonly allowed: Set<string>;
-  /** UID watermark — only fetch UIDs strictly greater than this. */
-  private lastUid = 0;
+  /**
+   * Snapshot of UNSEEN UIDs that existed when the poller first connected.
+   * Those messages are ignored — they were already in the inbox before the
+   * loop started and aren't "new tasks". Cleared after the first poll.
+   */
+  private skipUids: Set<number> | null = null;
 
   constructor(private readonly opts: EmailPollerOptions) {
     this.allowed = new Set(opts.allowedSenders.map(s => s.toLowerCase().trim()).filter(Boolean));
   }
 
   /**
-   * Connect once and seed lastUid with the current uidNext-1 so only mail
-   * arriving AFTER startup becomes a task on the first poll. Existing UNSEEN
-   * mail in the inbox is still ignored — call pollAndAppend() to drain
-   * truly-new mail and any UNSEEN since the last successful poll.
+   * Connect once and snapshot the existing UNSEEN UIDs so they are NOT turned
+   * into tasks on the first poll. Anything arriving after this point becomes
+   * a task. Mail that was already \Seen is naturally ignored by SEARCH UNSEEN.
    */
   async initialize(): Promise<void> {
     await this._ensureConnected();
     if (!this.client) return;
-    const status = await this.client.status('INBOX', { uidNext: true });
-    this.lastUid = (status.uidNext ?? 1) - 1;
+    const lock = await this.client.getMailboxLock('INBOX');
+    try {
+      const existing = await this.client.search({ seen: false }, { uid: true });
+      this.skipUids = new Set(Array.isArray(existing) ? existing : []);
+    } finally {
+      lock.release();
+    }
   }
 
   async pollAndAppend(todoPath: string, workspaceRoot?: string): Promise<boolean> {
     if (!workspaceRoot) return false;
+    if (this.polling) return false; // never overlap polls
+    this.polling = true;
     let appended = false;
     try {
       await this._ensureConnected();
       if (!this.client) return false;
       const lock = await this.client.getMailboxLock('INBOX');
       try {
-        const range = `${this.lastUid + 1}:*`;
-        // imapflow's fetch is an async iterator. `source: true` gives us raw
-        // RFC822 bytes for mailparser to parse — recommended pairing per
-        // https://imapflow.com/docs/guides/fetching-messages
-        for await (const msg of this.client.fetch(range, { uid: true, envelope: true, source: true }, { uid: true })) {
-          if (!msg.uid || msg.uid <= this.lastUid) continue;
-          this.lastUid = msg.uid;
-          if (!this._senderAllowed(msg)) continue;
+        // NOOP forces the server to send any pending EXISTS responses so the
+        // SEARCH below sees mail that arrived since the last poll.
+        try { await this.client.noop(); } catch { /* non-fatal */ }
+        const uids = await this.client.search({ seen: false }, { uid: true });
+        if (!Array.isArray(uids) || uids.length === 0) return false;
+
+        for (const uid of uids) {
+          if (this.skipUids?.has(uid)) continue;
+          let processed = false;
           try {
-            const taskText = await this._buildTaskFromMessage(msg, workspaceRoot);
+            const msg = await this.client.fetchOne(String(uid), { envelope: true, source: true }, { uid: true });
+            if (!msg || !msg.source) {
+              // Mark seen anyway so we don't loop on it.
+              await this.client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true });
+              continue;
+            }
+            if (!this._senderAllowed(msg.envelope?.from?.[0]?.address)) {
+              // Don't \Seen — leave for the human user to read.
+              processed = true;
+              continue;
+            }
+            const taskText = await this._buildTaskFromMessage(msg.source, msg.envelope, workspaceRoot);
             if (taskText) {
               appendTask(todoPath, taskText, shortId());
               appended = true;
             }
-            await this.client.messageFlagsAdd({ uid: msg.uid }, ['\\Seen'], { uid: true });
+            await this.client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true });
+            processed = true;
           } catch {
-            // Don't advance lastUid back — a bad message shouldn't loop forever.
+            // Skip this UID for now; another poll may succeed. To prevent a
+            // hot loop on a permanently broken message, mark it \Seen.
+            try { await this.client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true }); } catch { /* ignore */ }
+          } finally {
+            if (processed) this.skipUids?.delete(uid);
           }
         }
+        // After the first successful poll, the snapshot has done its job.
+        if (this.skipUids && this.skipUids.size === 0) this.skipUids = null;
       } finally {
         lock.release();
       }
@@ -87,6 +119,8 @@ export class EmailTaskPoller {
       try { await this.client?.logout(); } catch { /* ignore */ }
       this.client = null;
       this.connecting = null;
+    } finally {
+      this.polling = false;
     }
     return appended;
   }
@@ -117,18 +151,15 @@ export class EmailTaskPoller {
     return this.connecting;
   }
 
-  private _senderAllowed(msg: FetchMessageObject): boolean {
+  private _senderAllowed(address?: string | null): boolean {
     if (this.allowed.size === 0) return true;
-    const from = msg.envelope?.from?.[0]?.address?.toLowerCase();
-    return !!from && this.allowed.has(from);
+    return !!address && this.allowed.has(address.toLowerCase());
   }
 
-  private async _buildTaskFromMessage(msg: FetchMessageObject, workspaceRoot: string): Promise<string> {
-    const source = msg.source;
-    if (!source) return '';
+  private async _buildTaskFromMessage(source: Buffer, envelope: any, workspaceRoot: string): Promise<string> {
     const parsed: ParsedMail = await simpleParser(source);
-    const subject = (parsed.subject || msg.envelope?.subject || '(no subject)').trim();
-    const fromAddr = parsed.from?.value?.[0]?.address ?? msg.envelope?.from?.[0]?.address ?? 'unknown';
+    const subject = (parsed.subject || envelope?.subject || '(no subject)').trim();
+    const fromAddr = parsed.from?.value?.[0]?.address ?? envelope?.from?.[0]?.address ?? 'unknown';
     const body = (parsed.text || '').trim();
 
     const attachmentLines: string[] = [];
@@ -144,8 +175,6 @@ export class EmailTaskPoller {
     const parts = [`${subject} (from ${fromAddr})`];
     if (body) parts.push('', body);
     if (attachmentLines.length) parts.push('', 'Attachments:', ...attachmentLines);
-    // Collapse hard newlines — appendTask writes a single line. Use ` \\ ` as a
-    // soft-break marker so the agent reading TODO.md still sees structure.
     return parts.join(' \\\\ ');
   }
 }
