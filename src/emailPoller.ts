@@ -53,20 +53,12 @@ export class EmailTaskPoller {
   }
 
   /**
-   * Connect once and snapshot the existing UNSEEN UIDs so they are NOT turned
-   * into tasks on the first poll. Anything arriving after this point becomes
-   * a task. Mail that was already \Seen is naturally ignored by SEARCH UNSEEN.
+   * Connect once. Any UNSEEN message in the inbox — both pre-existing and
+   * future arrivals — becomes a task. The poller marks each one \Seen after
+   * processing so a restart never re-ingests it.
    */
   async initialize(): Promise<void> {
     await this._ensureConnected();
-    if (!this.client) return;
-    const lock = await this.client.getMailboxLock('INBOX');
-    try {
-      const existing = await this.client.search({ seen: false }, { uid: true });
-      this.skipUids = new Set(Array.isArray(existing) ? existing : []);
-    } finally {
-      lock.release();
-    }
   }
 
   async pollAndAppend(todoPath: string, workspaceRoot?: string): Promise<boolean> {
