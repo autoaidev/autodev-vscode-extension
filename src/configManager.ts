@@ -117,7 +117,26 @@ export class ConfigManager {
     } catch { /* ignore */ }
 
     // User entries now live in .mcp.json — read them straight from there.
-    const userMcp = loadProjectUserMcp(root);
+    let userMcp = loadProjectUserMcp(root);
+
+    // Heal mis-tagged migrations: any entry whose name matches a default
+    // server is a built-in, not a user entry — even if a previous migration
+    // tagged it _meta.kind="user". Re-tagging here lets the built-in toggle
+    // (disabledBuiltinMcp) actually take effect for these entries.
+    const defaultNames = new Set(baseServers.map(s => s.name));
+    const misTagged = Object.keys(userMcp).filter(n => defaultNames.has(n));
+    if (misTagged.length > 0) {
+      const cleaned: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+      for (const [name, e] of Object.entries(userMcp)) {
+        if (defaultNames.has(name)) continue;
+        cleaned[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}) };
+      }
+      try {
+        saveProjectUserMcp(root, cleaned);
+        log?.(`ConfigManager: re-tagged ${misTagged.length} mis-classified built-in entr${misTagged.length === 1 ? 'y' : 'ies'} (${misTagged.join(', ')})`);
+        userMcp = loadProjectUserMcp(root);
+      } catch (e) { log?.(`ConfigManager: failed re-tagging built-ins: ${e}`); }
+    }
 
     const builtinByName = new Map<string, McpServerEntry>();
     for (const s of baseServers) {
@@ -239,9 +258,11 @@ function _migrateLegacyMcpServers(
     const existing = loadProjectUserMcp(root);
     const merged: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = { ...existing };
     let migratedCount = 0;
+    const defaultNames = new Set(DEFAULT_MCP_SERVERS.map(s => s.name).concat('memory'));
     for (const [name, raw] of Object.entries(legacy)) {
       if (!raw || typeof raw.command !== 'string') continue;
       if (raw.enabled === false) continue; // disabled = drop, per the new model
+      if (defaultNames.has(name)) continue; // built-in — never a user entry
       if (existing[name]) continue;         // .mcp.json wins
       merged[name] = { command: raw.command, args: raw.args, ...(raw.env ? { env: raw.env } : {}) };
       migratedCount += 1;
