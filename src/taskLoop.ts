@@ -1082,6 +1082,43 @@ export class TaskLoopRunner {
           }
         } catch { /* ignore */ }
 
+        // Check the recent hook events for a StopFailure with error=rate_limit.
+        // Claude Code surfaces transient server throttles ("API Error: Server is
+        // temporarily limiting requests · Rate limited") via the StopFailure
+        // hook payload — they don't always land in stdout in a form the
+        // existing string-match detection catches. When we spot one, reject
+        // with RateLimitError so the loop pauses and retries instead of
+        // burning the reminder slot and giving up.
+        if (this._workspaceRoot) {
+          try {
+            const hooksJsonl = path.join(this._workspaceRoot, '.autodev', 'hooks-events.jsonl');
+            if (fs.existsSync(hooksJsonl)) {
+              const stat = fs.statSync(hooksJsonl);
+              const readFrom = Math.max(0, stat.size - 64 * 1024);
+              const fd = fs.openSync(hooksJsonl, 'r');
+              const buf = Buffer.alloc(stat.size - readFrom);
+              fs.readSync(fd, buf, 0, buf.length, readFrom);
+              fs.closeSync(fd);
+              const lines = buf.toString('utf8').split('\n').filter(l => l.trim());
+              for (let i = lines.length - 1; i >= 0; i--) {
+                let ev: any;
+                try { ev = JSON.parse(lines[i]); } catch { continue; }
+                if (ev?.hook_event_name !== 'StopFailure') { continue; }
+                const ts = ev?.timestamp ? Date.parse(ev.timestamp) : NaN;
+                if (Number.isFinite(ts) && ts < taskStartTime) { break; } // older than this task
+                const errStr = String(ev?.error ?? '').toLowerCase();
+                const lastMsg = String(ev?.last_assistant_message ?? '');
+                if (errStr === 'rate_limit' || /rate limit/i.test(lastMsg)) {
+                  cleanup();
+                  reject(new RateLimitError(lastMsg || 'Rate limited', parseRateLimitResetTime(lastMsg)));
+                  return;
+                }
+                break; // most recent StopFailure isn't a rate_limit — stop scanning
+              }
+            }
+          } catch { /* ignore */ }
+        }
+
         if (exitReminderSent) {
           // CLI exited a second time and the task is still [ ] / [~] — the AI
           // is stuck on this one. Give up so the loop can move on instead of
