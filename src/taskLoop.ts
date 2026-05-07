@@ -605,7 +605,21 @@ export class TaskLoopRunner {
             this._notifyDiscord('✅ All tasks done — waiting for more…');
           }
         } else {
-          // There are uncompleted tasks but none are pending (e.g. all [~] in-progress)
+          // There are uncompleted tasks but none are pending (e.g. all [~] in-progress).
+          // If the CLI isn't running, those [~] tasks are stranded — the AI
+          // marked them in-progress but never came back to finish them. Reset
+          // them to [ ] so the next iteration picks them up instead of idling
+          // forever.
+          if (!cliIsRunning) {
+            const stranded = tasks.filter(t => t.status === 'in-progress');
+            for (const t of stranded) {
+              try { resetToTodo(todoPath, t); } catch { /* ignore */ }
+            }
+            if (stranded.length > 0) {
+              this._cb?.log(`↩︎ Reset ${stranded.length} stranded [~] task(s) back to [ ] — CLI not running`);
+              continue; // re-pick immediately
+            }
+          }
           this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
         }
         // Clear any stale current-task label and refresh the sidebar so the
@@ -775,13 +789,13 @@ export class TaskLoopRunner {
           //      → resume 15 min after the parsed reset time.
           //   2. Transient server throttle — "API Error: Server is temporarily
           //      limiting requests (not your usage limit) · Rate limited"
-          //      → no reset time given, retry in 30 minutes by default.
-          const DEFAULT_RETRY_MS = 30 * 60_000;
+          //      → no reset time given, retry in 5 minutes by default.
+          const DEFAULT_RETRY_MS = 5 * 60_000;
           const resetAt   = err.resetAt;
           const resumeMs  = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : DEFAULT_RETRY_MS;
           const resumeAt  = resetAt ?? new Date(Date.now() + DEFAULT_RETRY_MS);
           const resumeStr = resumeAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const suffix    = resetAt ? '+15 min' : 'retry in 30m (no reset time given)';
+          const suffix    = resetAt ? '+15 min' : 'retry in 5m (no reset time given)';
           const rawMsg    = err.rawMessage;
           this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
           this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
