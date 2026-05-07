@@ -90,15 +90,12 @@ export class ConfigManager {
    * the built-in servers (e.g. point `memory` at a different file).
    */
   static syncProjectMcpServers(root: string, log?: (m: string) => void): void {
-    const memoryFilePath = '.autodev/MEMORY.jsonl';
-
     const baseServers: McpServerEntry[] = [
       ...DEFAULT_MCP_SERVERS,
       {
         name: 'memory',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-memory'],
-        env: { MEMORY_FILE_PATH: memoryFilePath },
         tools: ['*'] as string[],
       },
     ];
