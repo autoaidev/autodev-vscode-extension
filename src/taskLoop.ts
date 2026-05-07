@@ -665,17 +665,24 @@ export class TaskLoopRunner {
         const activeProvider = this._cb?.getActiveProvider();
         if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
-          // Clear the exit file so we don't read a stale value from a prior task
-          try { fs.writeFileSync(exitFile, '', 'utf8'); } catch { /* ignore */ }
-          // Poll up to 30 s for the exit file to be non-empty
-          const deadline = Date.now() + 30_000;
-          while (Date.now() < deadline) {
-            await this._sleepAbortable(500);
-            if (this._state !== 'running') { break; }
-            try {
-              const content = fs.readFileSync(exitFile, 'utf8').trim();
-              if (content.length > 0) { break; }
-            } catch { /* not written yet */ }
+          // Do NOT clear the file here. Each dispatch allocates a fresh
+          // per-message exit file via newMessageOutput(), so the value we see
+          // is the one the CLI just wrote. Clearing it would leave it empty
+          // forever (no CLI is running to re-write it) and the NEXT iteration's
+          // cliIsRunning probe would then incorrectly conclude "CLI still
+          // running" — pinning the loop on a task that was never dispatched.
+          const isReady = (): boolean => {
+            try { return fs.readFileSync(exitFile, 'utf8').trim().length > 0; }
+            catch { return false; }
+          };
+          if (!isReady()) {
+            // Poll up to 30 s for the exit file to become non-empty
+            const deadline = Date.now() + 30_000;
+            while (Date.now() < deadline) {
+              await this._sleepAbortable(500);
+              if (this._state !== 'running') { break; }
+              if (isReady()) { break; }
+            }
           }
         } else {
           // Non-CLI providers: just wait for OS flush
