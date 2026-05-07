@@ -28,51 +28,17 @@ import { loadProjectUserMcp } from './core/projectMcp';
 export type LoopState = 'idle' | 'running' | 'stopping' | 'paused';
 
 // ---------------------------------------------------------------------------
-// Rate-limit helpers
+// Rate-limit + context-length errors
 // ---------------------------------------------------------------------------
 
-class RateLimitError extends Error {
-  constructor(readonly rawMessage: string, readonly resetAt: Date | undefined) {
-    super(rawMessage);
-    this.name = 'RateLimitError';
-  }
-}
+import { RateLimitError, RateLimitDetector } from './rateLimit';
+import { CliExitHandler } from './cliExit';
 
 class ContextLengthError extends Error {
   constructor(readonly rawMessage: string) {
     super(rawMessage);
     this.name = 'ContextLengthError';
   }
-}
-
-/**
- * Parse "You've hit your limit · resets 9pm (Europe/Sofia)" into a UTC Date.
- * Returns undefined when the string cannot be parsed.
- */
-function parseRateLimitResetTime(text: string): Date | undefined {
-  const m = text.match(/resets\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i);
-  if (!m) { return undefined; }
-  try {
-    let hour = parseInt(m[1]);
-    const min = parseInt(m[2] ?? '0');
-    const isPm = m[3].toLowerCase() === 'pm';
-    const tz = m[4];
-    if (isPm && hour !== 12) { hour += 12; }
-    if (!isPm && hour === 12) { hour = 0; }
-    const now = new Date();
-    // Get date in target timezone (sv locale gives YYYY-MM-DD)
-    const dateStr = new Intl.DateTimeFormat('sv', { timeZone: tz }).format(now);
-    for (let d = 0; d <= 1; d++) {
-      const base = Date.parse(dateStr) + d * 86_400_000 + hour * 3_600_000 + min * 60_000;
-      const naiveDate = new Date(base);
-      // Correct naive UTC for the actual tz offset at that moment
-      const inTz = new Date(naiveDate.toLocaleString('en-US', { timeZone: tz }));
-      const offset = naiveDate.getTime() - inTz.getTime();
-      const resetUtc = new Date(base + offset);
-      if (resetUtc > now) { return resetUtc; }
-    }
-    return undefined;
-  } catch { return undefined; }
 }
 
 // ---------------------------------------------------------------------------
@@ -1029,11 +995,15 @@ export class TaskLoopRunner {
           lastStdoutLen = content.length; // keep cursor up to date for non-Claude providers
         }
 
-        // Rate limit detection (Claude)
-        if (isClaudeCli && (content.includes('hit your limit') || content.toLowerCase().includes('rate limit'))) {
-          cleanup();
-          reject(new RateLimitError(content.trim(), parseRateLimitResetTime(content)));
-          return;
+        // Rate limit detection (Claude) — wording variants live in
+        // RateLimitDetector.PHRASES; add new ones there, not here.
+        if (isClaudeCli) {
+          const rlErr = RateLimitDetector.detect(content);
+          if (rlErr) {
+            cleanup();
+            reject(rlErr);
+            return;
+          }
         }
 
         // Context length error detection (OpenCode)
@@ -1071,78 +1041,41 @@ export class TaskLoopRunner {
       );
 
       // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
-      // process finishes.  When it appears with a non-empty value and the task is not
-      // yet marked done, send ONE reminder prompt so the AI can update TODO.md.
-      let exitReminderSent = false;
+      // process finishes. CliExitHandler owns the decision tree of what to do.
+      const exitHandler = this._workspaceRoot
+        ? new CliExitHandler(this._workspaceRoot, todoPath, task, taskStartTime, found)
+        : null;
       const onCliExit = async () => {
         if (this._state !== 'running') { return; }
         // Give TODO.md enough time to be fully flushed and for any final Claude
         // writes (session ID capture etc.) to settle before we declare it undone.
         await sleep(3_000);
-        if (found()) { return; } // task already marked done — nothing to do
 
-        // If the AI deliberately moved the task to [~] (in-progress / deferred —
-        // typically because it scheduled a wakeup), don't keep the loop pinned to
-        // it. Resolve so pickNextTask grabs the next [ ] task; the deferred task
-        // remains [~] in TODO.md and will be picked up later.
-        try {
-          const updated = parseTodo(todoPath);
-          const byLine = updated.find(t => t.line === task.line);
-          if (byLine?.status === 'in-progress') {
-            this._cb?.log(`↪︎ CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
-            cleanup();
-            resolve();
-            return;
-          }
-        } catch { /* ignore */ }
+        const decision = exitHandler?.decide() ?? { kind: 'remind' as const };
 
-        // Check the recent hook events for a StopFailure with error=rate_limit.
-        // Claude Code surfaces transient server throttles ("API Error: Server is
-        // temporarily limiting requests · Rate limited") via the StopFailure
-        // hook payload — they don't always land in stdout in a form the
-        // existing string-match detection catches. When we spot one, reject
-        // with RateLimitError so the loop pauses and retries instead of
-        // burning the reminder slot and giving up.
-        if (this._workspaceRoot) {
-          try {
-            const hooksJsonl = path.join(this._workspaceRoot, '.autodev', 'hooks-events.jsonl');
-            if (fs.existsSync(hooksJsonl)) {
-              const stat = fs.statSync(hooksJsonl);
-              const readFrom = Math.max(0, stat.size - 64 * 1024);
-              const fd = fs.openSync(hooksJsonl, 'r');
-              const buf = Buffer.alloc(stat.size - readFrom);
-              fs.readSync(fd, buf, 0, buf.length, readFrom);
-              fs.closeSync(fd);
-              const lines = buf.toString('utf8').split('\n').filter(l => l.trim());
-              for (let i = lines.length - 1; i >= 0; i--) {
-                let ev: any;
-                try { ev = JSON.parse(lines[i]); } catch { continue; }
-                if (ev?.hook_event_name !== 'StopFailure') { continue; }
-                const ts = ev?.timestamp ? Date.parse(ev.timestamp) : NaN;
-                if (Number.isFinite(ts) && ts < taskStartTime) { break; } // older than this task
-                const errStr = String(ev?.error ?? '').toLowerCase();
-                const lastMsg = String(ev?.last_assistant_message ?? '');
-                if (errStr === 'rate_limit' || /rate limit/i.test(lastMsg)) {
-                  cleanup();
-                  reject(new RateLimitError(lastMsg || 'Rate limited', parseRateLimitResetTime(lastMsg)));
-                  return;
-                }
-                break; // most recent StopFailure isn't a rate_limit — stop scanning
-              }
-            }
-          } catch { /* ignore */ }
+        if (decision.kind === 'done') { return; }
+
+        if (decision.kind === 'deferred') {
+          this._cb?.log(`↪︎ CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
+          cleanup();
+          resolve();
+          return;
         }
 
-        if (exitReminderSent) {
-          // CLI exited a second time and the task is still [ ] / [~] — the AI
-          // is stuck on this one. Give up so the loop can move on instead of
-          // sitting on the inactivity timeout for 30 minutes.
+        if (decision.kind === 'rate_limit') {
+          cleanup();
+          reject(decision.error);
+          return;
+        }
+
+        if (decision.kind === 'give_up') {
           this._cb?.log(`↪︎ CLI exited again without marking task done — moving on: ${discordLabel(task.text)}`);
           cleanup();
           resolve();
           return;
         }
-        exitReminderSent = true;
+
+        // decision.kind === 'remind'
         const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
         const msg = `⏳ CLI finished but task not yet marked done (${elapsedMin}m): ${discordLabel(task.text)}`;
         this._cb?.log(msg);
@@ -1233,10 +1166,7 @@ export class TaskLoopRunner {
           // Rate limit detection — reject immediately so _runLoop can pause
           if (sessionState.rateLimitMessage) {
             cleanup();
-            reject(new RateLimitError(
-              sessionState.rateLimitMessage,
-              parseRateLimitResetTime(sessionState.rateLimitMessage),
-            ));
+            reject(RateLimitDetector.toError(sessionState.rateLimitMessage));
             return;
           }
         }
