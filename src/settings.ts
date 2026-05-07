@@ -41,7 +41,10 @@ export function saveSettings(settings: AutodevSettings): void {
   if (!file) { return; }
   const dir = path.dirname(file);
   if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-  fs.writeFileSync(file, JSON.stringify(settings, null, 2), 'utf8');
+  // mcpServers is no longer stored in .autodev/settings.json — .mcp.json owns it.
+  const { mcpServers: _drop, ...rest } = settings as AutodevSettings & { mcpServers?: unknown };
+  void _drop;
+  fs.writeFileSync(file, JSON.stringify(rest, null, 2), 'utf8');
   ensureGitignore(path.dirname(dir), '.autodev/');
 }
 

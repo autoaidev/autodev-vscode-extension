@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { areHooksInstalled, installHooks, uninstallHooks } from './hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from './openCodeHooksManager';
 import { ConfigManager } from './configManager';
+import { loadProjectUserMcp, saveProjectUserMcp, removeProjectUserMcp } from './core/projectMcp';
 import { DEFAULT_MCP_SERVERS } from './mcpManager';
 import { getMcpInstallSnapshot, checkMcpInstallAsync, refreshMcpInstall, installCommandFor, invalidateMcpInstallCache } from './mcpInstallCheck';
 import { testEmailViaMcp } from './mcpEmailTest';
@@ -93,25 +94,29 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'saveMcpBulk': {
-          // Global Save All & Sync — full replace of mcpServers from the
-          // gathered Jira + Email + Custom JSON forms.
+          // Global Save All & Sync — full replace of user MCP entries directly
+          // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
+          // mcpServers field (it's been retired — .mcp.json is the source).
           const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
-          const current = loadSettings();
-          saveSettings({ ...current, mcpServers: entries });
+          // Drop any entry the form marked enabled:false — disabling = remove.
+          const enabled: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+          for (const [name, e] of Object.entries(entries)) {
+            if (!e || e.enabled === false) continue;
+            enabled[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}) };
+          }
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) saveProjectUserMcp(root, enabled);
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(
-            `AutoDev: ${Object.keys(entries).length} MCP server(s) saved & synced.`
+            `AutoDev: ${Object.keys(enabled).length} MCP server(s) saved to .mcp.json.`
           );
           break;
         }
         case 'removeMcpEntry': {
           const name = String(msg.name ?? '').trim();
           if (!name) break;
-          const current = loadSettings();
-          const merged = { ...(current.mcpServers ?? {}) };
-          if (!(name in merged)) break;
-          delete merged[name];
-          saveSettings({ ...current, mcpServers: merged });
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) removeProjectUserMcp(root, name);
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(`AutoDev: '${name}' removed.`);
           break;
@@ -136,9 +141,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           if (!name) break;
           const allServers = [
             ...DEFAULT_MCP_SERVERS,
-            ...Object.entries(loadSettings().mcpServers ?? {}).map(([n, e]) => ({
-              name: n, command: e.command, args: e.args ?? [],
-            })),
+            ...(() => {
+              const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+              const um = root ? loadProjectUserMcp(root) : {};
+              return Object.entries(um).map(([n, e]) => ({ name: n, command: e.command, args: e.args ?? [] }));
+            })(),
           ];
           const target = allServers.find(s => s.name === name);
           if (!target) break;
@@ -341,8 +348,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
    * we re-push so the badges update.
    */
   private _refreshMcpInstall(): void {
-    const settings = loadSettings();
-    const userMcp = settings.mcpServers ?? {};
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const userMcp = root ? loadProjectUserMcp(root) : {};
     const targets = [
       ...DEFAULT_MCP_SERVERS.map(s => ({ command: s.command, args: s.args })),
       ...Object.entries(userMcp).map(([, e]) => ({ command: e.command, args: e.args ?? [] })),
@@ -368,7 +375,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const sessionId = root ? (getSessionId(root, this._selectedProvider) ?? null) : null;
     const settings = loadSettings();
-    const userMcp = settings.mcpServers ?? {};
+    // mcpServers are sourced from <root>/.mcp.json (the official MCP file),
+    // NOT .autodev/settings.json. The settings file no longer carries them.
+    const userMcp = root ? loadProjectUserMcp(root) : {};
+    settings.mcpServers = userMcp;
     const allMcp = [
       ...DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
       ...Object.entries(userMcp).map(([n, e]) => ({ name: n, command: e.command, args: e.args ?? [] })),

@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { McpServerManager, DEFAULT_MCP_SERVERS, McpServerEntry } from './mcpManager';
 import { loadSettingsForRoot } from './core/settingsLoader';
+import { loadProjectUserMcp, saveProjectUserMcp, replaceProjectBuiltinMcp } from './core/projectMcp';
 
 // ---------------------------------------------------------------------------
 // ConfigManager — applies permission/settings files for each CLI provider
@@ -102,35 +103,53 @@ export class ConfigManager {
       },
     ];
 
-    // Merge user-defined per-project MCPs from .autodev/settings.json.
-    // A user entry with the same name overrides the default.
-    let userMcp: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }> = {};
+    // One-time migration: if .autodev/settings.json still carries an
+    // mcpServers block from before .mcp.json was the source of truth, copy
+    // the user entries into .mcp.json and strip them from settings.
     let disabledBuiltins: string[] = [];
     try {
       const s = loadSettingsForRoot(root);
-      userMcp = s.mcpServers ?? {};
       disabledBuiltins = s.disabledBuiltinMcp ?? [];
+      const stale = (s as unknown as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }> }).mcpServers;
+      if (stale && Object.keys(stale).length > 0) {
+        _migrateLegacyMcpServers(root, stale, log);
+      }
     } catch { /* ignore */ }
 
-    const byName = new Map<string, McpServerEntry>();
+    // User entries now live in .mcp.json — read them straight from there.
+    const userMcp = loadProjectUserMcp(root);
+
+    const builtinByName = new Map<string, McpServerEntry>();
     for (const s of baseServers) {
       if (disabledBuiltins.includes(s.name)) continue;
-      byName.set(s.name, s);
+      builtinByName.set(s.name, s);
     }
-    for (const [name, raw] of Object.entries(userMcp)) {
-      if (!raw || typeof raw.command !== 'string') continue;
-      if (raw.enabled === false) { byName.delete(name); continue; }
-      byName.set(name, {
+    // User entries override built-ins (so a user can re-tune a default).
+    for (const userName of Object.keys(userMcp)) {
+      builtinByName.delete(userName);
+    }
+
+    // Persist built-ins back to .mcp.json with _meta.kind="builtin" so the
+    // sidebar can tell them apart from user entries on the next read.
+    const builtinsForJson: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+    for (const [name, s] of builtinByName) {
+      builtinsForJson[name] = { command: s.command, args: s.args, ...(s.env ? { env: s.env } : {}) };
+    }
+    try { replaceProjectBuiltinMcp(root, builtinsForJson); }
+    catch (e) { log?.(`ConfigManager: failed updating .mcp.json built-ins: ${e}`); }
+
+    // Combined set fed to the legacy fan-out files (.vscode/mcp.json + opencode.json).
+    const servers: McpServerEntry[] = [
+      ...builtinByName.values(),
+      ...Object.entries(userMcp).map(([name, raw]) => ({
         name,
         command: raw.command,
         args: Array.isArray(raw.args) ? raw.args : [],
         ...(raw.env && typeof raw.env === 'object' ? { env: raw.env } : {}),
-        tools: ['*'],
-      });
-    }
-    const servers = [...byName.values()];
+        tools: ['*'] as string[],
+      } as McpServerEntry)),
+    ];
 
-    // Claude CLI project-level MCP lives in .mcp.json (handled below).
     // Strip any stale mcpServers we previously wrote into .claude/settings.json
     // or .claude/settings.local.json so they don't shadow .mcp.json.
     for (const stale of ['settings.json', 'settings.local.json']) {
@@ -169,22 +188,6 @@ export class ConfigManager {
       }
       cfg['mcp'] = mcp;
     }, log, 'OpenCode project MCP (opencode.json)');
-
-    // Project-level .mcp.json — shared by Claude Code and Copilot CLI.
-    // Schema is the strict MCP one: { command, args, env, alwaysLoad, _meta }.
-    _mergeJson(path.join(root, '.mcp.json'), (cfg) => {
-      const mcp = _obj(cfg['mcpServers']);
-      for (const s of servers) {
-        mcp[s.name] = {
-          command: s.command,
-          args: s.args,
-          ...(s.env ? { env: s.env } : {}),
-          alwaysLoad: true,
-          _meta: { managedBy: 'autoaidev', name: s.name },
-        };
-      }
-      cfg['mcpServers'] = mcp;
-    }, log, 'Project MCP (.mcp.json)');
   }
 
   /**
@@ -220,6 +223,46 @@ export class ConfigManager {
 
 function _obj(val: unknown): Record<string, unknown> {
   return (typeof val === 'object' && val !== null ? val : {}) as Record<string, unknown>;
+}
+
+/**
+ * Move any user-defined `mcpServers` block from .autodev/settings.json into
+ * .mcp.json (one-time, idempotent — once stripped from settings it doesn't run
+ * again). Existing user entries already in .mcp.json take precedence.
+ */
+function _migrateLegacyMcpServers(
+  root: string,
+  legacy: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>,
+  log: ((m: string) => void) | undefined,
+): void {
+  try {
+    const existing = loadProjectUserMcp(root);
+    const merged: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = { ...existing };
+    let migratedCount = 0;
+    for (const [name, raw] of Object.entries(legacy)) {
+      if (!raw || typeof raw.command !== 'string') continue;
+      if (raw.enabled === false) continue; // disabled = drop, per the new model
+      if (existing[name]) continue;         // .mcp.json wins
+      merged[name] = { command: raw.command, args: raw.args, ...(raw.env ? { env: raw.env } : {}) };
+      migratedCount += 1;
+    }
+    if (migratedCount > 0) {
+      saveProjectUserMcp(root, merged);
+      log?.(`ConfigManager: migrated ${migratedCount} mcpServers entr${migratedCount === 1 ? 'y' : 'ies'} from .autodev/settings.json → .mcp.json`);
+    }
+  } catch (e) { log?.(`ConfigManager: legacy MCP migration failed: ${e}`); }
+
+  // Strip the field from settings.json regardless — the file is no longer the source.
+  try {
+    const settingsFile = path.join(root, '.autodev', 'settings.json');
+    if (!fs.existsSync(settingsFile)) return;
+    const cfg = JSON.parse(fs.readFileSync(settingsFile, 'utf8')) as Record<string, unknown>;
+    if (cfg && 'mcpServers' in cfg) {
+      delete (cfg as Record<string, unknown>)['mcpServers'];
+      fs.writeFileSync(settingsFile, JSON.stringify(cfg, null, 2), 'utf8');
+      log?.('ConfigManager: stripped legacy mcpServers from .autodev/settings.json');
+    }
+  } catch { /* ignore */ }
 }
 
 /**

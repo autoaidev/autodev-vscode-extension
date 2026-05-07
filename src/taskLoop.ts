@@ -19,6 +19,7 @@ import { DiscordPoller } from './discordPoller';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
 import { EmailTaskPoller } from './emailPoller';
+import { loadProjectUserMcp } from './core/projectMcp';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -319,14 +320,18 @@ export class TaskLoopRunner {
       }
       catch (e) { callbacks.log(`Email poller init failed: ${e instanceof Error ? e.message : String(e)}`); }
     } else {
-      const entry = settings.mcpServers?.['zerolib-email'];
+      const root = this._workspaceRoot;
+      const userMcp = root ? loadProjectUserMcp(root) : {};
+      const entry = userMcp['zerolib-email'];
       const env = entry?.env ?? {};
       const reasons: string[] = [];
-      if (entry?.enabled === false) reasons.push('Email MCP is disabled');
-      if (String(env.AUTODEV_EMAIL_RECEIVE_TASKS).toLowerCase() !== 'true') reasons.push('AUTODEV_EMAIL_RECEIVE_TASKS != "true"');
-      if (!env.MCP_EMAIL_SERVER_IMAP_HOST) reasons.push('IMAP host missing');
-      if (!(env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS)) reasons.push('IMAP user/email missing');
-      if (!env.MCP_EMAIL_SERVER_PASSWORD) reasons.push('IMAP password missing');
+      if (!entry) reasons.push('no zerolib-email entry in .mcp.json');
+      else {
+        if (String(env.AUTODEV_EMAIL_RECEIVE_TASKS).toLowerCase() !== 'true') reasons.push('AUTODEV_EMAIL_RECEIVE_TASKS != "true"');
+        if (!env.MCP_EMAIL_SERVER_IMAP_HOST) reasons.push('IMAP host missing');
+        if (!(env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS)) reasons.push('IMAP user/email missing');
+        if (!env.MCP_EMAIL_SERVER_PASSWORD) reasons.push('IMAP password missing');
+      }
       if (reasons.length) callbacks.log(`📧 Email task poller NOT started: ${reasons.join('; ')}`);
     }
 
@@ -429,9 +434,11 @@ export class TaskLoopRunner {
    * null if the feature is disabled or required IMAP creds are missing.
    */
   private _buildEmailPoller(settings: AutodevSettings): EmailTaskPoller | null {
-    const entry = settings.mcpServers?.['zerolib-email'];
+    const root = this._workspaceRoot;
+    const userMcp = root ? loadProjectUserMcp(root) : {};
+    const entry = userMcp['zerolib-email'];
     const env = entry?.env ?? {};
-    if (entry?.enabled === false) return null;
+    if (!entry) return null;
     if (String(env.AUTODEV_EMAIL_RECEIVE_TASKS).toLowerCase() !== 'true') return null;
     const host = env.MCP_EMAIL_SERVER_IMAP_HOST;
     const user = env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS;
