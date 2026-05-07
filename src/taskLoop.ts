@@ -683,6 +683,15 @@ export class TaskLoopRunner {
               if (this._state !== 'running') { break; }
               if (isReady()) { break; }
             }
+            // If still empty after the wait, write a sentinel so the next
+            // iteration's cliIsRunning probe doesn't read an empty file and
+            // wrongly conclude "CLI still running". The shell may have failed
+            // to run the trailing `echo $? > exitFile` (terminal killed,
+            // bundle aborted, etc.) — but the task is done and we're moving on.
+            if (!isReady()) {
+              try { fs.writeFileSync(exitFile, 'unknown\n', 'utf8'); } catch { /* ignore */ }
+              this._cb?.log('⚠ CLI exit file never written — wrote sentinel to unblock next cycle');
+            }
           }
         } else {
           // Non-CLI providers: just wait for OS flush
