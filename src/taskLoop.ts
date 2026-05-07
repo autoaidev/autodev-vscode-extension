@@ -1066,7 +1066,15 @@ export class TaskLoopRunner {
           }
         } catch { /* ignore */ }
 
-        if (exitReminderSent) { return; } // only send once
+        if (exitReminderSent) {
+          // CLI exited a second time and the task is still [ ] / [~] — the AI
+          // is stuck on this one. Give up so the loop can move on instead of
+          // sitting on the inactivity timeout for 30 minutes.
+          this._cb?.log(`↪︎ CLI exited again without marking task done — moving on: ${discordLabel(task.text)}`);
+          cleanup();
+          resolve();
+          return;
+        }
         exitReminderSent = true;
         const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
         const msg = `⏳ CLI finished but task not yet marked done (${elapsedMin}m): ${discordLabel(task.text)}`;
