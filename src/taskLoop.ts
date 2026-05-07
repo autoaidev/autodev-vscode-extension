@@ -608,6 +608,11 @@ export class TaskLoopRunner {
           // There are uncompleted tasks but none are pending (e.g. all [~] in-progress)
           this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
         }
+        // Clear any stale current-task label and refresh the sidebar so the
+        // counter reflects the just-finalised TODO.md (otherwise it can sit on
+        // the pre-final-cycle "N left" until something else triggers a push).
+        this._currentTask = undefined;
+        this._setState('running');
         // Keep polling forever — never stop automatically
         await sleep(settings.loopInterval * 1000);
         continue;
