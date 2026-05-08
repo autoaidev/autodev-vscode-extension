@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { areHooksInstalled, installHooks, uninstallHooks } from './hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from './openCodeHooksManager';
@@ -36,6 +37,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _settingsWatcher?: vscode.FileSystemWatcher;
   private _pollTimer?: ReturnType<typeof setInterval>;
   private _lastNotifyTime = 0;
+  private _lastKnownMtime = 0;
   private _cozempicInstalled: boolean | null = null;
 
   constructor(
@@ -270,12 +272,18 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._settingsWatcher.onDidChange(settingsNotify);
     this._settingsWatcher.onDidCreate(settingsNotify);
 
-    // Fallback poll every 5 min — catches missed fs events on Linux
+    // Fallback: check TODO.md mtime every 30 s and refresh if it changed
+    // externally (e.g. edited in another editor or by a script). This catches
+    // missed fs events on Linux/WSL where inotify can silently drop events.
     if (this._pollTimer) { clearInterval(this._pollTimer); }
+    this._lastKnownMtime = this._readTodoMtime(todoPath);
     this._pollTimer = setInterval(() => {
-      const sinceLastNotify = Date.now() - this._lastNotifyTime;
-      if (sinceLastNotify > 4.5 * 60 * 1000) { this._refreshTasks(); }
-    }, 5 * 60 * 1000);
+      const mtime = this._readTodoMtime(todoPath);
+      if (mtime !== this._lastKnownMtime) {
+        this._lastKnownMtime = mtime;
+        this._refreshTasks();
+      }
+    }, 30_000);
   }
 
   private async _openTaskLine(line: number): Promise<void> {
@@ -291,11 +299,17 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
   }
 
+  /** Returns the last-modified timestamp (ms) of todoPath, or 0 on error. */
+  private _readTodoMtime(todoPath: string): number {
+    try { return fs.statSync(todoPath).mtimeMs; } catch { return 0; }
+  }
+
   private _refreshTasks(): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { this._tasks = []; this._push(); return; }
     const settings = loadSettings();
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
+    this._lastKnownMtime = this._readTodoMtime(todoPath); // keep mtime in sync after any refresh
     this._tasks = parseTodo(todoPath);
     this._push();
   }
