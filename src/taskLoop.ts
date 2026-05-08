@@ -174,6 +174,8 @@ export class TaskLoopRunner {
 
     this._cb = callbacks;
     this._iterations = 0;
+    this._compactedTaskLines.clear();
+    this._hookLineSeen.clear();
     this._setState('running');
 
     const settings = loadSettingsForRoot(callbacks.workspaceRoot);
@@ -927,10 +929,13 @@ export class TaskLoopRunner {
       let stdoutWatcherRef: IDisposable | undefined;
       let exitWatcherRef: IDisposable | undefined;
       let todoWatcher: IDisposable | undefined;
+      const endTurnTimers: NodeJS.Timeout[] = [];
 
       const cleanup = () => {
         this._taskCompletionAbort = null;
         clearInterval(poller);
+        for (const t of endTurnTimers) { clearTimeout(t); }
+        endTurnTimers.length = 0;
         todoWatcher?.dispose();
         stdoutWatcherRef?.dispose();
         stdoutWatcherRef = undefined;
@@ -1150,8 +1155,8 @@ export class TaskLoopRunner {
           if (!endTurnSeen && sessionState.hasEndTurn) {
             endTurnSeen = true;
             this._cb?.log('end_turn detected in Claude JSONL — checking TODO.md');
-            setTimeout(check, 800);
-            setTimeout(check, 2_500);
+            endTurnTimers.push(setTimeout(check, 800));
+            endTurnTimers.push(setTimeout(check, 2_500));
           }
 
           // Surface current tool activity to sidebar

@@ -854,8 +854,14 @@ class WebSocketPoller {
    * Send a JSON payload to the server over the WebSocket connection.
    * Queues the frame if not yet connected — always returns true (accepted).
    */
+  private static readonly MAX_PENDING_FRAMES = 200;
+
   sendFrame(payload: unknown): boolean {
     if (!this._connected || !this._socket) {
+      // Cap the queue to prevent unbounded growth during a long reconnect loop.
+      if (this._pendingFrames.length >= WebSocketPoller.MAX_PENDING_FRAMES) {
+        this._pendingFrames.shift(); // drop oldest frame
+      }
       this._pendingFrames.push(payload);
       return true;  // accepted into queue
     }

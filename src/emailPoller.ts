@@ -117,6 +117,8 @@ export class EmailTaskPoller {
       try { await this.client?.logout(); } catch { /* ignore */ }
       this.client = null;
       this.connecting = null;
+      // Reset the skip-uid snapshot so the fresh connection takes a new one.
+      this.skipUids = null;
     } finally {
       this.polling = false;
     }
@@ -127,6 +129,7 @@ export class EmailTaskPoller {
     try { await this.client?.logout(); } catch { /* ignore */ }
     this.client = null;
     this.connecting = null;
+    this.skipUids = null;
   }
 
   // -------------------------------------------------------------------------
@@ -149,7 +152,14 @@ export class EmailTaskPoller {
         logger: false,
         tls: { rejectUnauthorized: this.opts.rejectUnauthorized !== false },
       });
-      await c.connect();
+      try {
+        await c.connect();
+      } catch (err) {
+        // Close the socket opened by ImapFlow before connect() threw so its
+        // internal event listeners and TLS socket are not leaked.
+        try { await c.logout(); } catch { /* ignore */ }
+        throw err;
+      }
       this.client = c;
       this.connectedAt = Date.now();
     })().finally(() => { this.connecting = null; });
