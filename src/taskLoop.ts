@@ -999,7 +999,10 @@ export class TaskLoopRunner {
 
       // Per-provider stdout capture file (only used for CLI providers)
       const activeProvider = this._cb?.getActiveProvider() ?? 'unknown';
-      const resolvedStdoutFile = this._workspaceRoot
+      // Re-computed dynamically — sendToAi() (reminder path) rotates to a fresh
+      // per-message file and updates the .latest pointer.  Using a let + refresh
+      // in the interval ensures checkStdout() always reads the current file.
+      let resolvedStdoutFile = this._workspaceRoot
         ? stdoutFilePath(this._workspaceRoot, activeProvider)
         : null;
 
@@ -1080,13 +1083,16 @@ export class TaskLoopRunner {
       // Register abort hook so stop() can resolve this immediately
       this._taskCompletionAbort = () => { cleanup(); resolve(); };
 
-      // Watch the per-provider stdout capture file for instant rate-limit detection
-      const stdoutDir = this._workspaceRoot
-        ? path.join(this._workspaceRoot, '.autodev', 'output')
-        : path.dirname(todoPath);
-      stdoutWatcherRef = this._cb!.fileWatcher.watch(
-        path.join(stdoutDir, `${activeProvider}.txt`), checkStdout
-      );
+      // Watch the per-provider stdout capture file for instant rate-limit detection.
+      // Use the actual per-message file, not the legacy provider-level path, so the
+      // watcher fires on the file the current process is writing to.
+      const attachStdoutWatcher = (filePath: string | null) => {
+        stdoutWatcherRef?.dispose();
+        stdoutWatcherRef = filePath
+          ? this._cb!.fileWatcher.watch(filePath, checkStdout)
+          : undefined;
+      };
+      attachStdoutWatcher(resolvedStdoutFile);
 
       // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
       // process finishes. CliExitHandler owns the decision tree of what to do.
@@ -1102,6 +1108,18 @@ export class TaskLoopRunner {
         // resolved the promise while we were sleeping.  Don't send a spurious
         // reminder to the next task's session.
         if (cancelled) { return; }
+
+        // Fast-path: if the stdout capture file already contains a rate-limit
+        // phrase at exit time, raise immediately without waiting for a hooks event.
+        if (isClaudeCli) {
+          const stdoutContent = readStdoutFile();
+          const rlFromStdout = RateLimitDetector.detect(stdoutContent);
+          if (rlFromStdout) {
+            cleanup();
+            reject(rlFromStdout);
+            return;
+          }
+        }
 
         const decision = exitHandler?.decide() ?? { kind: 'remind' as const };
 
@@ -1210,8 +1228,15 @@ export class TaskLoopRunner {
         if (!this._workspaceRoot) { return; }
 
         // If sendToAi() was called (e.g. reminder path) it rotates to a new
-        // per-message exit file. Re-attach the watcher so the next process
-        // exit is detected even though the path changed.
+        // per-message stdout/exit file.  Re-attach both watchers so the next
+        // process's output and exit are both detected even though the paths changed.
+        const latestStdout = this._workspaceRoot ? stdoutFilePath(this._workspaceRoot, activeProvider) : null;
+        if (latestStdout && latestStdout !== resolvedStdoutFile) {
+          resolvedStdoutFile = latestStdout;
+          lastStdoutLen = 0; // reset cursor — new file starts from byte 0
+          attachStdoutWatcher(resolvedStdoutFile);
+        }
+
         const latestExit = exitFilePath(this._workspaceRoot, activeProvider);
         if (latestExit !== watchedExitFile) { attachExitWatcher(latestExit); }
 
