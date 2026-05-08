@@ -171,33 +171,33 @@ export function assembleProfileBody(
   enabledIds: string[] | undefined,
   root: string,
   customRefs: string[] = [],
-): string {
+): { body: string; sectionPaths: string[] } {
   const ids = enabledIds && enabledIds.length > 0 ? enabledIds : ALL_SECTION_IDS;
   const orderedSections = PROFILE_SECTIONS.filter(s => ids.includes(s.id));
 
   const header = [
     '# AutoDev Agent Profile',
     '',
-    '> This is a **protocol index**. Read the key rules for each section now.',
-    '> Before working in a domain, load its full protocol via the `@` reference below.',
+    '> This is a **protocol index**. Each section file is loaded directly by the agent.',
+    '> Key rules are summarised below; full details live in the per-section files.',
     '',
     '---',
     '',
   ].join('\n');
 
   const parts: string[] = [];
+  const sectionPaths: string[] = [];
 
   for (const section of orderedSections) {
     const refPath = deploySectionFile(section, root);
-    const refLine = refPath ? `\n→ Full protocol: @${refPath}` : '';
+    if (refPath) { sectionPaths.push(refPath); }
     const rulesLines = section.keyRules.map(r => `- ${r}`).join('\n');
     // Hash over key rules + ref so the marker changes if either is updated
-    const hash = md5(rulesLines + refLine);
+    const hash = md5(rulesLines + (refPath ?? ''));
     const block = [
       `<!-- AUTODEV:section:${section.id}:begin:md5=${hash} -->`,
       `### ${section.label}`,
       rulesLines,
-      refLine,
       `<!-- AUTODEV:section:${section.id}:end -->`,
     ].join('\n');
     parts.push(block);
@@ -213,5 +213,5 @@ export function assembleProfileBody(
     body += '\n';
   }
 
-  return body;
+  return { body, sectionPaths };
 }

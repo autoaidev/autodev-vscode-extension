@@ -30,8 +30,11 @@ const AGENT_REF_END   = '<!-- autodev:profile-ref:end -->';
  * Idempotent — replaces the existing block on every rebuild.
  * Creates the file with just the reference block if it doesn't exist yet.
  */
-function injectAgentProfileRef(root: string): void {
-  const ref = `@${AGENT_PROFILE_FILE}`;
+function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void {
+  // Inject AGENT_PROFILE.md plus every deployed section file directly so the
+  // LLM auto-loads all sub-files (agents only follow @-refs one level deep).
+  const lines = [`@${AGENT_PROFILE_FILE}`, ...sectionPaths.map(p => `@${p}`)];
+  const ref = lines.join('\n');
   const block = `${AGENT_REF_BEGIN}\n${ref}\n${AGENT_REF_END}`;
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
@@ -195,13 +198,13 @@ export function rebuildProfile(root: string): void {
 
   const enabledSections = settings?.enabledProfileSections ?? [];
   const customRefs = settings?.customProfileRefs ?? [];
-  const profileBody = assembleProfileBody(enabledSections, root, customRefs);
+  const { body: profileBody, sectionPaths } = assembleProfileBody(enabledSections, root, customRefs);
   const finalProfileBody = applyProtocolSections(profileBody, settings);
   applyMcpSkills(root, settings);
 
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
-  injectAgentProfileRef(root);
+  injectAgentProfileRef(root, sectionPaths);
 }
 
 export function buildMessage(
@@ -223,7 +226,7 @@ export function buildMessage(
   // Assemble the profile index from the enabled section files
   const enabledSections = settings?.enabledProfileSections ?? [];
   const customRefs = settings?.customProfileRefs ?? [];
-  const profileBody = assembleProfileBody(enabledSections, root, customRefs);
+  const { body: profileBody, sectionPaths } = assembleProfileBody(enabledSections, root, customRefs);
 
   // Inject protocol sections (email, jira, ...) for any MCP currently enabled
   // in the workspace settings. Toggling an MCP off cleanly removes its block
@@ -236,7 +239,7 @@ export function buildMessage(
   // Always write the profile file so the LLM can @-reference it
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
-  injectAgentProfileRef(root);
+  injectAgentProfileRef(root, sectionPaths);
   // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
   const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
 
