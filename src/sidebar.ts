@@ -46,7 +46,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     private readonly _context: vscode.ExtensionContext
   ) {
     this._selectedProvider =
-      this._context.globalState.get<ProviderId>(PROVIDER_KEY) ?? 'claude-cli';
+      this._context.workspaceState.get<ProviderId>(PROVIDER_KEY) ?? 'claude-cli';
   }
 
   get selectedProvider(): ProviderId { return this._selectedProvider; }
@@ -220,7 +220,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
   setProvider(id: ProviderId): void {
     this._selectedProvider = id;
-    this._context.globalState.update(PROVIDER_KEY, id);
+    this._context.workspaceState.update(PROVIDER_KEY, id);
     const current = loadSettings();
     saveSettings({ ...current, provider: id });
     this._push();
