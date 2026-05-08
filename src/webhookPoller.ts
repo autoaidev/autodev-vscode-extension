@@ -10,7 +10,8 @@ import { VncSession } from './vnc';
 import { RdpSession } from './rdp';
 import type { RdpConnectOptions } from './rdp';
 import { saveAttachment } from './messageBuilder';
-import { appendTask, shortId } from './todo';
+import { shortId } from './todo';
+import { todoWriter } from './todoWriteManager';
 import * as gitService from './git/gitService';
 
 // ---------------------------------------------------------------------------
@@ -589,13 +590,10 @@ class WebSocketPoller {
       } catch { /* ignore read errors — proceed to append */ }
 
       this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
-      try {
-        if (!this._todoPath) { throw new Error('todoPath is empty'); }
-        appendTask(this._todoPath, fullText, wsTaskId);
-        this._onTaskAppend?.();
-      } catch (err) {
-        this._log(`WS failed to append task to TODO.md: ${err}`);
-      }
+      if (!this._todoPath) { this._log('WS failed to append task to TODO.md: todoPath is empty'); return; }
+      todoWriter.append(this._todoPath, fullText, wsTaskId)
+        .then(() => { this._onTaskAppend?.(); })
+        .catch(err => { this._log(`WS failed to append task to TODO.md: ${err}`); });
     }
   }
 
@@ -1139,7 +1137,7 @@ class HttpWebhookPoller {
         ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
 
-      appendTask(todoPath, fullText, httpTaskId);
+      await todoWriter.append(todoPath, fullText, httpTaskId);
       return true;
     } catch {
       return false;

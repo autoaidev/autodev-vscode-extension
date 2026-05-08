@@ -3,7 +3,8 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
-import { parseTodo, pickNextTask, countRemaining, resetAllInProgress, resetToTodo, Task } from './todo';
+import { parseTodo, pickNextTask, countRemaining, Task } from './todo';
+import { todoWriter } from './todoWriteManager';
 import { buildPrompt } from './prompt';
 import { writeMessageFile } from './messageBuilder';
 import { WebhookClient, WebhookEvent, sendDiscordBotMessage } from './webhook';
@@ -543,7 +544,7 @@ export class TaskLoopRunner {
 
     // Reset any [~] in-progress tasks left over from a previous run
     if (settings.autoResetPendingTasks) {
-      resetAllInProgress(todoPath);
+      await todoWriter.resetAllInProgress(todoPath);
       this._cb?.log('Auto-reset in-progress tasks to [ ]');
     }
 
@@ -598,7 +599,7 @@ export class TaskLoopRunner {
           if (!cliIsRunning) {
             const stranded = tasks.filter(t => t.status === 'in-progress');
             for (const t of stranded) {
-              try { resetToTodo(todoPath, t); } catch { /* ignore */ }
+              await todoWriter.resetToTodo(todoPath, t).catch(() => {});
             }
             if (stranded.length > 0) {
               this._cb?.log(`↩︎ Reset ${stranded.length} stranded [~] task(s) back to [ ] — CLI not running`);
@@ -796,7 +797,7 @@ export class TaskLoopRunner {
             gitBranch:   this._gitBranch,
           });
           // Reset task so it gets picked up again after resume
-          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+          await todoWriter.resetToTodo(todoPath, task).catch(() => {});
           // Block here until resumed (timer or user clicks Retry Now)
           this._resumeAt = resumeAt;
           await this._pauseLoop(resumeMs);
@@ -848,7 +849,7 @@ export class TaskLoopRunner {
               this._cb?.log('⚠️ No OpenCode session ID found for compact — retrying task without compact');
             }
           }
-          try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+          await todoWriter.resetToTodo(todoPath, task).catch(() => {});
           continue;
         }
         // --- Normal task failure ------------------------------------------
@@ -947,12 +948,17 @@ export class TaskLoopRunner {
 
       const found = () => {
         const updated = parseTodo(todoPath);
-        // Match by LINE NUMBER — not text — to avoid false positives when multiple
-        // tasks share the same wording (e.g. two "cool game" entries).
-        const byLine = updated.find(t => t.line === task.line);
-        if (!byLine) { return true; }                  // line gone from file — treat as done
-        if (byLine.status === 'done') { return true; } // [x] confirmed at that exact line
-        return false;                                  // still [ ] or [~] — keep waiting
+        // 1. Prefer task ID (globally unique — set by appendTask on every new task).
+        // 2. Line number with text verification (fast; guards against line-shift from
+        //    new tasks inserted above this one pointing to the wrong entry).
+        // 3. Text-only fallback when there is no ID and the line has shifted.
+        const byId           = task.id ? updated.find(t => t.id === task.id) : undefined;
+        const byLine         = updated.find(t => t.line === task.line);
+        const byLineVerified = (byLine && byLine.text === task.text) ? byLine : undefined;
+        const byText         = updated.find(t => t.text === task.text);
+        const match          = byId ?? byLineVerified ?? byText;
+        if (!match) { return true; }   // task genuinely gone — treat as done
+        return match.status === 'done';
       };
 
       // Check immediately (AI might have already edited the file)
@@ -1311,7 +1317,7 @@ export class TaskLoopRunner {
           cleanup();
           const minutes = settings.taskTimeoutMinutes ?? 30;
           if (settings.retryOnTimeout) {
-            try { resetToTodo(todoPath, task); } catch { /* ignore */ }
+            await todoWriter.resetToTodo(todoPath, task).catch(() => {});
             const msg = `⏱ TODO.md idle for ${minutes}m — retrying: ${discordLabel(task.text)}`;
             this._cb?.log(msg);
             this._notifyDiscord(msg);

@@ -1,7 +1,8 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail } from 'mailparser';
 import { saveAttachment } from './messageBuilder';
-import { appendTask, shortId } from './todo';
+import { shortId } from './todo';
+import { todoWriter } from './todoWriteManager';
 
 // ---------------------------------------------------------------------------
 // EmailTaskPoller — IMAP poller that ingests new mail as TODO.md tasks.
@@ -94,7 +95,7 @@ export class EmailTaskPoller {
             }
             const taskText = await this._buildTaskFromMessage(msg.source, msg.envelope, workspaceRoot);
             if (taskText) {
-              appendTask(todoPath, taskText, shortId());
+              await todoWriter.append(todoPath, taskText, shortId());
               appended = true;
             }
             await this.client.messageFlagsAdd({ uid }, ['\\Seen'], { uid: true });

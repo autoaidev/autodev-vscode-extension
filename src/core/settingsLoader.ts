@@ -51,6 +51,12 @@ export interface AutodevSettings {
    */
   autoStartLoop: boolean;
   /**
+   * Optional model override for Copilot CLI. When set, passes `--model=<value>`
+   * to the `copilot` command. Leave empty to use the CLI default model.
+   * Example values: `claude-sonnet-4.6`, `gpt-5.4`, `gemini-2.5-pro`.
+   */
+  copilotModel: string;
+  /**
    * Per-project MCP server definitions managed by autodev. Stored in the
    * standard `mcpServers` shape (`{ <name>: { command, args, env } }`) so
    * users can paste server snippets verbatim from MCP docs (e.g.
@@ -100,6 +106,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   hooksScope: 'project',
   openCodeHooksEnabled: false,
   autoStartLoop: false,
+  copilotModel: '',
   mcpServers: {},
   disabledBuiltinMcp: [],
 };

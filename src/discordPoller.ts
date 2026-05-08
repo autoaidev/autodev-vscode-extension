@@ -3,7 +3,8 @@ import * as http from 'http';
 import * as url from 'url';
 import * as fs from 'fs';
 import { saveAttachment } from './messageBuilder';
-import { appendTask, shortId } from './todo';
+import { shortId } from './todo';
+import { todoWriter } from './todoWriteManager';
 
 // ---------------------------------------------------------------------------
 // DiscordPoller — mirrors PHP DiscordTaskProvider (poll / drainQueue / react)
@@ -137,11 +138,11 @@ export class DiscordPoller {
     }
   }
 
-  private _drainQueue(todoPath: string): boolean {
+  private async _drainQueue(todoPath: string): Promise<boolean> {
     if (this.queue.length === 0) { return false; }
     const { taskText, taskId } = this.queue.shift()!;
     try {
-      appendTask(todoPath, taskText, taskId);
+      await todoWriter.append(todoPath, taskText, taskId);
     } catch { /* non-fatal */ }
     return true;
   }

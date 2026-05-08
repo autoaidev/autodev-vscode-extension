@@ -147,7 +147,7 @@ export async function sendPromptToAi(
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
-      cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId);
+      cmd = buildCopilotCliCommand(combinedFile, resolvedSessionId, settings.copilotModel || undefined);
       cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
         cmd = wrapWithSyntheticHooks(cmd, 'copilot-cli', root, path.basename(root));

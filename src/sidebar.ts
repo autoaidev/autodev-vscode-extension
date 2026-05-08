@@ -13,7 +13,8 @@ import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
-import { Task, parseTodo, appendTask } from './todo';
+import { Task, parseTodo } from './todo';
+import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
 
@@ -233,8 +234,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
     const settings = loadSettings();
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
-    appendTask(todoPath, text.trim());
-    this._refreshTasks();
+    todoWriter.append(todoPath, text.trim())
+      .then(() => this._refreshTasks())
+      .catch(() => {});
   }
 
   private _startWatcher(): void {
@@ -455,6 +457,9 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .provider-label{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;flex-shrink:0}
 .provider-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
 .provider-select:focus{border-color:var(--vscode-focusBorder)}
+.model-row{display:flex;align-items:center;gap:6px;margin:-6px 0 10px}
+.model-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
+.model-select:focus{border-color:var(--vscode-focusBorder)}
 .resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
 .resume-row input{cursor:pointer}
 .new-session-btn{margin-left:auto;padding:1px 5px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:12px;line-height:1.4;opacity:.7}
@@ -517,6 +522,10 @@ ${mcpConfigCss}
 <div class="provider-row">
   <span class="provider-label">Provider:</span>
   <select class="provider-select" id="providerSelect"></select>
+</div>
+<div class="model-row" id="modelRow" style="display:none">
+  <span class="provider-label">Model:</span>
+  <select class="model-select" id="modelSelect"></select>
 </div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
@@ -675,6 +684,40 @@ function renderProviders(){
   const hasSession=isCli&&resumeOn&&state.sessionId;
   sidRow.style.display=hasSession?'flex':'none';
   if(sidVal)sidVal.textContent=state.sessionId||'';
+
+  // Model dropdown — only visible for copilot-cli
+  const modelRow=document.getElementById('modelRow');
+  const modelSel=document.getElementById('modelSelect');
+  const isCopilot=state.selectedProvider==='copilot-cli';
+  modelRow.style.display=isCopilot?'flex':'none';
+  if(isCopilot&&modelSel){
+    const MODELS=[
+      {v:'',l:'Default model'},
+      {v:'claude-haiku-4.5',l:'Claude Haiku 4.5'},
+      {v:'claude-sonnet-4.5',l:'Claude Sonnet 4.5'},
+      {v:'claude-sonnet-4.6',l:'Claude Sonnet 4.6'},
+      {v:'claude-opus-4.5',l:'Claude Opus 4.5'},
+      {v:'claude-opus-4.6',l:'Claude Opus 4.6'},
+      {v:'claude-opus-4.7',l:'Claude Opus 4.7'},
+      {v:'gpt-4.1',l:'GPT-4.1'},
+      {v:'gpt-5-mini',l:'GPT-5 mini'},
+      {v:'gpt-5.2',l:'GPT-5.2'},
+      {v:'gpt-5.2-codex',l:'GPT-5.2-Codex'},
+      {v:'gpt-5.3-codex',l:'GPT-5.3-Codex'},
+      {v:'gpt-5.4',l:'GPT-5.4'},
+      {v:'gpt-5.4-mini',l:'GPT-5.4 mini'},
+      {v:'gpt-5.5',l:'GPT-5.5'},
+      {v:'gemini-2.5-pro',l:'Gemini 2.5 Pro'},
+      {v:'gemini-3-flash',l:'Gemini 3 Flash'},
+      {v:'gemini-3.1-pro',l:'Gemini 3.1 Pro'},
+      {v:'grok-code-fast-1',l:'Grok Code Fast 1'},
+    ];
+    const cur=(state.settings&&state.settings.copilotModel)||'';
+    modelSel.innerHTML=MODELS.map(function(m){return '<option value="'+m.v+'"'+(m.v===cur?' selected':'')+'>'+m.l+'</option>';}).join('');
+    modelSel.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{copilotModel:modelSel.value})});
+    };
+  }
 }
 
 function renderLoop(){
@@ -883,6 +926,7 @@ discordOwners:document.getElementById('cfg_discordOwners').value,
     hooksScope:'project',
     openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
+    copilotModel:(state.settings&&state.settings.copilotModel)||'',
     profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
   };
