@@ -86,7 +86,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'openTask':    void this._openTaskLine(msg.line as number); break;
         case 'saveSettings': {
           const prev = loadSettings();
-          const next = msg.settings as AutodevSettings;
+          // Merge with existing so MCP servers, profile sections, custom refs,
+          // and other fields not present in the form are preserved.
+          const next: AutodevSettings = { ...prev, ...(msg.settings as AutodevSettings) };
           saveSettings(next);
           this._startWatcher();
           // Sync hooks when enabled/scope changes.

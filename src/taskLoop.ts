@@ -286,7 +286,6 @@ export class TaskLoopRunner {
     }
 
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
-    const autodevPath = settings.profilePath || path.join(root, 'AUTODEV.md');
 
     // Seed Discord cursor to ignore history before the loop started
     if (this._discordPoller) {
@@ -357,7 +356,7 @@ export class TaskLoopRunner {
     }
 
     try {
-      await this._runLoop(todoPath, autodevPath, settings);
+      await this._runLoop(todoPath, settings);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       callbacks.log(`Task loop error: ${msg}`);
@@ -610,7 +609,7 @@ export class TaskLoopRunner {
     if (this._webhookPoller) { this._webhookPoller.destroy(); }
   }
 
-  private async _runLoop(todoPath: string, autodevPath: string, settings: AutodevSettings): Promise<void> {
+  private async _runLoop(todoPath: string, settings: AutodevSettings): Promise<void> {
     let allTasksDoneNotified = false;
 
     // Reset any [~] in-progress tasks left over from a previous run
@@ -712,7 +711,7 @@ export class TaskLoopRunner {
       this._setState('running', task.text);
 
       // Build prompt (needed even when not sending, for messageFile path)
-      const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), autodevPath, this._iterations === 1);
+      const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), this._iterations === 1);
       const remaining = countRemaining(parseTodo(todoPath));
 
       if (!watchingInProgress) {

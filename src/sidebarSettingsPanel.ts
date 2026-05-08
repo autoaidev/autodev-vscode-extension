@@ -63,14 +63,6 @@ export const settingsPanelHtml = `
   <div id="openCodeHooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; OpenCode plugin installed &mdash; events streaming to Pixel Office</div>
   <div class="cfg-section">Paths</div>
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
-  <div class="cfg-field">
-    <label class="cfg-label">Agent Profile</label>
-    <div style="display:flex;gap:4px;align-items:center">
-      <select class="cfg-input" id="cfg_profileSelect" style="flex:1"></select>
-      <button id="openProfileBtn" title="Open profile file" class="cfg-save" style="margin-top:0;width:auto;padding:5px 10px" type="button">Open</button>
-    </div>
-    <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
-  </div>
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
   <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
 </div>
@@ -163,11 +155,6 @@ function renderProfileSelect(profiles, currentPath){
 }
 
 document.getElementById('saveSettingsBtn').addEventListener('click',function(){
-  var profileSel=document.getElementById('cfg_profileSelect');
-  var profileInput=document.getElementById('cfg_profilePath');
-  var profilePath=profileSel&&profileSel.value==='__custom__'
-    ?(profileInput?profileInput.value:'')
-    :(profileSel?profileSel.value:'');
   var s={
     provider:state.selectedProvider,
     wsUrl:document.getElementById('cfg_wsUrl').value,
@@ -198,7 +185,6 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     copilotModel:(state.settings&&state.settings.copilotModel)||'',
-    profilePath:profilePath,
     todoPath:document.getElementById('cfg_todoPath').value,
   };
   vscode.postMessage({command:'saveSettings',settings:s});

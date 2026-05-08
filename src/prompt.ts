@@ -7,20 +7,16 @@ import { buildMessage } from './messageBuilder';
 
 /**
  * Build the prompt string for a task, and write the split files:
- *   .autodev/AGENT_PROFILE.md                  — profile instructions
- *   .autodev/messages/MESSAGE_<timestamp>.md    — task + current TODO
+ *   .autodev/AGENT_PROFILE.md                  — profile instructions (rebuilt fresh)
+ *   .autodev/messages/MESSAGE_<timestamp>.md    — task trigger message
  *
- * @param task        The task to implement
- * @param root        Workspace root (used to write .autodev/ files)
- * @param todoDir     Directory containing TODO.md and optionally AUTODEV.md
- * @param autodevPath Optional explicit path to the agent profile file
+ * The agent profile is loaded automatically by the agent via CLAUDE.md → @.autodev/AGENT_PROFILE.md.
  */
 export function buildPrompt(
   task: Task,
   root: string,
   todoDir: string,
-  autodevPath?: string,
   includeProfile = true,
 ): { prompt: string; messageFile: string } {
-  return buildMessage(task, root, todoDir, autodevPath, includeProfile);
+  return buildMessage(task, root, todoDir, includeProfile);
 }

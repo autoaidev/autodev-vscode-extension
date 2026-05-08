@@ -153,16 +153,12 @@ function readOrEmpty(filePath: string): string {
   } catch { return ''; }
 }
 
-function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false, profileRef?: string, profileMd5?: string): string {
+function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false): string {
   const commitLine = noCommit
     ? 'Do **NOT** commit — the user is responsible for all git operations.'
     : 'Commit each completed task with a descriptive conventional commit message.';
 
-  const profileNote = profileRef
-    ? `If you have not already read the agent profile (md5: \`${profileMd5 ?? ''}\`), or it has changed since you last read it, read it now: @${profileRef}\n\n`
-    : '';
-
-  return `${profileNote}Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
+  return `Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
 
 For each task:
 1. Mark it \`[~]\` in \`TODO.md\` **before** starting any work.
@@ -212,7 +208,6 @@ export function buildMessage(
   task: Task,
   root: string,
   todoDir: string,
-  profilePath?: string,
   includeProfile = true,
 ): { prompt: string; messageFile: string } {
   autodevDir(root);
@@ -221,16 +216,9 @@ export function buildMessage(
   let settings: ReturnType<typeof loadSettingsForRoot> | undefined;
   try { settings = loadSettingsForRoot(root); } catch { /* ignore */ }
 
-  // Resolve noCommit flag from the identity section frontmatter, then fall back
-  // to the legacy single-file profile if the section file is missing.
+  // Read the noCommit flag from the identity section frontmatter
   const identityFile = path.join(__dirname, '..', 'media', 'profile', '00-identity.md');
-  let rawIdentity = readOrEmpty(identityFile);
-  if (!rawIdentity) {
-    const resolvedProfile = profilePath || path.join(todoDir, 'AUTODEV.md');
-    rawIdentity = readOrEmpty(resolvedProfile);
-    if (!rawIdentity) { rawIdentity = readOrEmpty(defaultProfilePath()); }
-  }
-  const { meta } = parseFrontmatter(rawIdentity);
+  const { meta } = parseFrontmatter(readOrEmpty(identityFile));
 
   // Assemble the profile index from the enabled section files
   const enabledSections = settings?.enabledProfileSections ?? [];
@@ -249,10 +237,8 @@ export function buildMessage(
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
   injectAgentProfileRef(root);
-  const profileMd5 = crypto.createHash('md5').update(finalProfileBody).digest('hex');
-  // Build the task trigger message — reference the profile file, don't embed it
-  const relativeProfile = AGENT_PROFILE_FILE; // always .autodev/AGENT_PROFILE.md
-  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit, relativeProfile, profileMd5);
+  // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
+  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
 
   const messageFile = writeMessageFile(root, taskMessage);
 
