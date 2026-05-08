@@ -342,6 +342,13 @@ export class TaskLoopRunner {
     });
     this._notifyDiscord('🚀 AutoDev task loop started');
 
+    // Auto-run `cozempic init` for Claude CLI projects so the guard daemon and
+    // pruning hooks are wired automatically — the user only needs cozempic on
+    // their PATH; no per-project manual step required.
+    if (settings.provider === 'claude-cli') {
+      this._runCozempicInit(root, callbacks.log.bind(callbacks));
+    }
+
     try {
       await this._runLoop(todoPath, autodevPath, settings);
     } catch (err) {
@@ -529,6 +536,61 @@ export class TaskLoopRunner {
         } catch { /* ignore read errors */ }
       }, 10_000);
       this._pollerIntervals.push(hooksInterval);
+    }
+  }
+
+  /**
+   * Run `cozempic init` in the given project directory if:
+   *  1. `cozempic` is on the PATH (or login-shell PATH on Unix)
+   *  2. The project hasn't been initialised yet
+   *     (`.claude/settings.local.json` does not contain a cozempic hook entry)
+   *
+   * Runs synchronously in a background thread-pool task (spawnSync) so it
+   * doesn't block the VS Code event loop but still logs completion.
+   */
+  private _runCozempicInit(workspaceRoot: string, log: (msg: string) => void): void {
+    try {
+      // Detect whether cozempic hooks are already wired for this project.
+      // `cozempic init` writes its hooks into .claude/settings.local.json.
+      const localSettingsPath = path.join(workspaceRoot, '.claude', 'settings.local.json');
+      if (fs.existsSync(localSettingsPath)) {
+        const content = fs.readFileSync(localSettingsPath, 'utf8');
+        if (content.includes('cozempic')) {
+          // Already initialised — skip silently.
+          return;
+        }
+      }
+
+      // Resolve cozempic binary (VS Code's process.env.PATH may not include
+      // ~/.local/bin where pipx/pip installs it, so try a login shell on Unix).
+      const isWin = process.platform === 'win32';
+      // Disable telemetry and auto-update pings for all cozempic invocations.
+      const cozempicEnv = { ...process.env, COZEMPIC_NO_TELEMETRY: '1', COZEMPIC_NO_AUTO_UPDATE: '1' };
+      let cozempicAvailable = false;
+      try {
+        if (isWin) {
+          execSync('cozempic --version', { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
+        } else {
+          const shell = process.env.SHELL || 'bash';
+          execSync(`${shell} -lc "cozempic --version"`, { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
+        }
+        cozempicAvailable = true;
+      } catch { /* not installed — skip */ }
+
+      if (!cozempicAvailable) { return; }
+
+      log('🧹 Running cozempic init for this project…');
+      if (isWin) {
+        execSync('cozempic init', { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
+      } else {
+        const shell = process.env.SHELL || 'bash';
+        execSync(`${shell} -lc "cozempic init"`, { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
+      }
+      log('🧹 cozempic init complete — guard daemon and pruning hooks wired');
+    } catch (err) {
+      // Non-fatal — cozempic is optional.
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`⚠️ cozempic init failed (non-fatal): ${msg}`);
     }
   }
 
