@@ -82,6 +82,7 @@ class WebSocketPoller {
   private _rdpSettings: { host?: string; port?: number; username?: string; password?: string; domain?: string; guacWsUrl?: string } = {};
   private _gitEnabled = false;
   private _onConnect: (() => void) | null = null;
+  private _onTaskAppend: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
 
   // Heartbeat: send a WS Ping every 25 s and expect a Pong. If 2 pings in a
@@ -101,6 +102,9 @@ class WebSocketPoller {
 
   /** Called once when the WS connection is first established (and on each reconnect). */
   setOnConnect(cb: () => void): void { this._onConnect = cb; }
+
+  /** Called whenever a task is successfully appended to TODO.md via a WS push. */
+  setOnTaskAppend(cb: () => void): void { this._onTaskAppend = cb; }
 
   /** Start the WebSocket connection (call once). */
   start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
@@ -588,6 +592,7 @@ class WebSocketPoller {
       try {
         if (!this._todoPath) { throw new Error('todoPath is empty'); }
         appendTask(this._todoPath, fullText, wsTaskId);
+        this._onTaskAppend?.();
       } catch (err) {
         this._log(`WS failed to append task to TODO.md: ${err}`);
       }
@@ -1016,6 +1021,13 @@ export class WebhookPoller {
   setOnConnect(cb: () => void): void {
     if (this._impl instanceof WebSocketPoller) {
       this._impl.setOnConnect(cb);
+    }
+  }
+
+  /** Register a callback to fire each time a WS-pushed task is appended to TODO.md. */
+  setOnTaskAppend(cb: () => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnTaskAppend(cb);
     }
   }
 

@@ -141,6 +141,8 @@ export class TaskLoopRunner {
   private _taskCompletionAbort: (() => void) | null = null;
   private _retryScheduler = new RetryScheduler();
   private _resumeResolve: (() => void) | null = null;
+  /** Resolves the idle no-task sleep early when a poller appends a new task. */
+  private _idleSleepWake: (() => void) | null = null;
   private _resumeAt: Date | undefined;
   private _gitRepo: string = '';
   private _gitBranch: string = '';
@@ -261,6 +263,8 @@ export class TaskLoopRunner {
     }
     if (this._webhookPoller) {
       this._webhookPoller.setGitEnabled(settings.gitEnabled ?? false);
+      // Wake the idle no-task sleep instantly when a WS-pushed task arrives.
+      this._webhookPoller.setOnTaskAppend(() => this._wakeIdleSleep());
     }
     if (this._webhookPoller && settings.rdpEnabled) {
       this._webhookPoller.setRdpSettings({
@@ -385,6 +389,10 @@ export class TaskLoopRunner {
     const r = this._resumeResolve;
     this._resumeResolve = null;
     r?.();
+    // Unblock the idle no-task sleep immediately
+    const w = this._idleSleepWake;
+    this._idleSleepWake = null;
+    w?.();
     this._disposeWatcher();
     this._stopPollers();
     // Abort any in-progress task wait immediately
@@ -430,7 +438,10 @@ export class TaskLoopRunner {
     if (this._discordPoller) {
       const discordInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
-        try { await this._discordPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
+        try {
+          const appended = await this._discordPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined);
+          if (appended) { this._wakeIdleSleep(); }
+        } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(discordInterval);
     }
@@ -438,7 +449,10 @@ export class TaskLoopRunner {
     if (this._webhookPoller) {
       const webhookInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
-        try { await this._webhookPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
+        try {
+          const appended = await this._webhookPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined);
+          if (appended) { this._wakeIdleSleep(); }
+        } catch { }
       }, POLL_MS);
       this._pollerIntervals.push(webhookInterval);
     }
@@ -447,7 +461,10 @@ export class TaskLoopRunner {
       // IMAP servers throttle aggressive polling — every 10s is plenty.
       const emailInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
-        try { await this._emailPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined); } catch { }
+        try {
+          const appended = await this._emailPoller!.pollAndAppend(todoPath, this._workspaceRoot ?? undefined);
+          if (appended) { this._wakeIdleSleep(); }
+        } catch { }
       }, 10_000);
       this._pollerIntervals.push(emailInterval);
     }
@@ -595,8 +612,9 @@ export class TaskLoopRunner {
         // the pre-final-cycle "N left" until something else triggers a push).
         this._currentTask = undefined;
         this._setState('running');
-        // Keep polling forever — never stop automatically
-        await sleep(settings.loopInterval * 1000);
+        // Keep polling forever — never stop automatically.
+        // _sleepOrWake() resolves early if a poller appends a task mid-sleep.
+        await this._sleepOrWake(settings.loopInterval * 1000);
         continue;
       }
 
@@ -884,6 +902,21 @@ export class TaskLoopRunner {
     });
   }
 
+  /** Interrupt the idle no-task sleep — called by pollers when they append a task. */
+  private _wakeIdleSleep(): void {
+    const w = this._idleSleepWake;
+    this._idleSleepWake = null;
+    w?.();
+  }
+
+  /** sleep() that resolves early when _wakeIdleSleep() is called. */
+  private _sleepOrWake(ms: number): Promise<void> {
+    return new Promise<void>(resolve => {
+      const id = setTimeout(resolve, ms);
+      this._idleSleepWake = () => { clearTimeout(id); resolve(); };
+    });
+  }
+
   /** sleep() that resolves immediately when the task-completion abort fires. */
   private _sleepAbortable(ms: number): Promise<void> {
     return new Promise<void>(resolve => {
@@ -1119,16 +1152,25 @@ export class TaskLoopRunner {
         } catch { /* ignore */ }
       };
 
-      if (this._workspaceRoot) {
-        const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
-        const handleExitFile = () => {
+      // Track which exit file we are currently watching so the poller can
+      // re-attach when sendToAi() rotates to a new per-message exit file.
+      let watchedExitFile: string | null = null;
+
+      const attachExitWatcher = (filePath: string) => {
+        if (filePath === watchedExitFile) { return; } // already watching this file
+        exitWatcherRef?.dispose();
+        watchedExitFile = filePath;
+        exitWatcherRef = this._cb!.fileWatcher.watch(filePath, () => {
           try {
-            const content = fs.readFileSync(exitFile, 'utf8').trim();
+            const content = fs.readFileSync(filePath, 'utf8').trim();
             if (content === '') { return; } // file cleared at task start — ignore
           } catch { return; }
           void onCliExit();
-        };
-        exitWatcherRef = this._cb!.fileWatcher.watch(exitFile, handleExitFile);
+        });
+      };
+
+      if (this._workspaceRoot) {
+        attachExitWatcher(exitFilePath(this._workspaceRoot, activeProvider));
       }
 
       // Inactivity-based check-in: track Claude JSONL byte size every 3 s.
@@ -1146,6 +1188,12 @@ export class TaskLoopRunner {
         check();
 
         if (!this._workspaceRoot) { return; }
+
+        // If sendToAi() was called (e.g. reminder path) it rotates to a new
+        // per-message exit file. Re-attach the watcher so the next process
+        // exit is detected even though the path changed.
+        const latestExit = exitFilePath(this._workspaceRoot, activeProvider);
+        if (latestExit !== watchedExitFile) { attachExitWatcher(latestExit); }
 
         // Parse rich JSONL state: end_turn, active tool, bash progress
         if (claudeCursor > 0) {
