@@ -7,7 +7,7 @@ All notable changes to AutoAIDev are documented here.
 ### Added
 - OpenCode session ID capture via `opencode session list` (no dummy prompt needed)
 - Project-local MCP server config written to `.claude/settings.local.json`, `.vscode/mcp.json`, `opencode.json`, and `.mcp.json` on activation
-- Memory MCP server (`@modelcontextprotocol/server-memory`) with project-relative storage at `.autodev/MEMORY.jsonl`
+- Memory MCP server (`@modelcontextprotocol/server-memory`) with project-relative storage at `.autodev/MEMORY.md`
 - Sequential-thinking MCP server (`@modelcontextprotocol/server-sequential-thinking`)
 - Settings UI now syncs immediately when `.vscode/autodev.json` is edited externally
 - `resumeSession` flag preserved correctly on settings save

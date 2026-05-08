@@ -303,7 +303,7 @@ Applied automatically at extension activation. Three MCP servers are written to 
 
 | Server | Package | Purpose |
 |---|---|---|
-| `memory` | `@modelcontextprotocol/server-memory` | Persistent key-value memory (stored in `.autodev/MEMORY.jsonl`) |
+| `memory` | `@modelcontextprotocol/server-memory` | Persistent key-value memory (stored in `.autodev/MEMORY.md`) |
 | `playwright` | `@playwright/mcp@latest` | Browser automation and UI testing |
 | `sequential-thinking` | `@modelcontextprotocol/server-sequential-thinking` | Structured multi-step reasoning |
 
@@ -587,7 +587,7 @@ Stored in `.autodev/settings.json` (auto-added to `.gitignore`). The legacy path
     ├── AGENT_PROFILE.md            ← resolved profile (written before each task)
     ├── MESSAGE.md                  ← task instruction (written before each task)
     ├── session-state.json          ← stored session IDs per provider
-    ├── MEMORY.jsonl                ← MCP memory server storage
+    ├── MEMORY.md                   ← MCP memory server storage
     ├── messages/                   ← combined prompt files for Copilot CLI
     └── output/
         ├── claude-cli.txt          ← stdout capture

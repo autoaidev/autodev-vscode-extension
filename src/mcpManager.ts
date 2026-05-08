@@ -25,6 +25,9 @@ export const DEFAULT_MCP_SERVERS: McpServerEntry[] = [
     name: 'memory',
     command: 'npx',
     args: ['-y', '@modelcontextprotocol/server-memory'],
+    env: {
+      MEMORY_FILE_PATH: '.autodev/MEMORY.md',
+    },
     tools: ['*'],
   },
   {
