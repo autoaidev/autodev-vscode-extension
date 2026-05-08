@@ -70,6 +70,22 @@ export interface AutodevSettings {
    * has explicitly disabled. Built-ins default to enabled when not listed.
    */
   disabledBuiltinMcp: string[];
+  /** Fallback provider to use when the main provider hits a rate limit. Empty string = disabled. */
+  fallbackProvider: ProviderId;
+  /** Whether to automatically switch to fallbackProvider on rate limit instead of pausing. */
+  fallbackProviderEnabled: boolean;
+  /**
+   * Ordered list of profile section IDs to include when assembling AGENT_PROFILE.md.
+   * Each ID corresponds to a file in `media/profile/`. An empty array means all
+   * sections are included (the default). Use the ProfileBuilder sidebar tab to manage.
+   */
+  enabledProfileSections: string[];
+  /**
+   * Additional `@path` references appended to AGENT_PROFILE.md after the section index.
+   * Each entry is a workspace-relative (or absolute) path. The `@` prefix is added
+   * automatically if missing. One path per entry.
+   */
+  customProfileRefs: string[];
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -109,6 +125,10 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   copilotModel: '',
   mcpServers: {},
   disabledBuiltinMcp: [],
+  fallbackProvider: 'opencode-cli' as ProviderId,
+  fallbackProviderEnabled: false,
+  enabledProfileSections: [],
+  customProfileRefs: [],
 };
 
 /**

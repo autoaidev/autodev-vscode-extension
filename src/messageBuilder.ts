@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Task } from './todo';
 import { autodevDir } from './sessionState';
-import { applyProtocolSections } from './protocolSections';
+import { applyProtocolSections, applyMcpSkills } from './protocolSections';
+import { assembleProfileBody } from './profileBuilder';
 import { loadSettingsForRoot } from './core/settingsLoader';
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,38 @@ export const MESSAGES_DIR = '.autodev/messages';
 
 /** Directory where attachments are saved, grouped by timestamp+hash */
 export const ATTACHMENTS_DIR = '.autodev/messages/attachments';
+
+// Marker pair used to identify the autodev-managed block in CLAUDE.md / AGENTS.md
+const AGENT_REF_BEGIN = '<!-- autodev:profile-ref:begin -->';
+const AGENT_REF_END   = '<!-- autodev:profile-ref:end -->';
+
+/**
+ * Ensure `CLAUDE.md` and `AGENTS.md` in `root` contain an import reference
+ * to `.autodev/AGENT_PROFILE.md` inside autodev marker tags.
+ * Idempotent — replaces the existing block on every rebuild.
+ * Creates the file with just the reference block if it doesn't exist yet.
+ */
+function injectAgentProfileRef(root: string): void {
+  const ref = `@${AGENT_PROFILE_FILE}`;
+  const block = `${AGENT_REF_BEGIN}\n${ref}\n${AGENT_REF_END}`;
+  const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
+
+  for (const filename of ['CLAUDE.md', 'AGENTS.md']) {
+    const filePath = path.join(root, filename);
+    let content = '';
+    if (fs.existsSync(filePath)) {
+      content = fs.readFileSync(filePath, 'utf8');
+    }
+    if (markerRe.test(content)) {
+      // Replace existing block
+      content = content.replace(markerRe, block);
+    } else {
+      // Prepend block — agents read the top of the file first
+      content = block + (content ? '\n\n' + content : '');
+    }
+    fs.writeFileSync(filePath, content, 'utf8');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Frontmatter
@@ -151,6 +184,30 @@ The session ends only when \`TODO.md\` contains zero \`[ ]\` and zero \`[~]\` en
  * providers that cannot read files via @-references, and `messageFile` is the
  * absolute path of the written message file for CLI providers.
  */
+/**
+ * Assembles and writes `.autodev/AGENT_PROFILE.md` from the currently enabled
+ * profile sections + any active MCP protocol injections. Also deploys / removes
+ * Claude skill files for enabled / disabled MCPs.
+ *
+ * Called directly from the sidebar "Save & Rebuild Profile" button so the file
+ * is updated immediately without waiting for a task run.
+ */
+export function rebuildProfile(root: string): void {
+  autodevDir(root);
+  let settings: ReturnType<typeof loadSettingsForRoot> | undefined;
+  try { settings = loadSettingsForRoot(root); } catch { /* ignore */ }
+
+  const enabledSections = settings?.enabledProfileSections ?? [];
+  const customRefs = settings?.customProfileRefs ?? [];
+  const profileBody = assembleProfileBody(enabledSections, root, customRefs);
+  const finalProfileBody = applyProtocolSections(profileBody, settings);
+  applyMcpSkills(root, settings);
+
+  const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
+  fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
+  injectAgentProfileRef(root);
+}
+
 export function buildMessage(
   task: Task,
   root: string,
@@ -160,25 +217,39 @@ export function buildMessage(
 ): { prompt: string; messageFile: string } {
   autodevDir(root);
 
-  // Resolve and read profile (needed for meta / noCommit flag only)
-  const resolvedProfile = profilePath || path.join(todoDir, 'AUTODEV.md');
-  let rawProfile = readOrEmpty(resolvedProfile);
-  if (!rawProfile) { rawProfile = readOrEmpty(defaultProfilePath()); }
+  // Load workspace settings (MCP servers, enabled profile sections, etc.)
+  let settings: ReturnType<typeof loadSettingsForRoot> | undefined;
+  try { settings = loadSettingsForRoot(root); } catch { /* ignore */ }
 
-  const { meta, body: profileBody } = parseFrontmatter(rawProfile);
+  // Resolve noCommit flag from the identity section frontmatter, then fall back
+  // to the legacy single-file profile if the section file is missing.
+  const identityFile = path.join(__dirname, '..', 'media', 'profile', '00-identity.md');
+  let rawIdentity = readOrEmpty(identityFile);
+  if (!rawIdentity) {
+    const resolvedProfile = profilePath || path.join(todoDir, 'AUTODEV.md');
+    rawIdentity = readOrEmpty(resolvedProfile);
+    if (!rawIdentity) { rawIdentity = readOrEmpty(defaultProfilePath()); }
+  }
+  const { meta } = parseFrontmatter(rawIdentity);
+
+  // Assemble the profile index from the enabled section files
+  const enabledSections = settings?.enabledProfileSections ?? [];
+  const customRefs = settings?.customProfileRefs ?? [];
+  const profileBody = assembleProfileBody(enabledSections, root, customRefs);
 
   // Inject protocol sections (email, jira, ...) for any MCP currently enabled
   // in the workspace settings. Toggling an MCP off cleanly removes its block
   // on the next regeneration.
-  let settings: { mcpServers?: Record<string, { enabled?: boolean }> } | undefined;
-  try { settings = loadSettingsForRoot(root); } catch { /* ignore */ }
   const finalProfileBody = applyProtocolSections(profileBody, settings);
+
+  // Deploy / remove Claude skill files for enabled / disabled MCPs
+  if (root) { applyMcpSkills(root, settings); }
 
   // Always write the profile file so the LLM can @-reference it
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
+  injectAgentProfileRef(root);
   const profileMd5 = crypto.createHash('md5').update(finalProfileBody).digest('hex');
-
   // Build the task trigger message — reference the profile file, don't embed it
   const relativeProfile = AGENT_PROFILE_FILE; // always .autodev/AGENT_PROFILE.md
   const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit, relativeProfile, profileMd5);

@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -17,12 +17,20 @@ import { Task, parseTodo } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
+import { sidebarBaseCss } from './sidebarCss';
+import { tasksPanelHtml, tasksPanelScript } from './sidebarTasksPanel';
+import { profilePanelHtml, profilePanelScript } from './sidebarProfilePanel';
+import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
+import { PROFILE_SECTIONS } from './profileBuilder';
+import { rebuildProfile } from './messageBuilder';
 
 // ---------------------------------------------------------------------------
-// TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
+// TodoViewProvider â€” sidebar webview that shows TODO.md tasks + loop controls
 // ---------------------------------------------------------------------------
 
 const PROVIDER_KEY = 'autodev.selectedProvider';
+const FALLBACK_PROVIDER_KEY = 'autodev.fallbackProvider';
+const FALLBACK_ENABLED_KEY  = 'autodev.fallbackProviderEnabled';
 
 export class TodoViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'autodev.chatStatus';
@@ -33,6 +41,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _loopTask?: string;
   private _claudeActivity?: string;
   private _selectedProvider: ProviderId;
+  private _fallbackProvider: ProviderId;
+  private _fallbackProviderEnabled: boolean;
   private _watcher?: vscode.FileSystemWatcher;
   private _sessionWatcher?: vscode.FileSystemWatcher;
   private _settingsWatcher?: vscode.FileSystemWatcher;
@@ -47,6 +57,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   ) {
     this._selectedProvider =
       this._context.workspaceState.get<ProviderId>(PROVIDER_KEY) ?? 'claude-cli';
+    this._fallbackProvider =
+      this._context.workspaceState.get<ProviderId>(FALLBACK_PROVIDER_KEY) ?? 'opencode-cli';
+    this._fallbackProviderEnabled =
+      this._context.workspaceState.get<boolean>(FALLBACK_ENABLED_KEY) ?? false;
   }
 
   get selectedProvider(): ProviderId { return this._selectedProvider; }
@@ -62,7 +76,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage((msg) => {
       switch (msg.command) {
-        case 'setProvider': this.setProvider(msg.provider as ProviderId); break;
+        case 'setProvider':              this.setProvider(msg.provider as ProviderId); break;
+        case 'setFallbackProvider':       this.setFallbackProvider(msg.provider as ProviderId); break;
+        case 'setFallbackProviderEnabled':this.setFallbackProviderEnabled(msg.enabled as boolean); break;
         case 'addTask':     this._addTask(msg.text as string); break;
         case 'startLoop':   void vscode.commands.executeCommand('autodev.startTaskLoop'); break;
         case 'stopLoop':    void vscode.commands.executeCommand('autodev.stopTaskLoop'); break;
@@ -97,11 +113,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'saveMcpBulk': {
-          // Global Save All & Sync — full replace of user MCP entries directly
+          // Global Save All & Sync â€” full replace of user MCP entries directly
           // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
-          // mcpServers field (it's been retired — .mcp.json is the source).
+          // mcpServers field (it's been retired â€” .mcp.json is the source).
           const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
-          // Drop any entry the form marked enabled:false — disabling = remove.
+          // Drop any entry the form marked enabled:false â€” disabling = remove.
           const enabled: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
           for (const [name, e] of Object.entries(entries)) {
             if (!e || e.enabled === false) continue;
@@ -135,6 +151,22 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           this._syncAndPushMcp();
           break;
         }
+        case 'saveProfileSections': {
+          const sections = (msg.sections ?? []) as string[];
+          const customRefs = (msg.customRefs ?? []) as string[];
+          const current = loadSettings();
+          saveSettings({ ...current, enabledProfileSections: sections, customProfileRefs: customRefs });
+          // Immediately rebuild AGENT_PROFILE.md and inject reference into CLAUDE.md / AGENTS.md
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) {
+            try { rebuildProfile(root); } catch (err) {
+              vscode.window.showErrorMessage(`AutoDev: Profile rebuild failed â€” ${(err as Error).message}`);
+            }
+          }
+          this._push();
+          vscode.window.showInformationMessage('AutoDev: Profile saved and AGENT_PROFILE.md rebuilt.');
+          break;
+        }
         case 'installMcpServer': {
           // Find the target server (built-in or user-configured) by name and
           // open a terminal running the right install command (npm i -g pkg /
@@ -152,7 +184,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           ];
           const target = allServers.find(s => s.name === name);
           if (!target) break;
-          // Async probe — must not block the extension host.
+          // Async probe â€” must not block the extension host.
           checkMcpInstallAsync({ command: target.command, args: target.args }).then(info => {
             const cmd = installCommandFor(info);
             if (!cmd) {
@@ -225,6 +257,31 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     saveSettings({ ...current, provider: id });
     this._push();
   }
+
+  /** Transiently switch the active provider without persisting (used by fallback logic). */
+  setActiveProviderTransient(id: ProviderId): void {
+    this._selectedProvider = id;
+    this._push();
+  }
+
+  setFallbackProvider(id: ProviderId): void {
+    this._fallbackProvider = id;
+    this._context.workspaceState.update(FALLBACK_PROVIDER_KEY, id);
+    const current = loadSettings();
+    saveSettings({ ...current, fallbackProvider: id });
+    this._push();
+  }
+
+  setFallbackProviderEnabled(enabled: boolean): void {
+    this._fallbackProviderEnabled = enabled;
+    this._context.workspaceState.update(FALLBACK_ENABLED_KEY, enabled);
+    const current = loadSettings();
+    saveSettings({ ...current, fallbackProviderEnabled: enabled });
+    this._push();
+  }
+
+  get fallbackProvider(): ProviderId { return this._fallbackProvider; }
+  get fallbackProviderEnabled(): boolean { return this._fallbackProviderEnabled; }
 
   refresh(): void { this._refreshTasks(); }
 
@@ -325,12 +382,12 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       if (wasEnabled || areHooksInstalled('project', root)) { uninstallHooks('project', root); }
       if (areHooksInstalled('global', root))                { uninstallHooks('global', root); }
     } else {
-      // Always project scope — also migrate away from global if it was set before
+      // Always project scope â€” also migrate away from global if it was set before
       if (areHooksInstalled('global', root)) { uninstallHooks('global', root); }
       installHooks('project', root);
     }
 
-    // OpenCode hooks — install/uninstall plugin file
+    // OpenCode hooks â€” install/uninstall plugin file
     const wasOcEnabled = prev.openCodeHooksEnabled;
     const isOcEnabled  = next.openCodeHooksEnabled;
     if (!isOcEnabled) {
@@ -412,6 +469,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({
       command: 'update',
       selectedProvider: this._selectedProvider,
+      fallbackProvider: this._fallbackProvider,
+      fallbackProviderEnabled: this._fallbackProviderEnabled,
       providers: (Object.entries(PROVIDERS) as [ProviderId, ProviderConfig][]).map(([id, cfg]) => ({
         id,
         label: cfg.label,
@@ -432,15 +491,18 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       mcpDefaults: DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
       disabledBuiltinMcp: settings.disabledBuiltinMcp ?? [],
       mcpInstall,
+      profileSections: PROFILE_SECTIONS.map(s => ({ id: s.id, label: s.label })),
+      enabledProfileSections: settings.enabledProfileSections ?? [],
+      customProfileRefs: settings.customProfileRefs ?? [],
     });
   }
 }
 
 // ---------------------------------------------------------------------------
-// HTML for the sidebar webview (pure function — easy to edit independently)
+// HTML for the sidebar webview â€” assembled from composable panel modules
 // ---------------------------------------------------------------------------
 
-function buildHtml(webview: vscode.Webview): string {
+function buildHtml(_webview: vscode.Webview): string {
   const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   return `<!DOCTYPE html>
 <html lang="en">
@@ -450,78 +512,17 @@ function buildHtml(webview: vscode.Webview): string {
   content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AutoDev</title>
-<style nonce="${nonce}">
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);color:var(--vscode-foreground);background:transparent;padding:0 8px 12px;overflow-x:hidden}
-.provider-row{display:flex;align-items:center;gap:6px;margin:10px 0 10px}
-.provider-label{font-size:11px;color:var(--vscode-descriptionForeground);white-space:nowrap;flex-shrink:0}
-.provider-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
-.provider-select:focus{border-color:var(--vscode-focusBorder)}
-.model-row{display:flex;align-items:center;gap:6px;margin:-6px 0 10px}
-.model-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
-.model-select:focus{border-color:var(--vscode-focusBorder)}
-.resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
-.resume-row input{cursor:pointer}
-.new-session-btn{margin-left:auto;padding:1px 5px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:12px;line-height:1.4;opacity:.7}
-.new-session-btn:hover{opacity:1;background:var(--vscode-list-hoverBackground)}
-.session-id-row{margin:0 0 10px;font-size:10px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:4px;min-width:0}
-.session-id-val{font-family:var(--vscode-editor-font-family,monospace);color:var(--vscode-foreground);opacity:.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px}
-.session-id-dot{width:6px;height:6px;border-radius:50%;background:var(--vscode-testing-iconPassed,#388a34);flex-shrink:0}
-.loop-bar{display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:4px;margin-bottom:10px;font-size:12px}
-.loop-status{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--vscode-descriptionForeground)}
-.loop-status.running{color:var(--vscode-testing-iconPassed,#388a34);font-weight:600}
-.loop-btn{padding:3px 8px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-button-background);background:transparent;color:var(--vscode-button-background);font-family:var(--vscode-font-family);font-size:11px;white-space:nowrap}
-.loop-btn:hover:not(:disabled){background:var(--vscode-button-background);color:var(--vscode-button-foreground)}
-.loop-btn:disabled{opacity:.4;cursor:not-allowed}
-.loop-btn.stop{border-color:var(--vscode-testing-iconFailed,#c72e2e);color:var(--vscode-testing-iconFailed,#c72e2e)}
-.loop-btn.stop:hover{background:var(--vscode-testing-iconFailed,#c72e2e);color:#fff}
-.loop-btn.retry{border-color:var(--vscode-statusBarItem-warningBackground,#b5630d);color:var(--vscode-statusBarItem-warningBackground,#b5630d)}
-.loop-btn.retry:hover{background:var(--vscode-statusBarItem-warningBackground,#b5630d);color:#fff}
-.settings-btn{padding:3px 6px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:13px;line-height:1}
-.settings-btn:hover{background:var(--vscode-list-hoverBackground)}
-.add-form{display:flex;gap:5px;margin-bottom:12px}
-.add-input{flex:1;padding:5px 7px;font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;min-width:0}
-.add-input:focus{border-color:var(--vscode-focusBorder)}
-.add-btn{padding:5px 10px;border-radius:3px;cursor:pointer;border:none;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-family:var(--vscode-font-family);font-size:12px;flex-shrink:0}
-.add-btn:hover{opacity:.88}
-.section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-descriptionForeground));margin-bottom:6px}
-.empty{text-align:center;color:var(--vscode-descriptionForeground);font-size:12px;padding:24px 0 8px;line-height:2}
-.task{display:flex;align-items:flex-start;gap:7px;padding:5px 6px;border-radius:4px;margin-bottom:2px}
-.task{cursor:pointer}.task:hover{background:var(--vscode-list-hoverBackground)}
-.task-icon{flex-shrink:0;font-size:14px;line-height:1.3;width:16px;text-align:center}
-.task-body{flex:1;min-width:0}
-.task-text{font-size:12px;line-height:1.45;word-break:break-word}
-.task.done .task-text{opacity:.45;text-decoration:line-through}
-.task.in-progress{background:color-mix(in srgb,var(--vscode-statusBarItem-warningBackground,#b5630d) 14%,transparent)}
-.task-date{font-size:10px;color:var(--vscode-descriptionForeground);margin-top:1px}
-.pulse{animation:pulse 1.4s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.tab-bar{display:flex;border-bottom:1px solid var(--vscode-panel-border);margin-bottom:8px}
-.tab-btn{flex:1;padding:5px 0;font-size:12px;cursor:pointer;border:none;background:transparent;color:var(--vscode-descriptionForeground);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:var(--vscode-font-family)}
-.tab-btn.active{color:var(--vscode-foreground);border-bottom-color:var(--vscode-button-background);font-weight:600}
-.cfg-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--vscode-sideBarSectionHeader-foreground,var(--vscode-descriptionForeground));margin:10px 0 5px;padding-top:8px;border-top:1px solid var(--vscode-panel-border)}
-.cfg-section:first-child{border-top:none;margin-top:0;padding-top:0}
-.cfg-field{margin-bottom:7px}
-.cfg-label{display:block;font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:2px}
-.cfg-input{width:100%;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none}
-.cfg-input:focus{border-color:var(--vscode-focusBorder)}
-.cfg-row{display:flex;gap:5px}
-.cfg-row .cfg-field{flex:1;min-width:0}
-.cfg-save{width:100%;padding:5px;border-radius:3px;cursor:pointer;border:none;background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-family:var(--vscode-font-family);font-size:12px;margin-top:8px}
-.cfg-save:hover{opacity:.88}
-.cfg-json{display:block;width:100%;padding:4px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-textLink-foreground);font-size:11px;font-family:var(--vscode-font-family);margin-top:5px;text-align:center}
-.cfg-json:hover{background:var(--vscode-list-hoverBackground)}
-.mcp-subtabs{display:flex;gap:2px;margin-bottom:8px;border:1px solid var(--vscode-panel-border);border-radius:3px;padding:2px;background:var(--vscode-editor-background)}
-.mcp-subtab{flex:1;padding:5px 8px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--vscode-descriptionForeground);border-radius:2px;font-family:var(--vscode-font-family)}
-${mcpConfigCss}
-.mcp-subtab:hover{background:var(--vscode-list-hoverBackground)}
-.mcp-subtab.active{background:var(--vscode-button-background);color:var(--vscode-button-foreground);font-weight:600}
-</style>
+<style nonce="${nonce}">${sidebarBaseCss}${mcpConfigCss}</style>
 </head>
 <body>
 <div class="provider-row">
   <span class="provider-label">Provider:</span>
   <select class="provider-select" id="providerSelect"></select>
+</div>
+<div class="fallback-row" id="fallbackRow">
+  <input type="checkbox" id="fallbackCheck">
+  <label for="fallbackCheck" style="white-space:nowrap">On limit, use:</label>
+  <select class="provider-select" id="fallbackSelect"></select>
 </div>
 <div class="model-row" id="modelRow" style="display:none">
   <span class="provider-label">Model:</span>
@@ -530,7 +531,7 @@ ${mcpConfigCss}
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
-  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
+  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session â€” next run starts a new session">&#8635; New</button>
 </div>
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
@@ -544,107 +545,33 @@ ${mcpConfigCss}
 <div class="tab-bar">
   <button class="tab-btn active" id="tabTasks">Tasks</button>
   <button class="tab-btn" id="tabMcp">MCP</button>
+  <button class="tab-btn" id="tabProfile">&#9776; Profile</button>
   <button class="tab-btn" id="tabSettings">&#9881; Settings</button>
 </div>
-<div id="panelTasks">
-<form class="add-form" id="addForm">
-  <input class="add-input" id="taskInput" placeholder="New task&#x2026;" autocomplete="off">
-  <button class="add-btn" type="submit">Add</button>
-</form>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-  <div class="section-label" style="margin-bottom:0">Tasks</div>
-  <span id="taskProgress" style="font-size:11px;color:var(--vscode-descriptionForeground)"></span>
-</div>
-<div id="taskList"></div>
-</div>
+${tasksPanelHtml}
 ${mcpConfigHtml}
-<div id="panelSettings" style="display:none">
-<div id="cozempicBanner" style="display:none;padding:8px 10px;margin-bottom:10px;border-radius:4px;background:color-mix(in srgb,var(--vscode-statusBarItem-warningBackground,#b5630d) 15%,transparent);border:1px solid var(--vscode-statusBarItem-warningBackground,#b5630d);font-size:12px;line-height:1.6">
-  <strong>Cozempic not detected</strong> &mdash; prunes bloated Claude Code sessions.<br>
-  Install: <code style="font-size:11px">pip install cozempic</code> then run <code style="font-size:11px">cozempic init</code>
-</div>
-  <div class="cfg-section">Server</div>
-  <div class="cfg-field"><label class="cfg-label">WebSocket URL</label><input class="cfg-input" id="cfg_wsUrl" placeholder="wss://host/ws?token=agt_xxx&amp;endpoint=my-slug"></div>
-  <div class="cfg-section">Discord</div>
-  <div class="cfg-field"><label class="cfg-label">Bot Token</label><input class="cfg-input" id="cfg_discordToken" type="password" placeholder="Bot token"></div>
-  <div class="cfg-field"><label class="cfg-label">Channel ID</label><input class="cfg-input" id="cfg_discordChannelId" placeholder="123456789"></div>
-<div class="cfg-field"><label class="cfg-label">Allowed Owners</label><input class="cfg-input" id="cfg_discordOwners" placeholder="user1,user2"></div>
-  <div class="cfg-section">Loop</div>
-  <div class="cfg-row">
-    <div class="cfg-field"><label class="cfg-label">Idle Interval (s)</label><input class="cfg-input" id="cfg_loopInterval" type="number" min="1" max="3600"></div>
-    <div class="cfg-field"><label class="cfg-label">Task Timeout (min)</label><input class="cfg-input" id="cfg_taskTimeoutMinutes" type="number" min="1" max="1440"></div>
-    <div class="cfg-field"><label class="cfg-label">Check-in Interval (min)</label><input class="cfg-input" id="cfg_taskCheckInMinutes" type="number" min="1" max="1440"></div>
-  </div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_retryOnTimeout"> Retry on timeout</label></div>
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoResetPendingTasks"> Auto-reset pending tasks on start</label></div>
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoStartLoop"> Auto-start task loop on VS Code launch</label></div>
-  </div>
-  <div class="cfg-section">VNC</div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_vncEnabled"> Enable VNC</label></div>
-  </div>
-  <div class="cfg-row" id="vncFields">
-    <div class="cfg-field"><label class="cfg-label">VNC Host</label><input class="cfg-input" id="cfg_vncHost" placeholder="(auto-detect from IP)"></div>
-    <div class="cfg-field"><label class="cfg-label">VNC Port</label><input class="cfg-input" id="cfg_vncPort" type="number" min="1" max="65535"></div>
-    <div class="cfg-field"><label class="cfg-label">VNC Password</label><input class="cfg-input" id="cfg_vncPassword" type="password" placeholder="(leave empty for no-auth)"></div>
-  </div>
-  <div class="cfg-section">RDP</div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_rdpEnabled"> Enable RDP</label></div>
-  </div>
-  <div class="cfg-row" id="rdpFields">
-    <div class="cfg-field"><label class="cfg-label">RDP Host</label><input class="cfg-input" id="cfg_rdpHost" placeholder="hostname or IP"></div>
-    <div class="cfg-field"><label class="cfg-label">RDP Port</label><input class="cfg-input" id="cfg_rdpPort" type="number" min="1" max="65535"></div>
-    <div class="cfg-field"><label class="cfg-label">Username</label><input class="cfg-input" id="cfg_rdpUsername" placeholder=""></div>
-    <div class="cfg-field"><label class="cfg-label">Password</label><input class="cfg-input" id="cfg_rdpPassword" type="password"></div>
-    <div class="cfg-field"><label class="cfg-label">Domain</label><input class="cfg-input" id="cfg_rdpDomain" placeholder="(optional)"></div>
-    <div class="cfg-field"><label class="cfg-label">Guac WS URL</label><input class="cfg-input" id="cfg_rdpGuacWsUrl" placeholder="wss://myhost.com/guac-ws (for HTTPS frontends)"></div>
-  </div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_enableFileBrowser"> Enable File Browser (proxy access to project folder)</label></div>
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_gitEnabled"> Enable Git Panel (exposes repo to browser UI)</label></div>
-  </div>
-  <div class="cfg-section">Hook Events</div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_hooksEnabled"> Stream hook events to Pixel Office in real time <small style="opacity:.6">(.claude/settings.json in workspace)</small></label></div>
-  </div>
-  <div id="hooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; Hooks installed — events streaming to Pixel Office</div>
-  <div class="cfg-row">
-    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_openCodeHooksEnabled"> Stream OpenCode hook events to Pixel Office <small style="opacity:.6">(.opencode/plugins/autodev-hooks.ts)</small></label></div>
-  </div>
-  <div id="openCodeHooksStatusBadge" style="display:none;font-size:11px;margin-bottom:4px;padding:3px 7px;border-radius:3px;background:color-mix(in srgb,var(--vscode-testing-iconPassed,#388a34) 15%,transparent);color:var(--vscode-testing-iconPassed,#388a34);border:1px solid var(--vscode-testing-iconPassed,#388a34)">&#10003; OpenCode plugin installed — events streaming to Pixel Office</div>
-  <div class="cfg-section">Paths</div>
-  <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
-  <div class="cfg-field">
-    <label class="cfg-label">Agent Profile</label>
-    <div style="display:flex;gap:4px;align-items:center">
-      <select class="cfg-input" id="cfg_profileSelect" style="flex:1"></select>
-      <button id=\"openProfileBtn\" title=\"Open profile file\" class=\"cfg-save\" style=\"margin-top:0;width:auto;padding:5px 10px\" type=\"button\">Open</button>
-    </div>
-    <input class="cfg-input" id="cfg_profilePath" placeholder="Custom profile path..." style="margin-top:4px;display:none">
-  </div>
-  <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
-  <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
-</div>
+${profilePanelHtml}
+${settingsPanelHtml}
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-let state = {selectedProvider:'copilot',providers:[],tasks:[],loopState:'idle',loopTask:null,settings:{}};
-let activeTab = 'tasks'; // track which tab is currently visible
-let _pendingResume = null; // user's in-flight resumeSession toggle (null = no pending)
+let state = {selectedProvider:'claude-cli',fallbackProvider:'opencode-cli',fallbackProviderEnabled:false,providers:[],tasks:[],loopState:'idle',loopTask:null,settings:{}};
+let activeTab = 'tasks';
+let _pendingResume = null;
 
 function showTab(tab) {
   activeTab = tab;
   document.getElementById('tabTasks').className    = 'tab-btn' + (tab==='tasks'?' active':'');
   document.getElementById('tabMcp').className      = 'tab-btn' + (tab==='mcp'?' active':'');
+  document.getElementById('tabProfile').className  = 'tab-btn' + (tab==='profile'?' active':'');
   document.getElementById('tabSettings').className = 'tab-btn' + (tab==='settings'?' active':'');
   document.getElementById('panelTasks').style.display    = tab==='tasks'?'':'none';
   document.getElementById('panelMcp').style.display      = tab==='mcp'?'':'none';
+  document.getElementById('panelProfile').style.display  = tab==='profile'?'':'none';
   document.getElementById('panelSettings').style.display = tab==='settings'?'':'none';
   if(tab==='settings'){populateSettings(state.settings||{});}
   if(tab==='mcp'){populateMcp(state.settings||{}, state.mcpDefaults||[]);}
+  if(tab==='profile'){renderProfileSections(state.profileSections||[], state.enabledProfileSections||[], state.customProfileRefs||[]);}
 }
-
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -654,44 +581,58 @@ function statusIcon(s){
   return '<span style="opacity:.4">&#9675;</span>';
 }
 
-function renderProviders(){
-  const sel=document.getElementById('providerSelect');
-  const prev=sel.value;
-  sel.innerHTML=state.providers.map(function(p){
-    const label=esc(p.label)+(p.installed?'':' \u2717');
-    const dis=p.installed?'':' disabled';
-    return '<option value="'+p.id+'"'+dis+'>'+label+'</option>';
+function buildProviderOptions(providers, selectedId) {
+  return providers.map(function(p) {
+    var label = esc(p.label) + (p.installed ? '' : ' \u2717');
+    var dis = p.installed ? '' : ' disabled';
+    var sel = p.id === selectedId ? ' selected' : '';
+    return '<option value="' + p.id + '"' + dis + sel + '>' + label + '</option>';
   }).join('');
-  sel.value=state.selectedProvider||prev;
+}
+
+function renderProviders(){
+  var sel=document.getElementById('providerSelect');
+  sel.innerHTML=buildProviderOptions(state.providers, state.selectedProvider);
   sel.onchange=function(){vscode.postMessage({command:'setProvider',provider:sel.value});};
 
-  // Show resume checkbox only for CLI providers
-  const isCli=state.providers.find(function(p){return p.id===state.selectedProvider;})?.isCli;
-  const resumeRow=document.getElementById('resumeRow');
+  var fallbackCheck=document.getElementById('fallbackCheck');
+  var fallbackSel=document.getElementById('fallbackSelect');
+  var enabled=!!(state.fallbackProviderEnabled);
+  fallbackCheck.checked=enabled;
+  fallbackSel.disabled=!enabled;
+  fallbackSel.innerHTML=buildProviderOptions(state.providers, state.fallbackProvider||'');
+  fallbackCheck.onchange=function(){
+    vscode.postMessage({command:'setFallbackProviderEnabled',enabled:fallbackCheck.checked});
+    fallbackSel.disabled=!fallbackCheck.checked;
+  };
+  fallbackSel.onchange=function(){
+    vscode.postMessage({command:'setFallbackProvider',provider:fallbackSel.value});
+  };
+
+  var isCli=state.providers.find(function(p){return p.id===state.selectedProvider;})?.isCli;
+  var resumeRow=document.getElementById('resumeRow');
   resumeRow.style.display=isCli?'flex':'none';
-  const resumeCheck=document.getElementById('resumeCheck');
-  const resumeOn=!!(state.settings&&state.settings.resumeSession);
+  var resumeCheck=document.getElementById('resumeCheck');
+  var resumeOn=!!(state.settings&&state.settings.resumeSession);
   resumeCheck.checked=resumeOn;
   resumeCheck.onchange=function(){
     _pendingResume=resumeCheck.checked;
     vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
   };
-  const newSessBtn=document.getElementById('newSessionBtn');
+  var newSessBtn=document.getElementById('newSessionBtn');
   if(newSessBtn){newSessBtn.onclick=function(){vscode.postMessage({command:'newSession'});};}
-  // Show captured session ID when resume is active and a session exists
-  const sidRow=document.getElementById('sessionIdRow');
-  const sidVal=document.getElementById('sessionIdVal');
-  const hasSession=isCli&&resumeOn&&state.sessionId;
+  var sidRow=document.getElementById('sessionIdRow');
+  var sidVal=document.getElementById('sessionIdVal');
+  var hasSession=isCli&&resumeOn&&state.sessionId;
   sidRow.style.display=hasSession?'flex':'none';
-  if(sidVal)sidVal.textContent=state.sessionId||'';
+  if(sidVal){sidVal.textContent=state.sessionId||'';}
 
-  // Model dropdown — only visible for copilot-cli
-  const modelRow=document.getElementById('modelRow');
-  const modelSel=document.getElementById('modelSelect');
-  const isCopilot=state.selectedProvider==='copilot-cli';
+  var modelRow=document.getElementById('modelRow');
+  var modelSel=document.getElementById('modelSelect');
+  var isCopilot=state.selectedProvider==='copilot-cli';
   modelRow.style.display=isCopilot?'flex':'none';
   if(isCopilot&&modelSel){
-    const MODELS=[
+    var MODELS=[
       {v:'',l:'Default model'},
       {v:'claude-haiku-4.5',l:'Claude Haiku 4.5'},
       {v:'claude-sonnet-4.5',l:'Claude Sonnet 4.5'},
@@ -712,7 +653,7 @@ function renderProviders(){
       {v:'gemini-3.1-pro',l:'Gemini 3.1 Pro'},
       {v:'grok-code-fast-1',l:'Grok Code Fast 1'},
     ];
-    const cur=(state.settings&&state.settings.copilotModel)||'';
+    var cur=(state.settings&&state.settings.copilotModel)||'';
     modelSel.innerHTML=MODELS.map(function(m){return '<option value="'+m.v+'"'+(m.v===cur?' selected':'')+'>'+m.l+'</option>';}).join('');
     modelSel.onchange=function(){
       vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{copilotModel:modelSel.value})});
@@ -720,237 +661,24 @@ function renderProviders(){
   }
 }
 
-function renderLoop(){
-  const statusEl=document.getElementById('loopStatus');
-  const btnEl=document.getElementById('loopBtn');
-  if(state.loopState==='running'){
-    statusEl.className='loop-status running';
-    const taskLabel=state.loopTask?'&#9654; '+esc(state.loopTask):'&#9654; Running\u2026';
-    const activityLabel=state.claudeActivity?'<div style="font-size:10px;font-weight:400;opacity:.75;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(state.claudeActivity)+'</div>':'';
-    statusEl.innerHTML=taskLabel+activityLabel;
-    btnEl.className='loop-btn stop';
-    btnEl.innerHTML='&#9632; Stop';
-    btnEl.disabled=false;
-    btnEl.onclick=function(){vscode.postMessage({command:'stopLoop'});};
-  }else if(state.loopState==='paused'){
-    statusEl.className='loop-status';
-    const resumeStr=state.resumeAt?new Date(state.resumeAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'soon';
-    statusEl.innerHTML='&#9208; Rate limited \u2014 auto-resume '+esc(resumeStr);
-    btnEl.className='loop-btn retry';
-    btnEl.innerHTML='&#9654; Retry Now';
-    btnEl.disabled=false;
-    btnEl.onclick=function(){vscode.postMessage({command:'retryLoop'});};
-  }else if(state.loopState==='stopping'){
-    statusEl.className='loop-status';
-    statusEl.textContent='Stopping\u2026';
-    btnEl.className='loop-btn';
-    btnEl.innerHTML='&#9632; Stop';
-    btnEl.disabled=true;
-  }else{
-    statusEl.className='loop-status';
-    statusEl.innerHTML='&#9711; Idle';
-    btnEl.className='loop-btn';
-    btnEl.innerHTML='&#9654; Start';
-    btnEl.disabled=false;
-    btnEl.onclick=function(){vscode.postMessage({command:'startLoop'});};
-  }
-}
-
-function renderTasks(){
-  const list=document.getElementById('taskList');
-  const prog=document.getElementById('taskProgress');
-  const total=state.tasks.length;
-  const doneCount=state.tasks.filter(function(t){return t.status==='done';}).length;
-  const remaining=total-doneCount;
-  if(prog){prog.textContent=total?doneCount+'/'+total+' done \u2022 '+remaining+' left':''}
-  if(!state.tasks.length){
-    list.innerHTML='<div class="empty">No tasks in TODO.md yet.<br>Add one above or edit <strong>TODO.md</strong> directly.</div>';
-    return;
-  }
-  const pending=state.tasks.filter(function(t){return t.status!=='done';});
-  const done=state.tasks.filter(function(t){return t.status==='done';});
-  list.innerHTML=pending.concat(done).map(function(t){
-    return '<div class="task '+t.status+'" data-line="'+(t.line||0)+'">'
-      +'<span class="task-icon">'+statusIcon(t.status)+'</span>'
-      +'<div class="task-body"><div class="task-text">'+esc(t.text)+'</div>'
-      +(t.completedDate?'<div class="task-date">'+esc(t.completedDate)+'</div>':'')
-      +'</div></div>';
-  }).join('');
-  list.querySelectorAll('.task').forEach(function(el){
-    el.addEventListener('click',function(){
-      const line=parseInt(el.getAttribute('data-line')||'0');
-      if(line>0){vscode.postMessage({command:'openTask',line:line});}
-    });
-  });
-}
-
-function populateSettings(s){
-  ['wsUrl','discordToken','discordChannelId',
-   'discordOwners','todoPath'].forEach(function(k){
-    const el=document.getElementById('cfg_'+k);
-    if(el) el.value=s[k]||'';
-  });
-  const li=document.getElementById('cfg_loopInterval');
-  if(li) li.value=s.loopInterval!==undefined?s.loopInterval:30;
-  const tt=document.getElementById('cfg_taskTimeoutMinutes');
-  if(tt) tt.value=s.taskTimeoutMinutes!==undefined?s.taskTimeoutMinutes:30;
-  const ci=document.getElementById('cfg_taskCheckInMinutes');
-  if(ci) ci.value=s.taskCheckInMinutes!==undefined?s.taskCheckInMinutes:20;
-  const rot=document.getElementById('cfg_retryOnTimeout');
-  if(rot) rot.checked=!!s.retryOnTimeout;
-  const arp=document.getElementById('cfg_autoResetPendingTasks');
-  if(arp) arp.checked=s.autoResetPendingTasks!==false;
-  const asl=document.getElementById('cfg_autoStartLoop');
-  if(asl) asl.checked=!!s.autoStartLoop;
-  const vnce=document.getElementById('cfg_vncEnabled');
-  if(vnce) vnce.checked=!!s.vncEnabled;
-  const efb=document.getElementById('cfg_enableFileBrowser');
-  if(efb) efb.checked=!!s.enableFileBrowser;
-  const gite=document.getElementById('cfg_gitEnabled');
-  if(gite) gite.checked=!!s.gitEnabled;
-  const vnch=document.getElementById('cfg_vncHost');
-  if(vnch) vnch.value=s.vncHost||'';
-  const vncprt=document.getElementById('cfg_vncPort');
-  if(vncprt) vncprt.value=s.vncPort!==undefined?s.vncPort:5900;
-  const vncpw=document.getElementById('cfg_vncPassword');
-  if(vncpw) vncpw.value=s.vncPassword||'';
-  const rdpe=document.getElementById('cfg_rdpEnabled');
-  if(rdpe) rdpe.checked=!!s.rdpEnabled;
-  const rdph=document.getElementById('cfg_rdpHost');
-  if(rdph) rdph.value=s.rdpHost||'';
-  const rdpprt=document.getElementById('cfg_rdpPort');
-  if(rdpprt) rdpprt.value=s.rdpPort!==undefined?s.rdpPort:3389;
-  const rdpu=document.getElementById('cfg_rdpUsername');
-  if(rdpu) rdpu.value=s.rdpUsername||'';
-  const rdppw=document.getElementById('cfg_rdpPassword');
-  if(rdppw) rdppw.value=s.rdpPassword||'';
-  const rdpd=document.getElementById('cfg_rdpDomain');
-  if(rdpd) rdpd.value=s.rdpDomain||'';
-  const rdpguac=document.getElementById('cfg_rdpGuacWsUrl');
-  if(rdpguac) rdpguac.value=s.rdpGuacWsUrl||'';
-  // Hooks
-  const he=document.getElementById('cfg_hooksEnabled');
-  if(he) he.checked=!!s.hooksEnabled;
-  // OpenCode hooks
-  const oce=document.getElementById('cfg_openCodeHooksEnabled');
-  if(oce) oce.checked=!!s.openCodeHooksEnabled;
-  // Populate profile dropdown
-  renderProfileSelect(state.profiles||[], s['profilePath']||'');
-}
-
-function renderProfileSelect(profiles, currentPath){
-  const sel=document.getElementById('cfg_profileSelect');
-  const input=document.getElementById('cfg_profilePath');
-  if(!sel||!input) return;
-  sel.innerHTML=profiles.map(function(p){
-    const fileName=(p.filePath||'').split(/[\\/]/).pop()||p.filePath||'';
-    const tip=[p.description||'', fileName].filter(function(x){ return !!x; }).join('\\n');
-    const label=(p.title||'')+' \u00b7 '+fileName;
-    return '<option value="'+esc(p.filePath)+'" title="'+esc(tip)+'">'+esc(label)+'</option>';
-  }).join('')+'<option value="__custom__">Custom path\u2026</option>';
-  // Determine which option matches the current path
-  const match=profiles.find(function(p){return p.filePath===currentPath;});
-  if(match){
-    sel.value=match.filePath;
-    input.style.display='none';
-  } else if(currentPath){
-    sel.value='__custom__';
-    input.value=currentPath;
-    input.style.display='';
-  } else {
-    // Default: first built-in profile (empty profilePath = auto-detect)
-    sel.value=profiles[0]?profiles[0].filePath:'__custom__';
-    input.style.display='none';
-  }
-  sel.onchange=function(){
-    if(sel.value==='__custom__'){input.style.display='';input.focus();}
-    else{input.style.display='none';}
-  };
-  const openBtn=document.getElementById('openProfileBtn');
-  if(openBtn){
-    openBtn.onclick=function(){
-      const path=sel.value==='__custom__'?input.value:sel.value;
-      if(path&&path!=='__custom__'){vscode.postMessage({command:'openFile',filePath:path});}
-    };
-  }
-}
+${tasksPanelScript}
+${profilePanelScript}
+${settingsPanelScript}
+${mcpConfigScript}
 
 document.getElementById('tabTasks').addEventListener('click',function(){showTab('tasks');});
 document.getElementById('tabMcp').addEventListener('click',function(){showTab('mcp');});
+document.getElementById('tabProfile').addEventListener('click',function(){showTab('profile');});
 document.getElementById('tabSettings').addEventListener('click',function(){showTab('settings');});
 
-${mcpConfigScript}
-
-document.getElementById('addForm').addEventListener('submit',function(e){
-  e.preventDefault();
-  const input=document.getElementById('taskInput');
-  const text=input.value.trim();
-  if(!text){return;}
-  vscode.postMessage({command:'addTask',text:text});
-  input.value='';
-  input.focus();
-});
-
-document.getElementById('saveSettingsBtn').addEventListener('click',function(){
-  const profileSel=document.getElementById('cfg_profileSelect');
-  const profileInput=document.getElementById('cfg_profilePath');
-  const profilePath=profileSel&&profileSel.value==='__custom__'
-    ?(profileInput?profileInput.value:'')
-    :(profileSel?profileSel.value:'');
-  const s={
-    provider:state.selectedProvider,
-    wsUrl:document.getElementById('cfg_wsUrl').value,
-    discordToken:document.getElementById('cfg_discordToken').value,
-    discordChannelId:document.getElementById('cfg_discordChannelId').value,
-discordOwners:document.getElementById('cfg_discordOwners').value,
-    loopInterval:parseInt(document.getElementById('cfg_loopInterval').value)||30,
-    taskTimeoutMinutes:parseInt(document.getElementById('cfg_taskTimeoutMinutes').value)||30,
-    taskCheckInMinutes:parseInt(document.getElementById('cfg_taskCheckInMinutes').value)||20,
-    retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
-    autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
-    autoStartLoop:document.getElementById('cfg_autoStartLoop').checked,
-    vncEnabled:document.getElementById('cfg_vncEnabled').checked,
-    vncHost:document.getElementById('cfg_vncHost').value.trim(),
-    vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,
-    vncPassword:document.getElementById('cfg_vncPassword').value,
-    rdpEnabled:document.getElementById('cfg_rdpEnabled').checked,
-    rdpHost:document.getElementById('cfg_rdpHost').value.trim(),
-    rdpPort:parseInt(document.getElementById('cfg_rdpPort').value)||3389,
-    rdpUsername:document.getElementById('cfg_rdpUsername').value,
-    rdpPassword:document.getElementById('cfg_rdpPassword').value,
-    rdpDomain:document.getElementById('cfg_rdpDomain').value.trim(),
-    rdpGuacWsUrl:document.getElementById('cfg_rdpGuacWsUrl').value.trim(),
-    enableFileBrowser:document.getElementById('cfg_enableFileBrowser').checked,
-    gitEnabled:document.getElementById('cfg_gitEnabled').checked,
-    hooksEnabled:document.getElementById('cfg_hooksEnabled').checked,
-    hooksScope:'project',
-    openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
-    resumeSession:!!(state.settings&&state.settings.resumeSession),
-    copilotModel:(state.settings&&state.settings.copilotModel)||'',
-    profilePath:profilePath,
-    todoPath:document.getElementById('cfg_todoPath').value,
-  };
-  vscode.postMessage({command:'saveSettings',settings:s});
-  document.getElementById('tabTasks').click();
-});
-
-document.getElementById('editJsonBtn').addEventListener('click',function(){
-  vscode.postMessage({command:'openSettings'});
-});
-
-document.getElementById('cfg_hooksEnabled').addEventListener('change',function(){
-  const isClaudeProv=state.selectedProvider==='claude-cli';
-  document.getElementById('hooksScopeRow').style.display=(this.checked&&isClaudeProv)?'':'none';
-});
-
 window.addEventListener('message',function(e){
-  const msg=e.data;
+  var msg=e.data;
   if(msg.command==='update'){
-    const pr=_pendingResume;
+    var pr=_pendingResume;
     state=msg;
     if(pr!==null){
       if(state.settings&&state.settings.resumeSession===pr){_pendingResume=null;}
-      else{if(state.settings)state.settings.resumeSession=pr;}
+      else{if(state.settings){state.settings.resumeSession=pr;}}
     }
     renderProviders();renderLoop();renderTasks();showTab(activeTab);
     document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';

@@ -70,6 +70,8 @@ export interface LoopCallbacks {
   onActivityChange?: (activity: string | undefined) => void;
   /** Returns the currently selected provider ID (live, not from settings file) */
   getActiveProvider: () => ProviderId;
+  /** Transiently override the active provider (e.g. fallback on rate limit). */
+  setActiveProvider?: (id: ProviderId) => void;
   /** Absolute path to the workspace root directory */
   workspaceRoot: string;
   /** File watcher used to monitor TODO.md and output files */
@@ -145,6 +147,9 @@ export class TaskLoopRunner {
   /** Resolves the idle no-task sleep early when a poller appends a new task. */
   private _idleSleepWake: (() => void) | null = null;
   private _resumeAt: Date | undefined;
+  /** When fallback is active: the saved main provider and when to switch back. */
+  private _mainProviderBeforeFallback: ProviderId | null = null;
+  private _mainProviderResumeAt: Date | undefined;
   private _gitRepo: string = '';
   private _gitBranch: string = '';
   private _hostname: string = '';
@@ -163,6 +168,8 @@ export class TaskLoopRunner {
     if (this._state !== 'paused') { return; }
     this._retryScheduler.clear();
     this._resumeAt = undefined;
+    this._mainProviderBeforeFallback = null;
+    this._mainProviderResumeAt = undefined;
     this._setState('running');
     const r = this._resumeResolve;
     this._resumeResolve = null;
@@ -393,6 +400,8 @@ export class TaskLoopRunner {
     this._setState('stopping');
     this._retryScheduler.clear();
     this._resumeAt = undefined;
+    this._mainProviderBeforeFallback = null;
+    this._mainProviderResumeAt = undefined;
     // Unblock _pause() if we're currently suspended
     const r = this._resumeResolve;
     this._resumeResolve = null;
@@ -611,6 +620,18 @@ export class TaskLoopRunner {
     }
 
     while (this._state === 'running') {
+      // --- Restore main provider after fallback period ends ---
+      if (this._mainProviderBeforeFallback && this._mainProviderResumeAt &&
+          Date.now() >= this._mainProviderResumeAt.getTime()) {
+        const main = this._mainProviderBeforeFallback;
+        this._mainProviderBeforeFallback = null;
+        this._mainProviderResumeAt = undefined;
+        this._resumeAt = undefined;
+        this._cb?.log(`↩ Rate limit period ended — switching back to ${main}`);
+        this._notifyDiscord(`↩ Rate limit period ended — switching back to **${main}**`);
+        this._cb?.setActiveProvider?.(main);
+      }
+
       const tasks = parseTodo(todoPath);
       let task = pickNextTask(tasks); // first [ ] task
 
@@ -846,6 +867,38 @@ export class TaskLoopRunner {
           const resumeStr = resumeAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const suffix    = resetAt ? '+15 min' : 'retry in 5m (no reset time given)';
           const rawMsg    = err.rawMessage;
+          const currentProvider = this._cb?.getActiveProvider() ?? 'unknown';
+
+          // Fresh settings — check fallback config (user may have changed it after loop start)
+          const freshSettings = this._workspaceRoot ? loadSettingsForRoot(this._workspaceRoot) : this._settings;
+          const fallbackEnabled  = freshSettings?.fallbackProviderEnabled ?? false;
+          const fallbackId       = (freshSettings?.fallbackProvider ?? '') as ProviderId;
+
+          // Use fallback if: enabled, different from current provider, and not already on fallback
+          if (fallbackEnabled && fallbackId && fallbackId !== currentProvider && !this._mainProviderBeforeFallback) {
+            this._mainProviderBeforeFallback = currentProvider as ProviderId;
+            this._mainProviderResumeAt = resumeAt;
+            this._resumeAt = resumeAt;
+            this._cb?.log(`⏩ Rate limit on ${currentProvider} — switching to ${fallbackId} until ${resumeStr} (${suffix})`);
+            this._notifyDiscord(`⏩ **Rate limit on ${currentProvider}** — switching to **${fallbackId}** until ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
+            this._notifyWebhook('rate_limit', {
+              iteration:       this._iterations,
+              task:            { text: task.text },
+              message:         rawMsg,
+              resumeAt:        resumeAt.toISOString(),
+              provider:        currentProvider,
+              fallbackProvider: fallbackId,
+              workDir:         this._workspaceRoot,
+              gitRepo:         this._gitRepo,
+              gitBranch:       this._gitBranch,
+            });
+            // Reset task so the fallback picks it up from scratch
+            await todoWriter.resetToTodo(todoPath, task).catch(() => {});
+            this._cb?.setActiveProvider?.(fallbackId);
+            continue; // continue loop immediately with fallback provider
+          }
+
+          // No usable fallback — standard pause
           this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
           this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
@@ -853,7 +906,7 @@ export class TaskLoopRunner {
             task:        { text: task.text },
             message:     rawMsg,
             resumeAt:    resumeAt.toISOString(),
-            provider:    this._cb?.getActiveProvider() ?? 'unknown',
+            provider:    currentProvider,
             workDir:     this._workspaceRoot,
             gitRepo:     this._gitRepo,
             gitBranch:   this._gitBranch,

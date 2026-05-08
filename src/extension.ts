@@ -82,6 +82,7 @@ export function activate(context: vscode.ExtensionContext): void {
           sidebar.setClaudeActivity(activity);
         },
         getActiveProvider: () => sidebar.selectedProvider,
+        setActiveProvider: (id) => sidebar.setActiveProviderTransient(id),
       });
     }),
 
