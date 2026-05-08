@@ -963,8 +963,12 @@ export class TaskLoopRunner {
       let exitWatcherRef: IDisposable | undefined;
       let todoWatcher: IDisposable | undefined;
       const endTurnTimers: NodeJS.Timeout[] = [];
+      // Set to true by cleanup() so stale onCliExit() calls that are still
+      // sleeping don't send a spurious reminder after the task resolved.
+      let cancelled = false;
 
       const cleanup = () => {
+        cancelled = true;
         this._taskCompletionAbort = null;
         clearInterval(poller);
         for (const t of endTurnTimers) { clearTimeout(t); }
@@ -1088,6 +1092,10 @@ export class TaskLoopRunner {
         // Give TODO.md enough time to be fully flushed and for any final Claude
         // writes (session ID capture etc.) to settle before we declare it undone.
         await sleep(3_000);
+        // A parallel path (todoWatcher / poller check()) may have already
+        // resolved the promise while we were sleeping.  Don't send a spurious
+        // reminder to the next task's session.
+        if (cancelled) { return; }
 
         const decision = exitHandler?.decide() ?? { kind: 'remind' as const };
 
@@ -1155,16 +1163,22 @@ export class TaskLoopRunner {
       // Track which exit file we are currently watching so the poller can
       // re-attach when sendToAi() rotates to a new per-message exit file.
       let watchedExitFile: string | null = null;
+      // Path of the exit file for which onCliExit() has already been invoked.
+      // Prevents the watcher AND the poller fallback from both firing onCliExit()
+      // for the same exit event (the guard is set by whichever fires first).
+      let handledExitFile: string | null = null;
 
       const attachExitWatcher = (filePath: string) => {
         if (filePath === watchedExitFile) { return; } // already watching this file
         exitWatcherRef?.dispose();
         watchedExitFile = filePath;
         exitWatcherRef = this._cb!.fileWatcher.watch(filePath, () => {
+          if (handledExitFile === filePath) { return; } // poller already handled
           try {
             const content = fs.readFileSync(filePath, 'utf8').trim();
             if (content === '') { return; } // file cleared at task start — ignore
           } catch { return; }
+          handledExitFile = filePath;
           void onCliExit();
         });
       };
@@ -1194,6 +1208,19 @@ export class TaskLoopRunner {
         // exit is detected even though the path changed.
         const latestExit = exitFilePath(this._workspaceRoot, activeProvider);
         if (latestExit !== watchedExitFile) { attachExitWatcher(latestExit); }
+
+        // Poller-based exit fallback: the VS Code file-system watcher can miss
+        // events (gitignored dirs, inotify limits, fast exits before re-attach).
+        // Read the exit file directly every tick and trigger onCliExit() if it
+        // became non-empty without the watcher firing.
+        if (latestExit && latestExit !== handledExitFile) {
+          try {
+            if (fs.readFileSync(latestExit, 'utf8').trim() !== '') {
+              handledExitFile = latestExit;
+              void onCliExit();
+            }
+          } catch { /* file not yet written — ignore */ }
+        }
 
         // Parse rich JSONL state: end_turn, active tool, bash progress
         if (claudeCursor > 0) {
