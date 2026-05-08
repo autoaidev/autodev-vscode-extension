@@ -55,6 +55,38 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
   }
 }
 
+const COPILOT_INSTRUCTIONS_FILE = '.github/copilot-instructions.md';
+const COPILOT_BEGIN = '<!-- autodev:profile:begin -->';
+const COPILOT_END   = '<!-- autodev:profile:end -->';
+
+/**
+ * Sync the assembled profile body into `.github/copilot-instructions.md`.
+ * GitHub Copilot cannot follow `@`-import references, so the content is
+ * written inline, wrapped in idempotent autodev marker tags.
+ * The file is created (including the `.github/` directory) if absent.
+ */
+function syncCopilotInstructions(root: string, profileBody: string): void {
+  const block = `${COPILOT_BEGIN}\n${profileBody.trim()}\n${COPILOT_END}`;
+  const markerRe = /<!-- autodev:profile:begin -->[\s\S]*?<!-- autodev:profile:end -->/;
+
+  const githubDir = path.join(root, '.github');
+  if (!fs.existsSync(githubDir)) {
+    fs.mkdirSync(githubDir, { recursive: true });
+  }
+
+  const filePath = path.join(root, COPILOT_INSTRUCTIONS_FILE);
+  let content = '';
+  if (fs.existsSync(filePath)) {
+    content = fs.readFileSync(filePath, 'utf8');
+  }
+  if (markerRe.test(content)) {
+    content = content.replace(markerRe, block);
+  } else {
+    content = block + (content ? '\n\n' + content : '');
+  }
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
@@ -205,6 +237,7 @@ export function rebuildProfile(root: string): void {
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
   injectAgentProfileRef(root, sectionPaths);
+  syncCopilotInstructions(root, finalProfileBody);
 }
 
 export function buildMessage(
@@ -240,6 +273,7 @@ export function buildMessage(
   const profileFilePath = path.join(root, AGENT_PROFILE_FILE);
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
   injectAgentProfileRef(root, sectionPaths);
+  syncCopilotInstructions(root, finalProfileBody);
   // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
   const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
 

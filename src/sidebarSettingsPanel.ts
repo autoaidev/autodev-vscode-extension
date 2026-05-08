@@ -27,6 +27,10 @@ export const settingsPanelHtml = `
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoResetPendingTasks"> Auto-reset pending tasks on start</label></div>
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoStartLoop"> Auto-start task loop on VS Code launch</label></div>
   </div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_autoCompact"> Auto-compact context every</label></div>
+    <div class="cfg-field"><input class="cfg-input" id="cfg_autoCompactInterval" type="number" min="1" max="100" style="width:60px"> <span style="font-size:11px;opacity:.7">tasks</span></div>
+  </div>
   <div class="cfg-section">VNC</div>
   <div class="cfg-row">
     <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_vncEnabled"> Enable VNC</label></div>
@@ -84,6 +88,10 @@ function populateSettings(s){
   if(rot){ rot.checked=!!s.retryOnTimeout; }
   var arp=document.getElementById('cfg_autoResetPendingTasks');
   if(arp){ arp.checked=s.autoResetPendingTasks!==false; }
+  var ac=document.getElementById('cfg_autoCompact');
+  if(ac){ ac.checked=!!s.autoCompact; }
+  var aci=document.getElementById('cfg_autoCompactInterval');
+  if(aci){ aci.value=s.autoCompactInterval||5; }
   var asl=document.getElementById('cfg_autoStartLoop');
   if(asl){ asl.checked=!!s.autoStartLoop; }
   var vnce=document.getElementById('cfg_vncEnabled');
@@ -167,6 +175,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     retryOnTimeout:document.getElementById('cfg_retryOnTimeout').checked,
     autoResetPendingTasks:document.getElementById('cfg_autoResetPendingTasks').checked,
     autoStartLoop:document.getElementById('cfg_autoStartLoop').checked,
+    autoCompact:document.getElementById('cfg_autoCompact').checked,
+    autoCompactInterval:parseInt(document.getElementById('cfg_autoCompactInterval').value)||5,
     vncEnabled:document.getElementById('cfg_vncEnabled').checked,
     vncHost:document.getElementById('cfg_vncHost').value.trim(),
     vncPort:parseInt(document.getElementById('cfg_vncPort').value)||5900,

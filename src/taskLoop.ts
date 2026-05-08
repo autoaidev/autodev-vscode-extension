@@ -158,6 +158,8 @@ export class TaskLoopRunner {
   private _loopStartTime = 0;
   /** Task lines that have already had /compact run — prevents infinite compact loops. */
   private _compactedTaskLines = new Set<number>();
+  /** Counts completed tasks since the last auto-compact run. */
+  private _autoCompactCounter = 0;
 
   get state(): LoopState { return this._state; }
   get currentTask(): string | undefined { return this._currentTask; }
@@ -185,6 +187,7 @@ export class TaskLoopRunner {
     this._cb = callbacks;
     this._iterations = 0;
     this._compactedTaskLines.clear();
+    this._autoCompactCounter = 0;
     this._hookLineSeen.clear();
     this._setState('running');
 
@@ -799,6 +802,7 @@ export class TaskLoopRunner {
 
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._completedCount++;
+        this._autoCompactCounter++;
         this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
@@ -849,6 +853,39 @@ export class TaskLoopRunner {
             gitRepo:   this._gitRepo,
             gitBranch: this._gitBranch,
           });
+        }
+
+        // --- Auto-compact: run /compact every N completed tasks -----------
+        const compactInterval = settings.autoCompactInterval ?? 5;
+        if (settings.autoCompact && this._autoCompactCounter >= compactInterval) {
+          this._autoCompactCounter = 0;
+          const acProvider = this._cb?.getActiveProvider() ?? '';
+          this._cb?.log(`🗜 Auto-compact triggered after ${compactInterval} tasks (provider: ${acProvider})`);
+          this._notifyDiscord(`🗜 Auto-compact triggered after ${compactInterval} tasks`);
+          try {
+            if (acProvider === 'claude-cli') {
+              let sid = getSessionId(this._workspaceRoot!, 'claude-cli');
+              if (!sid) { sid = findLatestClaudeSession(this._workspaceRoot!); }
+              if (sid) {
+                await runClaudeCompact(sid, this._workspaceRoot!, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Auto-compact complete');
+              } else {
+                this._cb?.log('⚠️ Auto-compact: no Claude session ID found — skipping');
+              }
+            } else if (acProvider === 'opencode-cli') {
+              let sid = getSessionId(this._workspaceRoot!, 'opencode-cli');
+              if (!sid) { sid = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg)); }
+              if (sid) {
+                await runOpenCodeCompact(sid, this._workspaceRoot!, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Auto-compact complete');
+              } else {
+                this._cb?.log('⚠️ Auto-compact: no OpenCode session ID found — skipping');
+              }
+            }
+          } catch (compactErr) {
+            const cm = compactErr instanceof Error ? compactErr.message : String(compactErr);
+            this._cb?.log(`⚠️ Auto-compact failed (non-fatal): ${cm}`);
+          }
         }
       } catch (err) {
         // --- Rate limit: pause loop, schedule auto-resume -----------------

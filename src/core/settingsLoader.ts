@@ -86,6 +86,13 @@ export interface AutodevSettings {
    * automatically if missing. One path per entry.
    */
   customProfileRefs: string[];
+  /**
+   * When true, the task loop automatically runs /compact every
+   * `autoCompactInterval` completed tasks to keep the context window lean.
+   */
+  autoCompact: boolean;
+  /** How many completed tasks to wait between automatic /compact runs. Default 5. */
+  autoCompactInterval: number;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -129,6 +136,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   fallbackProviderEnabled: false,
   enabledProfileSections: [],
   customProfileRefs: [],
+  autoCompact: false,
+  autoCompactInterval: 5,
 };
 
 /**
