@@ -107,6 +107,28 @@ export class ConfigManager {
     }, log, 'OpenCode cache settings');
   }
 
+  /**
+   * Apply `timeout` and `chunkTimeout` to every provider section in the
+   * project-level `opencode.json`. Values of 0 mean "remove the key" so the
+   * OpenCode default applies.
+   */
+  static applyOpenCodeTimeoutSettings(root: string, timeoutMs: number, chunkTimeoutMs: number, log?: (m: string) => void): void {
+    const projectFile = path.join(root, 'opencode.json');
+    _mergeJson(projectFile, (cfg) => {
+      const provider = _obj(cfg['provider']);
+      for (const providerName of Object.keys(provider)) {
+        const prov = _obj(provider[providerName]);
+        const opts = _obj(prov['options']);
+        if (timeoutMs > 0) { opts['timeout'] = timeoutMs; } else { delete opts['timeout']; }
+        if (chunkTimeoutMs > 0) { opts['chunkTimeout'] = chunkTimeoutMs; } else { delete opts['chunkTimeout']; }
+        if (Object.keys(opts).length > 0) { prov['options'] = opts; }
+        else if ('options' in prov && Object.keys(_obj(prov['options'])).length === 0) { delete prov['options']; }
+        provider[providerName] = prov;
+      }
+      cfg['provider'] = provider;
+    }, log, 'OpenCode timeout settings');
+  }
+
   // -------------------------------------------------------------------------
   // MCP sync — project-local only (no global config modifications)
   // -------------------------------------------------------------------------

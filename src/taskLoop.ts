@@ -1075,6 +1075,29 @@ export class TaskLoopRunner {
           await todoWriter.resetToTodo(todoPath, task).catch(() => {});
           continue;
         }
+        // --- Context length already compacted or plan limit: pause + retry button
+        if (err instanceof ContextLengthError) {
+          const rawMsg = err.rawMessage.slice(0, 300);
+          const provider = this._cb?.getActiveProvider() ?? '';
+          this._cb?.log(`⏸ Context length exceeded (${provider}) and already compacted — pausing. Click Retry to resume.\n${rawMsg}`);
+          this._notifyDiscord(`⏸ **Context length exceeded** (${provider}) — already compacted or plan limit hit. Pausing…\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._notifyWebhook('rate_limit', {
+            iteration:   this._iterations,
+            task:        { text: task.text },
+            message:     rawMsg,
+            resumeAt:    new Date(Date.now() + 60 * 60_000).toISOString(),
+            provider,
+            workDir:     this._workspaceRoot,
+            gitRepo:     this._gitRepo,
+            gitBranch:   this._gitBranch,
+          });
+          await todoWriter.resetToTodo(todoPath, task).catch(() => {});
+          // No auto-resume time — user must click Retry manually
+          this._resumeAt = undefined;
+          await this._pauseLoop(); // pause indefinitely
+          if (this._state !== 'running') { break; }
+          continue;
+        }
         // --- Normal task failure ------------------------------------------
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._failedCount++;

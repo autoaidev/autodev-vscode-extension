@@ -417,6 +417,12 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       try { ConfigManager.applyOpenCodeCacheSettings(root, next.opencodeCacheEnabled); }
       catch { /* non-fatal */ }
     }
+
+    // OpenCode timeouts — apply to opencode.json when changed
+    if (prev.opencodeTimeout !== next.opencodeTimeout || prev.opencodeChunkTimeout !== next.opencodeChunkTimeout) {
+      try { ConfigManager.applyOpenCodeTimeoutSettings(root, next.opencodeTimeout ?? 0, next.opencodeChunkTimeout ?? 0); }
+      catch { /* non-fatal */ }
+    }
   }
 
   /**
@@ -559,6 +565,14 @@ function buildHtml(_webview: vscode.Webview): string {
   <input type="checkbox" id="opencodeCacheCheck">
   <label for="opencodeCacheCheck">Enable model caching</label>
 </div>
+<div class="model-row" id="opencodeTimeoutRow" style="display:none">
+  <span class="provider-label">Timeout (ms):</span>
+  <input type="number" id="opencodeTimeoutInput" min="0" step="60000" style="width:110px" placeholder="300000">
+</div>
+<div class="model-row" id="opencodeChunkTimeoutRow" style="display:none">
+  <span class="provider-label">Chunk timeout (ms):</span>
+  <input type="number" id="opencodeChunkTimeoutInput" min="0" step="10000" style="width:110px" placeholder="60000">
+</div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
@@ -687,6 +701,27 @@ function renderProviders(){
     if(ocCacheCheck.checked!==cacheEnabled){ocCacheCheck.checked=cacheEnabled;}
     ocCacheCheck.onchange=function(){
       vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeCacheEnabled:ocCacheCheck.checked})});
+    };
+  }
+
+  var ocTimeoutRow=document.getElementById('opencodeTimeoutRow');
+  var ocTimeoutInp=document.getElementById('opencodeTimeoutInput');
+  var ocChunkRow=document.getElementById('opencodeChunkTimeoutRow');
+  var ocChunkInp=document.getElementById('opencodeChunkTimeoutInput');
+  if(ocTimeoutRow){ocTimeoutRow.style.display=isOpenCode?'flex':'none';}
+  if(ocChunkRow){ocChunkRow.style.display=isOpenCode?'flex':'none';}
+  if(isOpenCode&&ocTimeoutInp&&ocChunkInp){
+    var curTimeout=(state.settings&&state.settings.opencodeTimeout)||0;
+    var curChunk=(state.settings&&state.settings.opencodeChunkTimeout)||0;
+    if(document.activeElement!==ocTimeoutInp){ocTimeoutInp.value=curTimeout>0?String(curTimeout):'';}
+    if(document.activeElement!==ocChunkInp){ocChunkInp.value=curChunk>0?String(curChunk):'';}
+    ocTimeoutInp.onchange=function(){
+      var v=parseInt(ocTimeoutInp.value)||0;
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeTimeout:v})});
+    };
+    ocChunkInp.onchange=function(){
+      var v=parseInt(ocChunkInp.value)||0;
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeChunkTimeout:v})});
     };
   }
   if(isCopilot&&modelSel){

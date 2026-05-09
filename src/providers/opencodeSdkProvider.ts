@@ -163,8 +163,11 @@ async function getOrCreate(
 // to the VS Code output channel via the stored logger for that root.
 // ---------------------------------------------------------------------------
 
-// Events handled silently (streamed as text output by the per-prompt loop).
-const _SKIP_LOG = new Set(['message.part.updated']);
+// Events handled silently (already rendered as streaming CLI text output).
+const _SKIP_LOG = new Set(['message.part.updated', 'sync', 'server.heartbeat']);
+
+/** Accumulated assistant text per root — flushed to the output channel on session.idle. */
+const _textBuffer = new Map<string, string>();
 
 async function _startEventLogger(root: string, client: SdkClient): Promise<void> {
   try {
@@ -181,6 +184,18 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       const props = payload?.properties as Record<string, unknown> | undefined;
 
       if (!type || _SKIP_LOG.has(type)) { continue; }
+
+      // --- Stream text deltas into a per-root buffer ---
+      if (type === 'message.part.delta') {
+        const field = props?.field as string | undefined;
+        if (field === 'text') {
+          const delta = props?.delta as string | undefined;
+          if (delta) {
+            _textBuffer.set(root, (_textBuffer.get(root) ?? '') + delta);
+          }
+        }
+        continue;
+      }
 
       const st = _state.get(root);
 
@@ -239,9 +254,19 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
         continue;
       }
 
-      // --- Session idle: clear activity ---
+      // --- Session idle: flush buffered assistant text + clear activity ---
       if (type === 'session.idle') {
         _activity.delete(root);
+        const text = _textBuffer.get(root);
+        _textBuffer.delete(root);
+        if (text?.trim()) {
+          // Print a divider then the full assistant response
+          logger(`[OC] ── Assistant ──────────────────────────`);
+          for (const line of text.split('\n')) { logger(line); }
+          logger(`[OC] ────────────────────────────────────────`);
+        }
+        logger(`[OC] session.idle`);
+        continue;
       }
 
       // --- Default: log type + compact props ---
@@ -258,6 +283,7 @@ function _evictClient(root: string): void {
     try { s.server.close(); } catch { /* ignore */ }
     _state.delete(root);
     _loggers.delete(root);
+    _textBuffer.delete(root);
   }
 }
 
@@ -421,6 +447,7 @@ export function closeOpencodeSdkClient(root: string, log: (msg: string) => void)
     _state.delete(root);
     _loggers.delete(root);
     _activity.delete(root);
+    _textBuffer.delete(root);
   }
 }
 
@@ -431,6 +458,7 @@ export function closeAllOpencodeSdkClients(): void {
     _state.delete(root);
     _loggers.delete(root);
     _activity.delete(root);
+    _textBuffer.delete(root);
     _busyRoots.delete(root);
   }
 }

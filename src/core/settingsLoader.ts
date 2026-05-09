@@ -104,6 +104,19 @@ export interface AutodevSettings {
   autoCompact: boolean;
   /** How many completed tasks to wait between automatic /compact runs. Default 5. */
   autoCompactInterval: number;
+  /**
+   * OpenCode provider-level HTTP timeout in milliseconds.
+   * Written to opencode.json under provider.*.options.timeout.
+   * 0 = use OpenCode default (300000 / 5 min).
+   */
+  opencodeTimeout: number;
+  /**
+   * OpenCode provider-level chunk timeout in milliseconds (max gap between
+   * streaming chunks before the request is considered stalled).
+   * Written to opencode.json under provider.*.options.chunkTimeout.
+   * 0 = use OpenCode default.
+   */
+  opencodeChunkTimeout: number;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -151,6 +164,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   customProfileRefs: [],
   autoCompact: false,
   autoCompactInterval: 5,
+  opencodeTimeout: 0,
+  opencodeChunkTimeout: 0,
 };
 
 /**
