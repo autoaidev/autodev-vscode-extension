@@ -8,6 +8,7 @@ import { loadSettingsForRoot } from './core/settingsLoader';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
+import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
 import { getManualHookCmd } from './hooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
@@ -104,6 +105,8 @@ export async function sendPromptToAi(
   workspaceRoot: string,
   includeProfile = true,
   messageFilePath?: string,
+  /** Called once when a claude-tui task starts — use to reveal the output channel. */
+  showOutput?: () => void,
 ): Promise<void> {
   const providerCfg = PROVIDERS[providerId];
 
@@ -140,6 +143,14 @@ export async function sendPromptToAi(
     try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
     try { fs.writeFileSync(exitFile,   '', 'utf8'); } catch { /* ignore */ }
     log(`Message id: ${messageId} (output: ${path.basename(stdoutFile)})`);
+
+    // --- claude-tui: in-process spawn, no terminal ---
+    if (providerId === 'claude-tui') {
+      const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      sendClaudeTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
+      log(`Claude TUI: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
+      return;
+    }
 
     let cmd: string;
     if (providerId === 'claude-cli') {

@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.134",
+  "version": "1.0.135",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
@@ -111,6 +111,7 @@
     "lint": "eslint src --ext ts"
   },
   "dependencies": {
+    "@raylin01/claude-client": "^0.3.3",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.1"
   },

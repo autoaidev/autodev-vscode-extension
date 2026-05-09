@@ -13,6 +13,7 @@ import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
 import { runClaudeCompact } from './providers/claudeCliProvider';
+import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
@@ -644,6 +645,13 @@ export class TaskLoopRunner {
       const cliIsRunning = (() => {
         if (this._iterations === 0) { return false; } // nothing launched yet
         if (!this._workspaceRoot || !provider || !PROVIDERS[provider]?.isCli) { return false; }
+        // claude-tui: the exit file is per-message and gets a sentinel when the
+        // turn takes >30 s to finish.  Instead, use the in-flight turn flag which
+        // stays true for the entire duration of the async, including after
+        // _waitForTaskCompletion resolves but before the turn emits 'result'.
+        if (provider === 'claude-tui') {
+          return isClaudeTuiBusy(this._workspaceRoot);
+        }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
           return content === ''; // empty = process still running (exit code not yet written)
@@ -749,7 +757,22 @@ export class TaskLoopRunner {
         // The exit-code file is written only after the shell command completes,
         // so a non-empty file guarantees the stdout file is fully flushed.
         const activeProvider = this._cb?.getActiveProvider();
-        if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
+        if (this._workspaceRoot && activeProvider === 'claude-tui') {
+          // claude-tui: _waitForTaskCompletion resolves as soon as the task is
+          // marked [x] in TODO.md, but the persistent async turn may still be
+          // running (Claude executing further tool calls, marking other tasks [~],
+          // etc.).  Wait for the busy flag to clear — written at the very end of
+          // the fire-and-forget async after 'result' fires — so we don't
+          // prematurely proceed while the client is still mid-turn.
+          const tuiDeadline = Date.now() + 10 * 60_000; // 10-minute safety cap
+          while (isClaudeTuiBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
+            if (this._state !== 'running') { break; }
+            await this._sleepAbortable(500);
+          }
+          if (isClaudeTuiBusy(this._workspaceRoot)) {
+            this._cb?.log('⚠ Claude TUI turn did not complete within 10 minutes — moving on');
+          }
+        } else if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
           // Do NOT clear the file here. Each dispatch allocates a fresh
           // per-message exit file via newMessageOutput(), so the value we see
@@ -791,6 +814,9 @@ export class TaskLoopRunner {
             getLatestOpenCodeSessionId(this._workspaceRoot, msg => this._cb?.log(msg))
               .then(id => { if (id && this._workspaceRoot) { saveSessionId(this._workspaceRoot, 'opencode-cli', id); } })
               .catch(() => {});
+          } else if (activeProvider === 'claude-tui') {
+            const sid = getClaudeTuiLatestSessionId(this._workspaceRoot);
+            if (sid) { saveSessionId(this._workspaceRoot, 'claude-tui', sid); }
           } else {
             const jsonlFallback = activeProvider === 'claude-cli'
               ? findLatestClaudeSession(this._workspaceRoot)
@@ -871,6 +897,15 @@ export class TaskLoopRunner {
                 this._cb?.log('🗜 Auto-compact complete');
               } else {
                 this._cb?.log('⚠️ Auto-compact: no Claude session ID found — skipping');
+              }
+            } else if (acProvider === 'claude-tui') {
+              let sid = getSessionId(this._workspaceRoot!, 'claude-tui');
+              if (!sid) { sid = getClaudeTuiLatestSessionId(this._workspaceRoot!); }
+              if (sid) {
+                await runClaudeTuiCompact(this._workspaceRoot!, sid, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Auto-compact complete');
+              } else {
+                this._cb?.log('⚠️ Auto-compact: no Claude TUI session ID found — skipping');
               }
             } else if (acProvider === 'opencode-cli') {
               let sid = getSessionId(this._workspaceRoot!, 'opencode-cli');
@@ -1081,6 +1116,7 @@ export class TaskLoopRunner {
   /** Return when the task text appears with [x] status in the TODO.md file. */
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
+    const isClaudeTui = this._cb?.getActiveProvider() === 'claude-tui';
     const isOpenCodeCli = this._cb?.getActiveProvider() === 'opencode-cli';
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
@@ -1175,11 +1211,11 @@ export class TaskLoopRunner {
 
       // Check stdout file: forward any new content to Discord/webhook, detect rate limit / context errors
       const checkStdout = () => {
-        if (!isClaudeCli && !isOpenCodeCli) { return; } // only CLI providers tee stdout
+        if (!isClaudeCli && !isClaudeTui && !isOpenCodeCli) { return; } // only CLI providers tee stdout
         const content = readStdoutFile();
 
         // Forward new output lines to Discord / webhook (Claude only — OpenCode output is very verbose)
-        if (isClaudeCli && content.length > lastStdoutLen) {
+        if ((isClaudeCli || isClaudeTui) && content.length > lastStdoutLen) {
           const newText = content.slice(lastStdoutLen).trim();
           lastStdoutLen = content.length;
           if (newText) {
@@ -1197,9 +1233,8 @@ export class TaskLoopRunner {
           lastStdoutLen = content.length; // keep cursor up to date for non-Claude providers
         }
 
-        // Rate limit detection (Claude) — wording variants live in
-        // RateLimitDetector.PHRASES; add new ones there, not here.
-        if (isClaudeCli) {
+        // Rate limit detection (Claude CLI + TUI)
+        if (isClaudeCli || isClaudeTui) {
           const rlErr = RateLimitDetector.detect(content);
           if (rlErr) {
             cleanup();
@@ -1220,6 +1255,18 @@ export class TaskLoopRunner {
         //   "Prompt is too long" (last_assistant_message in StopFailure hook)
         //   "context_length_exceeded"
         if (isClaudeCli) {
+          const lc = content.toLowerCase();
+          if (lc.includes('prompt is too long')
+              || lc.includes('context_length_exceeded')
+              || /tokens?\s*>\s*\d+\s*maximum/.test(lc)) {
+            cleanup();
+            reject(new ContextLengthError(content.trim()));
+            return;
+          }
+        }
+
+        // Context length detection for claude-tui (same patterns)
+        if (isClaudeTui) {
           const lc = content.toLowerCase();
           if (lc.includes('prompt is too long')
               || lc.includes('context_length_exceeded')

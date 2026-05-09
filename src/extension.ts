@@ -5,6 +5,7 @@ import { taskLoopRunner } from './taskLoop';
 import { openSettingsFile, loadSettings } from './settings';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
+import { closeClaudeTuiClient } from './providers/claudeTuiProvider';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
 import { PROVIDERS } from './providers';
@@ -71,7 +72,11 @@ export function activate(context: vscode.ExtensionContext): void {
         fileWatcher: new VsFileWatcher(),
         sendToAi: (prompt, taskLabel, includeProfile, messageFile) => {
           log(`Dispatching task: ${taskLabel}`);
-          return sendPromptToAi(sidebar.selectedProvider, prompt, log, launcher, loopRoot, includeProfile, messageFile);
+          return sendPromptToAi(
+            sidebar.selectedProvider, prompt, log, launcher, loopRoot, includeProfile, messageFile,
+            // showOutput: reveal the AutoDev output channel so Claude TUI output is visible
+            () => _out.show(true),
+          );
         },
         log,
         onStatusChange: (state, task) => {
@@ -95,6 +100,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const termName = `AutoDev: ${PROVIDERS[sidebar.selectedProvider]?.label ?? sidebar.selectedProvider}`;
       const term = vscode.window.terminals.find(t => t.name === termName);
       if (term) { term.sendText('\x03', false); }
+      const loopRoot2 = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+      if (sidebar.selectedProvider === 'claude-tui') { closeClaudeTuiClient(loopRoot2, log); }
       taskLoopRunner.stop();
       vscode.window.showInformationMessage('AutoDev: Task loop stopping');
     }),
