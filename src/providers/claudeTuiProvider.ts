@@ -164,8 +164,8 @@ export function sendClaudeTuiPrompt(
           lastTextLen = snapshot.text.length;
           try { fs.appendFileSync(stdoutFile, newChunk, 'utf8'); } catch { /* ignore */ }
 
-          // Log complete lines immediately; flush partial lines right away too
-          // so the user sees real-time output even without newlines.
+          // Log only complete lines (terminated by \n) so partial streaming
+          // updates don't produce fragmented mid-word log entries.
           _lineBuf += newChunk;
           let nl: number;
           while ((nl = _lineBuf.indexOf('\n')) !== -1) {
@@ -173,8 +173,6 @@ export function sendClaudeTuiPrompt(
             _lineBuf = _lineBuf.slice(nl + 1);
             if (line) { log(`  ${line}`); }
           }
-          // Flush any partial line so output appears in real time.
-          if (_lineBuf.trim()) { log(`  ${_lineBuf}`); _lineBuf = ''; }
         }
 
         // Auto-approve all tool-use / hook requests.
