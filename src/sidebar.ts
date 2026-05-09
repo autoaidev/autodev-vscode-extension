@@ -665,7 +665,7 @@ function renderProviders(){
 
   var ocModelRow=document.getElementById('opencodeModelRow');
   var ocModelInp=document.getElementById('opencodeModelInput');
-  var isOpenCode=state.selectedProvider==='opencode-cli';
+  var isOpenCode=state.selectedProvider==='opencode-cli'||state.selectedProvider==='opencode-sdk';
   ocModelRow.style.display=isOpenCode?'flex':'none';
   if(isOpenCode&&ocModelInp&&!ocModelInp.dataset.loaded){
     ocModelInp.dataset.loaded='1';

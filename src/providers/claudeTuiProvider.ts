@@ -118,6 +118,14 @@ export function closeClaudeTuiClient(root: string, log: (msg: string) => void): 
   }
 }
 
+/** Kill all open TUI clients — called on extension deactivate to avoid orphaned processes. */
+export function closeAllClaudeTuiClients(): void {
+  for (const [root, c] of _clients) {
+    try { c.raw.kill(); } catch { /* ignore */ }
+    _clients.delete(root);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // sendClaudeTuiPrompt
 //

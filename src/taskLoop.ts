@@ -15,6 +15,7 @@ import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/open
 import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
+import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
@@ -653,6 +654,9 @@ export class TaskLoopRunner {
         if (provider === 'claude-tui') {
           return isClaudeTuiBusy(this._workspaceRoot);
         }
+        if (provider === 'opencode-sdk') {
+          return isOpencodeSdkBusy(this._workspaceRoot);
+        }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
           return content === ''; // empty = process still running (exit code not yet written)
@@ -773,6 +777,25 @@ export class TaskLoopRunner {
           if (isClaudeTuiBusy(this._workspaceRoot)) {
             this._cb?.log('⚠ Claude TUI turn did not complete within 10 minutes — moving on');
           }
+        } else if (this._workspaceRoot && activeProvider === 'opencode-sdk') {
+          // opencode-sdk: same pattern as claude-tui — wait for the in-flight
+          // fire-and-forget async to fully complete (session.idle received).
+          const sdkDeadline = Date.now() + 30 * 60_000; // 30-minute safety cap
+          let lastActivity: string | undefined;
+          while (isOpencodeSdkBusy(this._workspaceRoot) && Date.now() < sdkDeadline) {
+            if (this._state !== 'running') { break; }
+            // Forward tool activity changes to the sidebar.
+            const act = getOpencodeSdkActivity(this._workspaceRoot);
+            if (act !== lastActivity) {
+              lastActivity = act;
+              this._cb?.onActivityChange?.(act);
+            }
+            await this._sleepAbortable(500);
+          }
+          if (lastActivity !== undefined) { this._cb?.onActivityChange?.(undefined); }
+          if (isOpencodeSdkBusy(this._workspaceRoot)) {
+            this._cb?.log('⚠ OpenCode SDK turn did not complete within 30 minutes — moving on');
+          }
         } else if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
           // Do NOT clear the file here. Each dispatch allocates a fresh
@@ -825,6 +848,9 @@ export class TaskLoopRunner {
           } else if (activeProvider === 'claude-tui') {
             const sid = getClaudeTuiLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'claude-tui', sid); }
+          } else if (activeProvider === 'opencode-sdk') {
+            const sid = getOpencodeSdkLatestSessionId(this._workspaceRoot);
+            if (sid) { saveSessionId(this._workspaceRoot, 'opencode-sdk', sid); }
           } else {
             const jsonlFallback = activeProvider === 'claude-cli'
               ? findLatestClaudeSession(this._workspaceRoot)
@@ -924,6 +950,9 @@ export class TaskLoopRunner {
               } else {
                 this._cb?.log('⚠️ Auto-compact: no OpenCode session ID found — skipping');
               }
+            } else if (acProvider === 'opencode-sdk') {
+              await runOpencodeSdkCompact(this._workspaceRoot!, msg => this._cb?.log(msg));
+              this._cb?.log('🗜 Auto-compact complete (opencode-sdk)');
             }
           } catch (compactErr) {
             const cm = compactErr instanceof Error ? compactErr.message : String(compactErr);

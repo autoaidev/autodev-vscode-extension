@@ -9,6 +9,7 @@ import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } fr
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
+import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
 import { getManualHookCmd } from './hooksManager';
 import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
 
@@ -152,6 +153,14 @@ export async function sendPromptToAi(
       const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       sendClaudeTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
       log(`Claude TUI: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
+      return;
+    }
+
+    // --- opencode-sdk: in-process SDK, no terminal ---
+    if (providerId === 'opencode-sdk') {
+      const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      sendOpencodeSdkPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, settings.opencodeModel || undefined, showOutput);
+      log(`OpenCode SDK: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
       return;
     }
 
