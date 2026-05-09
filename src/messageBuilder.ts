@@ -35,11 +35,19 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
   // LLM auto-loads all sub-files (agents only follow @-refs one level deep).
   const lines = [`@${AGENT_PROFILE_FILE}`, ...sectionPaths.map(p => `@${p}`)];
   const ref = lines.join('\n');
-  const block = `${AGENT_REF_BEGIN}\n${ref}\n${AGENT_REF_END}`;
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
   for (const filename of ['CLAUDE.md', 'AGENTS.md']) {
     const filePath = path.join(root, filename);
+
+    // When writing AGENTS.md, also reference CLAUDE.md if it exists so agents
+    // that only read AGENTS.md still pick up the CLAUDE.md instructions.
+    let extraRefs = '';
+    if (filename === 'AGENTS.md' && fs.existsSync(path.join(root, 'CLAUDE.md'))) {
+      extraRefs = '\n@CLAUDE.md';
+    }
+    const block = `${AGENT_REF_BEGIN}\n${ref}${extraRefs}\n${AGENT_REF_END}`;
+
     let content = '';
     if (fs.existsSync(filePath)) {
       content = fs.readFileSync(filePath, 'utf8');
