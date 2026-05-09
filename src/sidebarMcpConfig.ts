@@ -278,8 +278,9 @@ function populateMcp(s, defaults){
   // Jira form — pull env from mcp-atlassian if present.
   const jira = userMcp[RESERVED_MCP.jira];
   const jenv = (jira && jira.env) || {};
-  // .mcp.json is the source of truth: entry present = enabled, absent = disabled.
-  const jiraOn = !!jira;
+  // Entry present + not explicitly disabled = enabled. Credentials are preserved
+  // in .mcp.json even when disabled (enabled:false), so the form stays populated.
+  const jiraOn = !!jira && jira.enabled !== false;
   _setCheck('mcpJira_enabled', jiraOn);
   _setAccDisabled('mcpAcc_jira', !jiraOn);
   _setVal('mcpJira_url',       jenv.JIRA_URL || '');
@@ -292,8 +293,8 @@ function populateMcp(s, defaults){
   // Email form — pull env from zerolib-email if present.
   const mail = userMcp[RESERVED_MCP.email];
   const menv = (mail && mail.env) || {};
-  // .mcp.json is the source of truth: entry present = enabled, absent = disabled.
-  const mailOn = !!mail;
+  // Entry present + not explicitly disabled = enabled. Credentials preserved even when disabled.
+  const mailOn = !!mail && mail.enabled !== false;
   _setCheck('mcpEmail_enabled', mailOn);
   _setAccDisabled('mcpAcc_email', !mailOn);
   _setVal('mcpEmail_account',     menv.MCP_EMAIL_SERVER_ACCOUNT_NAME || (mail ? '' : 'default'));

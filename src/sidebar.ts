@@ -130,20 +130,24 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
           // mcpServers field (it's been retired â€” .mcp.json is the source).
           const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
-          // Drop any entry the form marked enabled:false â€” disabling = remove.
-          const enabled: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+          // ALL entries (including enabled:false) are written to .mcp.json so that
+          // credentials are preserved when a server is disabled. syncProjectMcpServers
+          // filters out enabled:false entries before propagating to other provider configs.
+          const allForMcp: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }> = {};
+          let activeCount = 0;
           for (const [name, e] of Object.entries(entries)) {
-            if (!e || e.enabled === false) continue;
-            enabled[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}) };
+            if (!e) continue;
+            allForMcp[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}), ...(e.enabled === false ? { enabled: false } : {}) };
+            if (e.enabled !== false) activeCount++;
           }
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
-            saveProjectUserMcp(root, enabled);
+            saveProjectUserMcp(root, allForMcp);
             try { applyMcpSkills(root, loadSettings()); } catch { /* ignore */ }
           }
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(
-            `AutoDev: ${Object.keys(enabled).length} MCP server(s) saved to .mcp.json.`
+            `AutoDev: \ MCP server(s) active, settings saved to .mcp.json.`
           );
           break;
         }

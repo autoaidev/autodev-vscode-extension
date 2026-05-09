@@ -21,6 +21,8 @@ export interface McpJsonEntry {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  /** false = entry is kept in .mcp.json to preserve credentials but not synced to providers */
+  enabled?: boolean;
   alwaysLoad?: boolean;
   _meta?: { managedBy?: string; name?: string; kind?: 'user' | 'builtin'; [k: string]: unknown };
 }
@@ -86,6 +88,8 @@ export function saveProjectUserMcp(root: string, userEntries: McpJsonEntries): v
       args: Array.isArray(raw.args) ? raw.args : [],
       ...(raw.env && typeof raw.env === 'object' ? { env: raw.env } : {}),
       alwaysLoad: true,
+      // Preserve disabled state so credentials survive unchecking in the sidebar.
+      ...(raw.enabled === false ? { enabled: false } : {}),
       _meta: meta,
     };
   }

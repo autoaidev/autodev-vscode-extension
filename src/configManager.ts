@@ -198,7 +198,9 @@ export class ConfigManager {
       builtinByName.set(s.name, s);
     }
     // User entries override built-ins (so a user can re-tune a default).
-    for (const userName of Object.keys(userMcp)) {
+    // Disabled entries (enabled:false) don't override — the builtin still syncs.
+    for (const [userName, userEntry] of Object.entries(userMcp)) {
+      if (userEntry.enabled === false) continue;
       builtinByName.delete(userName);
     }
 
@@ -212,15 +214,19 @@ export class ConfigManager {
     catch (e) { log?.(`ConfigManager: failed updating .mcp.json built-ins: ${e}`); }
 
     // Combined set fed to the legacy fan-out files (.vscode/mcp.json + opencode.json).
+    // Disabled user entries (enabled:false) are kept in .mcp.json for credential
+    // preservation but must NOT be propagated to other provider configs.
     const servers: McpServerEntry[] = [
       ...builtinByName.values(),
-      ...Object.entries(userMcp).map(([name, raw]) => ({
-        name,
-        command: raw.command,
-        args: Array.isArray(raw.args) ? raw.args : [],
-        ...(raw.env && typeof raw.env === 'object' ? { env: raw.env } : {}),
-        tools: ['*'] as string[],
-      } as McpServerEntry)),
+      ...Object.entries(userMcp)
+        .filter(([, raw]) => raw.enabled !== false)
+        .map(([name, raw]) => ({
+          name,
+          command: raw.command,
+          args: Array.isArray(raw.args) ? raw.args : [],
+          ...(raw.env && typeof raw.env === 'object' ? { env: raw.env } : {}),
+          tools: ['*'] as string[],
+        } as McpServerEntry)),
     ];
 
     // Strip any stale mcpServers we previously wrote into .claude/settings.json
