@@ -115,6 +115,16 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
           break;
         }
+        case 'getOpenCodeModels': {
+          const view = this._view;
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { exec } = require('child_process') as typeof import('child_process');
+          exec('opencode models', { encoding: 'utf8', timeout: 10_000 }, (_err, stdout) => {
+            const models = (stdout ?? '').split('\n').map((l: string) => l.trim()).filter(Boolean).sort();
+            view?.webview.postMessage({ command: 'opencodeModels', models });
+          });
+          break;
+        }
         case 'saveMcpBulk': {
           // Global Save All & Sync â€” full replace of user MCP entries directly
           // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
@@ -536,7 +546,7 @@ function buildHtml(_webview: vscode.Webview): string {
 </div>
 <div class="model-row" id="opencodeModelRow" style="display:none">
   <span class="provider-label">Model:</span>
-  <input type="text" class="model-input" id="opencodeModelInput" placeholder="e.g. anthropic/claude-sonnet-4-5" style="flex:1;min-width:0">
+  <select class="model-select" id="opencodeModelSelect"><option value="">Loading…</option></select>
 </div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
@@ -643,13 +653,20 @@ function renderProviders(){
   modelRow.style.display=isCopilot?'flex':'none';
 
   var ocModelRow=document.getElementById('opencodeModelRow');
-  var ocModelInput=document.getElementById('opencodeModelInput');
+  var ocModelSel=document.getElementById('opencodeModelSelect');
   var isOpenCode=state.selectedProvider==='opencode-cli';
   ocModelRow.style.display=isOpenCode?'flex':'none';
-  if(isOpenCode&&ocModelInput){
-    ocModelInput.value=(state.settings&&state.settings.opencodeModel)||'';
-    ocModelInput.onchange=function(){
-      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelInput.value.trim()})});
+  if(isOpenCode&&ocModelSel&&!ocModelSel.dataset.loaded){
+    ocModelSel.dataset.loaded='1';
+    vscode.postMessage({command:'getOpenCodeModels'});
+  }
+  if(isOpenCode&&ocModelSel&&ocModelSel.dataset.loaded==='ready'){
+    var curOc=(state.settings&&state.settings.opencodeModel)||'';
+    if(ocModelSel.value!==curOc){
+      ocModelSel.value=curOc||(ocModelSel.options[0]&&ocModelSel.options[0].value)||'';
+    }
+    ocModelSel.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelSel.value})});
     };
   }
   if(isCopilot&&modelSel){
@@ -707,6 +724,17 @@ window.addEventListener('message',function(e){
     document.getElementById('openCodeHooksStatusBadge').style.display=msg.openCodeHooksInstalled?'':'none';
   } else if(msg.command==='mcpEmailTestResult' && typeof window.renderMcpEmailTestResult==='function'){
     window.renderMcpEmailTestResult(msg);
+  } else if(msg.command==='opencodeModels'){
+    var ocSel=document.getElementById('opencodeModelSelect');
+    if(ocSel){
+      var curVal=(state.settings&&state.settings.opencodeModel)||'';
+      ocSel.innerHTML='<option value="">Default model</option>'+msg.models.map(function(m){return '<option value="'+m+'"'+(m===curVal?' selected':'')+'>'+m+'</option>';}).join('');
+      ocSel.dataset.loaded='ready';
+      if(curVal){ocSel.value=curVal;}
+      ocSel.onchange=function(){
+        vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocSel.value})});
+      };
+    }
   }
 });
 </script>
