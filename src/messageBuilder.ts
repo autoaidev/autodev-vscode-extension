@@ -33,8 +33,7 @@ const AGENT_REF_END   = '<!-- autodev:profile-ref:end -->';
 function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void {
   // Inject AGENT_PROFILE.md plus every deployed section file directly so the
   // LLM auto-loads all sub-files (agents only follow @-refs one level deep).
-  const lines = [`@${AGENT_PROFILE_FILE}`, ...sectionPaths.map(p => `@${p}`)];
-  const ref = lines.join('\n');
+  const allPaths = [AGENT_PROFILE_FILE, ...sectionPaths];
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
   for (const filename of ['CLAUDE.md', 'AGENTS.md']) {
@@ -42,11 +41,25 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
 
     // When writing AGENTS.md, also reference CLAUDE.md if it exists so agents
     // that only read AGENTS.md still pick up the CLAUDE.md instructions.
-    let extraRefs = '';
+    const extraPaths: string[] = [];
     if (filename === 'AGENTS.md' && fs.existsSync(path.join(root, 'CLAUDE.md'))) {
-      extraRefs = '\n@CLAUDE.md';
+      extraPaths.push('CLAUDE.md');
     }
-    const block = `${AGENT_REF_BEGIN}\n${ref}${extraRefs}\n${AGENT_REF_END}`;
+
+    const allRefPaths = [...allPaths, ...extraPaths];
+
+    // @-reference lines (understood by Claude Code / Codex agents)
+    const atLines = allRefPaths.map(p => `@${p}`).join('\n');
+
+    // Explicit read instructions for LLMs that don't follow @-references.
+    // Wrapped in <think> so reasoning models process them silently; non-reasoning
+    // models treat them as plain instructions (both approaches work).
+    const readInstructions = allRefPaths
+      .map(p => `- Read and follow the instructions in the file: ${p}`)
+      .join('\n');
+    const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
+
+    const block = `${AGENT_REF_BEGIN}\n${atLines}\n${thinkBlock}\n${AGENT_REF_END}`;
 
     let content = '';
     if (fs.existsSync(filePath)) {

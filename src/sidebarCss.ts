@@ -16,6 +16,8 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .model-row{display:flex;align-items:center;gap:6px;margin:-6px 0 10px}
 .model-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
 .model-select:focus{border-color:var(--vscode-focusBorder)}
+.model-search{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none}
+.model-search:focus{border-color:var(--vscode-focusBorder)}
 .resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
 .resume-row input{cursor:pointer}
 .new-session-btn{margin-left:auto;padding:1px 5px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:12px;line-height:1.4;opacity:.7}

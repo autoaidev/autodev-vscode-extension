@@ -552,7 +552,8 @@ function buildHtml(_webview: vscode.Webview): string {
 </div>
 <div class="model-row" id="opencodeModelRow" style="display:none">
   <span class="provider-label">Model:</span>
-  <select class="model-select" id="opencodeModelSelect"><option value="">Loading…</option></select>
+  <input class="model-search" id="opencodeModelInput" list="ocModelDatalist" placeholder="Search model…" autocomplete="off">
+  <datalist id="ocModelDatalist"></datalist>
 </div>
 <div class="resume-row" id="opencodeCacheRow" style="display:none">
   <input type="checkbox" id="opencodeCacheCheck">
@@ -663,20 +664,18 @@ function renderProviders(){
   modelRow.style.display=isCopilot?'flex':'none';
 
   var ocModelRow=document.getElementById('opencodeModelRow');
-  var ocModelSel=document.getElementById('opencodeModelSelect');
+  var ocModelInp=document.getElementById('opencodeModelInput');
   var isOpenCode=state.selectedProvider==='opencode-cli';
   ocModelRow.style.display=isOpenCode?'flex':'none';
-  if(isOpenCode&&ocModelSel&&!ocModelSel.dataset.loaded){
-    ocModelSel.dataset.loaded='1';
+  if(isOpenCode&&ocModelInp&&!ocModelInp.dataset.loaded){
+    ocModelInp.dataset.loaded='1';
     vscode.postMessage({command:'getOpenCodeModels'});
   }
-  if(isOpenCode&&ocModelSel&&ocModelSel.dataset.loaded==='ready'){
+  if(isOpenCode&&ocModelInp&&ocModelInp.dataset.loaded==='ready'){
     var curOc=(state.settings&&state.settings.opencodeModel)||'';
-    if(ocModelSel.value!==curOc){
-      ocModelSel.value=curOc||(ocModelSel.options[0]&&ocModelSel.options[0].value)||'';
-    }
-    ocModelSel.onchange=function(){
-      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelSel.value})});
+    if(document.activeElement!==ocModelInp&&ocModelInp.value!==curOc){ocModelInp.value=curOc;}
+    ocModelInp.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelInp.value})});
     };
   }
 
@@ -746,15 +745,17 @@ window.addEventListener('message',function(e){
   } else if(msg.command==='mcpEmailTestResult' && typeof window.renderMcpEmailTestResult==='function'){
     window.renderMcpEmailTestResult(msg);
   } else if(msg.command==='opencodeModels'){
-    var ocSel=document.getElementById('opencodeModelSelect');
-    if(ocSel){
-      var curVal=(state.settings&&state.settings.opencodeModel)||'';
-      ocSel.innerHTML='<option value="">Default model</option>'+msg.models.map(function(m){return '<option value="'+m+'"'+(m===curVal?' selected':'')+'>'+m+'</option>';}).join('');
-      ocSel.dataset.loaded='ready';
-      if(curVal){ocSel.value=curVal;}
-      ocSel.onchange=function(){
-        vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocSel.value})});
-      };
+    var dl=document.getElementById('ocModelDatalist');
+    if(dl){
+      dl.innerHTML='<option value=""></option>'+msg.models.map(function(m){return '<option value="'+m+'"></option>';}).join('');
+      var ocInp=document.getElementById('opencodeModelInput');
+      if(ocInp){
+        ocInp.dataset.loaded='ready';
+        ocInp.value=(state.settings&&state.settings.opencodeModel)||'';
+        ocInp.onchange=function(){
+          vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocInp.value})});
+        };
+      }
     }
   }
 });

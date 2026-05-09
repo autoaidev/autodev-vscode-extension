@@ -89,60 +89,103 @@ export function hooksJsonlPath(workspaceRoot: string): string {
   return path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
 }
 
-/**
- * Build a Node.js one-liner that reads stdin JSON and appends one JSONL line
- * to `<workspaceRoot>/.autodev/hooks-events.jsonl`. The workspace path is
- * baked into the string at install time (escaped via JSON.stringify) so the
- * hook always writes to the right place, regardless of cwd when it fires.
- *
- * Optionally injects a hook event name and provider id into the payload —
- * needed for Copilot CLI which doesn't include the event name in its stdin.
- */
-function nodeAppenderJs(workspaceRoot: string, injectEvent?: string, injectProvider?: string): string {
-  const inject = [
-    injectEvent    ? `d.hook=${JSON.stringify(injectEvent)};`        : '',
-    injectProvider ? `d.provider=${JSON.stringify(injectProvider)};` : '',
-  ].join('');
-  // Forward slashes only — Windows paths with backslashes get partially
-  // unescaped by the shell before node parses the JS source, turning
-  // `\t`, `\h`, `\a` etc. into escape sequences (TAB, `h`, `a`) and
-  // producing a corrupt path like `h:\ai\foo\ai<TAB>est_dev.autodev...`.
-  // Node accepts forward slashes on Windows.
-  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot).replace(/\\/g, '/'));
-  // eslint-disable-next-line max-len
-  return `let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{let d;try{d=JSON.parse(s)}catch(e){d={_raw:s.replace(/[\\r\\n]+/g," ")}}${inject}const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")})`;
+// ---------------------------------------------------------------------------
+// Hook scripts — written to <workspaceRoot>/.autodev/scripts/ once per
+// workspace. Using real files avoids all shell-quoting issues (no node -e
+// with embedded JSON, no PowerShell quote-stripping, no base64 tricks).
+// ---------------------------------------------------------------------------
+
+const HOOK_SCRIPTS_MARKER = '// __autodev_hooks_script__';
+
+/** Content of hook-append.js — reads stdin JSON, optionally overrides
+ *  hook/provider fields, then appends to the JSONL sink.
+ *  Args: <jsonlPath> [injectEvent] [injectProvider] */
+const HOOK_APPEND_SCRIPT = `${HOOK_SCRIPTS_MARKER}
+// Reads one JSON event from stdin and appends it to <jsonlPath>.
+// Args: <jsonlPath> [injectEvent] [injectProvider]
+const [,, jsonlPath, injectEvent, injectProvider] = process.argv;
+let s = '';
+process.stdin.on('data', c => s += c).on('end', () => {
+  let d;
+  try { d = JSON.parse(s); } catch (e) { d = { _raw: s.replace(/[\\r\\n]+/g, ' ') }; }
+  if (injectEvent)    { d.hook     = injectEvent; }
+  if (injectProvider) { d.provider = injectProvider; }
+  d.timestamp = new Date().toISOString();
+  const fs = require('fs'), p = require('path');
+  fs.mkdirSync(p.dirname(jsonlPath), { recursive: true });
+  fs.appendFileSync(jsonlPath, JSON.stringify(d) + '\\n');
+});
+`;
+
+/** Content of hook-event.js — reads a payload from a temp JSON file,
+ *  appends it to the JSONL sink, then deletes the temp file.
+ *  Args: <jsonlPath> <payloadFile> */
+const HOOK_EVENT_SCRIPT = `${HOOK_SCRIPTS_MARKER}
+// Reads a synthetic event payload from <payloadFile>, appends to <jsonlPath>,
+// then deletes the temp payload file.
+// Args: <jsonlPath> <payloadFile>
+const [,, jsonlPath, payloadFile] = process.argv;
+const fs = require('fs'), p = require('path');
+try {
+  const d = JSON.parse(fs.readFileSync(payloadFile, 'utf8'));
+  d.timestamp = new Date().toISOString();
+  fs.mkdirSync(p.dirname(jsonlPath), { recursive: true });
+  fs.appendFileSync(jsonlPath, JSON.stringify(d) + '\\n');
+} finally {
+  try { fs.unlinkSync(payloadFile); } catch { }
+}
+`;
+
+function hookScriptsDir(workspaceRoot: string): string {
+  return path.join(workspaceRoot, '.autodev', 'scripts');
+}
+
+/** Write (or overwrite) the two hook script files to .autodev/scripts/.
+ *  Safe to call on every install — idempotent and fast. */
+function ensureHookScripts(workspaceRoot: string): void {
+  const dir = hookScriptsDir(workspaceRoot);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'hook-append.js'), HOOK_APPEND_SCRIPT, 'utf8');
+  fs.writeFileSync(path.join(dir, 'hook-event.js'),  HOOK_EVENT_SCRIPT,  'utf8');
+}
+
+/** Quote a file path for use in a shell command (handles spaces).  Uses
+ *  forward slashes so the path works in both bash and PowerShell on Windows. */
+function shellQuotePath(p_: string): string {
+  return `"${p_.replace(/\\/g, '/')}"`;
 }
 
 /** Shell command for Claude Code — Claude already includes hook_event_name in
  *  the stdin payload, so we don't need to inject anything. */
 function claudeHookCommand(workspaceRoot: string): string {
-  return `node -e '${nodeAppenderJs(workspaceRoot)}'`;
+  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.js');
+  const jsonl   = hooksJsonlPath(workspaceRoot);
+  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)}`;
 }
 
 /** Shell command for one Copilot CLI event — Copilot doesn't include the
- *  event name in stdin, so we bake it into the JS. */
+ *  event name in stdin, so we pass it as an argument. */
 function copilotHookCommand(eventName: string, workspaceRoot: string): string {
-  return `node -e '${nodeAppenderJs(workspaceRoot, eventName, 'copilot-cli')}'`;
+  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.js');
+  const jsonl   = hooksJsonlPath(workspaceRoot);
+  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${JSON.stringify(eventName)} "copilot-cli"`;
 }
 
 /** Returns a shell command that synthesises a hook event with no stdin payload.
- *  Used by the dispatcher to emit SessionStart/SessionEnd for providers that
- *  lack native hooks (or before the CLI has a chance to fire its own).
+ *  Writes the payload to a small temp JSON file in .autodev/scripts/ so that
+ *  no shell quoting of JSON is required (avoids PowerShell stripping quotes).
  *  `workspaceRoot` controls which workspace's JSONL sink the hook writes to. */
 export function getManualHookCmd(provider: string, hookEvent: string, workspaceRoot: string, sessionName?: string): string {
-  // Build the JSON payload safely with JSON.stringify, then escape single
-  // quotes for the surrounding shell single-quoted argument.
-  const payload = {
-    hook: hookEvent,
-    provider,
-    _session_name: sessionName ?? '',
-  };
-  const payloadJson = JSON.stringify(payload).replace(/'/g, `'\\''`);
-  // See nodeAppenderJs for why we strip backslashes — same shell escaping bug.
-  const targetFile = JSON.stringify(hooksJsonlPath(workspaceRoot).replace(/\\/g, '/'));
-  // eslint-disable-next-line max-len
-  const js = `const d=${payloadJson};d.timestamp=new Date().toISOString();const fs=require("fs"),p=require("path"),f=${targetFile};fs.mkdirSync(p.dirname(f),{recursive:true});fs.appendFileSync(f,JSON.stringify(d)+"\\n")`;
-  return `node -e '${js}'`;
+  ensureHookScripts(workspaceRoot);
+  const payload = { hook: hookEvent, provider, _session_name: sessionName ?? '' };
+  // Write payload to a temp file — avoids any shell quoting of JSON
+  const scriptsDir = hookScriptsDir(workspaceRoot);
+  fs.mkdirSync(scriptsDir, { recursive: true });
+  const payloadFile = path.join(scriptsDir, `evt-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  fs.writeFileSync(payloadFile, JSON.stringify(payload), 'utf8');
+  const script = path.join(scriptsDir, 'hook-event.js');
+  const jsonl  = hooksJsonlPath(workspaceRoot);
+  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${shellQuotePath(payloadFile)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +252,7 @@ export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
 }
 
 export function installClaudeHooks(workspaceRoot: string): void {
+  ensureHookScripts(workspaceRoot);
   const filePath = claudeSettingsPath(workspaceRoot);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -300,6 +344,7 @@ export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
 }
 
 export function installCopilotHooks(workspaceRoot: string): void {
+  ensureHookScripts(workspaceRoot);
   const filePath = copilotSettingsPath(workspaceRoot);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
