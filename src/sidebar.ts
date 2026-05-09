@@ -403,12 +403,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       installHooks('project', root);
     }
 
-    // OpenCode hooks — install/uninstall plugin file
+    // OpenCode hooks — install/uninstall plugin file.
+    // Also auto-install when switching to an opencode provider while hooksEnabled is true,
+    // without requiring the user to manually tick the separate checkbox.
     const wasOcEnabled = prev.openCodeHooksEnabled;
     const isOcEnabled  = next.openCodeHooksEnabled;
-    if (!isOcEnabled) {
+    const isOpenCodeProvider = next.provider === 'opencode-cli' || next.provider === 'opencode-sdk';
+    if (!isOcEnabled && !isOpenCodeProvider) {
       if (wasOcEnabled || isOpenCodeHooksInstalled(root)) { uninstallOpenCodeHooks(root); }
-    } else {
+    } else if (isOcEnabled || (isOpenCodeProvider && next.hooksEnabled)) {
       installOpenCodeHooks(root);
     }
 

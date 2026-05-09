@@ -11,6 +11,8 @@ import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
 import { PROVIDERS } from './providers';
 import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from './hooksManager';
+import { isOpenCodeHooksInstalled, installOpenCodeHooks } from './openCodeHooksManager';
+import { saveSettings } from './settings';
 
 let _out: vscode.OutputChannel;
 export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
@@ -45,6 +47,17 @@ export function activate(context: vscode.ExtensionContext): void {
       if (s.hooksEnabled && (!areClaudeHooksInstalled(root) || !areCopilotHooksInstalled(root))) {
         log('Migrating hook commands to per-workspace JSONL sink…');
         installHooks('project', root);
+      }
+      // Auto-install OpenCode hooks when hooksEnabled is true and the active
+      // provider is opencode-cli or opencode-sdk. The plugin is idempotent —
+      // re-installing only overwrites if the workspace path changed.
+      const isOpenCodeProvider = s.provider === 'opencode-cli' || s.provider === 'opencode-sdk';
+      if (s.hooksEnabled && isOpenCodeProvider && !isOpenCodeHooksInstalled(root)) {
+        log('Auto-installing OpenCode hooks plugin…');
+        installOpenCodeHooks(root);
+        // Persist the enabled flag so the UI badge appears correctly.
+        saveSettings({ ...s, openCodeHooksEnabled: true });
+        log('OpenCode hooks plugin installed');
       }
     } catch (err) {
       log(`Hook migration check failed: ${(err as Error).message}`);
