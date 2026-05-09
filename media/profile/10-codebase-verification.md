@@ -34,6 +34,12 @@ Record what you find:
 
 ## 4. Verification Workflow (Verifier Agent)
 
+Never mark a task complete without **proving** it works. Verification must produce evidence — test output, runtime checks, logs, screenshots, or reproduced before/after behavior — not confidence statements.
+
+When relevant, compare the changed behavior against the previous behavior so the improvement is demonstrated rather than assumed.
+
+Before the final `[x]`, ask: **Would a staff engineer sign off on this change and its verification record?** If not, gather stronger proof.
+
 ### 4.1 Local Test Suite (always mandatory)
 
 ```bash

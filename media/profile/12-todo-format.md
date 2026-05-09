@@ -32,6 +32,9 @@ Status rules:
 - Never delete done items mid-session. At **end-of-session**, archive all `[x]` items to `DONE.md` per §1.4.1 — then remove them from `TODO.md`. The `## Done` section header stays.
 - **Progressive marking is required:** `TODO.md` must reflect actual state at all times. An observer reading it mid-batch should see exactly which tasks are done, which is active, and which are queued.
 - Update `TODO.md` in two steps per task: `[ ]` → `[~]` when dispatching, `[~]` → `[x] YYYY-MM-DD` when Verifier passes.
+- For any non-trivial task, add a **checkable plan/subtask list** immediately under the parent item after marking it `[~]`.
+- The plan must include a final **verification/review** subtask. Implementation is never the last unchecked step.
+- If the plan becomes stale because new evidence appears, rewrite the checklist before continuing instead of blindly following it.
 
 ---
 

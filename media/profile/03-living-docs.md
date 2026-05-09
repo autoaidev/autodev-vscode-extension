@@ -44,6 +44,31 @@ Beyond `SUMMARY.md` and Memory MCP, the agent maintains four **living documents*
 
 ---
 
+### LESSONS.md — Correction Patterns & Guardrails
+
+**Purpose:** A compact log of mistakes, user corrections, and durable rules that prevent the same error from happening again.
+
+**Use this file when:**
+- The user corrects the agent's behaviour, interpretation, or output.
+- A verifier, reviewer, or test failure exposes a preventable mistake.
+- The same class of mistake appears more than once across sessions.
+
+**Project-path rule:** If the repository already standardises on `tasks/lessons.md`, update that file instead of creating a duplicate root-level `LESSONS.md`.
+
+**Entry format (append, never overwrite):**
+```markdown
+## YYYY-MM-DD — <short lesson title>
+
+- **Pattern:** What mistake or correction occurred.
+- **Why it happened:** The incorrect assumption, shortcut, or missed verification step.
+- **Prevention rule:** The concrete instruction to follow next time.
+- **Applies when:** Task types, files, or situations where this lesson matters.
+```
+
+**Rule:** Review relevant lessons at session start before similar work. After any meaningful correction, add the lesson before the parent task is marked `[x]`.
+
+---
+
 ### TROUBLESHOOTING.md — Failure & Fix Register
 
 **Purpose:** A searchable record of every error, failure, and gotcha encountered — with root cause and fix. Prevents the same problem from consuming time twice.

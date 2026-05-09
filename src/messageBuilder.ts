@@ -129,10 +129,7 @@ export function parseFrontmatter(content: string): { meta: ProfileMeta; body: st
 // Message builder
 // ---------------------------------------------------------------------------
 
-/** Bundled fallback profile shipped with the extension */
-function defaultProfilePath(): string {
-  return path.join(__dirname, '..', 'media', 'AUTODEV.default.md');
-}
+
 
 /** Returns the .autodev/messages directory, creating it if needed. */
 function messagesDir(root: string): string {

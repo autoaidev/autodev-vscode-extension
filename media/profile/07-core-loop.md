@@ -10,8 +10,10 @@ CLASSIFY each task      — code / qa / docs / chore (see §1.5)
 │                                                                  │
 │  STEP 1 ► MARK [~] in TODO.md   ← DO THIS FIRST, NO EXCEPTIONS  │
 │    ↓                                                             │
-│  STEP 1.5 ► THINK & PLAN        — §1.6 checklist (6 questions)  │
-│             ↳ complex task?  → decompose into subtasks (§1.7)   │
+│  STEP 1.5 ► PLAN MODE DEFAULT   — write/refresh a checkable plan │
+│             ↳ if evidence changes, STOP and re-plan immediately  │
+│  STEP 1.6 ► THINK & PLAN        — §1.6 checklist + elegance bar  │
+│             ↳ complex task?  → decompose into subtasks (§1.7)    │
 │    ↓                                                             │
 │  STEP 2 ► DISPATCH to subagent  — Code Agent | QA Agent | self  │
 │    ↓                                                             │

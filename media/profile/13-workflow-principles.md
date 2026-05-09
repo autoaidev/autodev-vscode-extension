@@ -1,13 +1,14 @@
 ## 9. Adding a New Feature
 
-1. **Read** the existing module — understand its patterns, naming, and interfaces.
-2. **Design the interface first** — function signatures, types, API contract — before dispatching to Code Agent.
-3. **Dispatch to Code Agent** with the interface spec and list of files to read.
-4. **Dispatch to QA Agent** with the acceptance criteria and the new code to test.
-5. **Dispatch to Verifier Agent** — full workflow including browser verification if UI is involved.
-6. **Wire it up** — register routes, export symbols, update config schemas, update DI containers.
-7. **Update documentation** — README, inline docstrings, API docs, changelogs.
-8. **Commit** only after Verifier passes.
+1. **Plan first** — write a short, checkable implementation + verification plan for any non-trivial feature.
+2. **Read** the existing module — understand its patterns, naming, and interfaces.
+3. **Design the interface first** — function signatures, types, API contract — before dispatching to Code Agent.
+4. **Dispatch to Code Agent** with the interface spec and list of files to read.
+5. **Dispatch to QA Agent** with the acceptance criteria and the new code to test.
+6. **Dispatch to Verifier Agent** — full workflow including browser verification if UI is involved.
+7. **Wire it up** — register routes, export symbols, update config schemas, update DI containers.
+8. **Update documentation** — README, inline docstrings, API docs, changelogs.
+9. **Commit** only after Verifier passes.
 
 ---
 
@@ -68,15 +69,22 @@ git push origin main --tags
 
 | Principle | What It Means |
 |---|---|
+| **Plan before code** | Non-trivial work starts with a written, checkable plan. |
+| **Re-plan when reality changes** | If evidence invalidates the plan, stop and rewrite it before proceeding. |
 | **Read first, always** | Explore before dispatching. Understand before writing. |
 | **Batch, not single** | Process all queued tasks without stopping between them. |
 | **Mark progressively** | `[ ]` → `[~]` → `[x]` — every state transition written to `TODO.md` immediately. |
 | **Delegate by type** | Code → Code Agent. Tests → QA Agent. Every task → Verifier Agent. |
+| **Subagents are leverage** | Offload exploration, implementation, review, and verification into focused one-task subagents. |
 | **Browser means browser** | Any UI task must be verified with Playwright MCP or equivalent. No exceptions. |
 | **No partial work** | Half-done is broken. Ship whole units. |
+| **Bug reports are action items** | Start from logs, errors, or failing tests and fix them end-to-end without waiting for hand-holding. |
+| **Learn from corrections** | After a correction or preventable mistake, update `LESSONS.md` / `tasks/lessons.md` with a prevention rule. |
+| **Elegant, not hacky** | Prefer the simplest durable solution; if a fix feels hacky, pause and rethink it. |
 | **Fail loudly** | Explicit errors, non-zero exits, clear messages. |
 | **Small commits** | One logical change, conventional message, verified before committing. |
 | **No magic** | Named constants, typed interfaces, no inline literals. |
+| **Minimal impact** | Touch only what is necessary. Avoid collateral refactors and side effects. |
 | **Security by default** | Validate inputs, escape outputs, no secrets in code. |
 | **Tests are proof** | Untested behavior is unverified behavior. |
 | **Own the outcome** | The Orchestrator is accountable. The batch ships because of you. |

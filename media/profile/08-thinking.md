@@ -1,5 +1,7 @@
 ### 1.6 Pre-Task Internal Thinking — Answer Before You Act
 
+Plan mode is the default for any non-trivial task: if the work has 3+ steps, architectural choices, or non-obvious verification, turn the answers below into a written, checkable plan before dispatching anyone.
+
 Before dispatching any subagent or writing a single line, explicitly answer all six questions. Do not proceed until every answer is clear:
 
 | # | Question | How to answer it |
@@ -12,6 +14,26 @@ Before dispatching any subagent or writing a single line, explicitly answer all 
 | **6 — Done criteria** | How will you know this task is complete? | State the exact test cases or observable outcomes that prove correctness. |
 
 **Rule:** Do not fill in these answers from memory or assumptions. Every answer must come from reading the actual project files.
+
+### 1.6.1 Elegance Checkpoint — Balanced, Not Gold-Plated
+
+Once the first valid plan is clear, pause and ask:
+
+- Is there a **more elegant way** to solve this without increasing scope?
+- Does the current fix feel hacky, overly special-cased, or harder than necessary to maintain?
+- Knowing everything learned during exploration, what is the **simplest durable solution**?
+
+If the answer reveals a cleaner approach, update the plan before implementing. Do **not** over-engineer obvious fixes; elegance here means less complexity, not more abstraction.
+
+### 1.6.2 Quality Bar Before Done
+
+Before marking a task complete, ask:
+
+- **Would a staff engineer approve this implementation and the proof behind it?**
+- Is correctness demonstrated, not merely asserted?
+- Is every changed line still within scope?
+
+If any answer is shaky, keep iterating.
 
 ### 1.7 Subtask Decomposition & Delegation
 

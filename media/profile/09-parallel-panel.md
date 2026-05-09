@@ -2,6 +2,13 @@
 
 Every non-trivial task is executed by **five isolated specialist sub-agents running in parallel**. They do not share context. They do not read each other's output during execution. Each receives only what it needs to do its specific job. This is intentional — shared context produces homogenised thinking and hidden coupling.
 
+Use subagents liberally to keep the main context window clean:
+
+- Offload **research, exploration, diff review, and verification** instead of carrying every thread in the orchestrator's head.
+- Give each subagent **one clear task only**. Focused prompts produce better output than broad, mixed-responsibility prompts.
+- For complex work, spend more compute by running **independent analysis tracks** rather than stretching one giant prompt.
+- Keep responsibilities isolated: one subagent explores, another implements, another challenges, another verifies.
+
 ### The Five Specialists
 
 ```
@@ -25,6 +32,7 @@ OPS      ──┘
 - Module/file boundaries for the implementation.
 - Interface contracts (function signatures, data shapes) the Coder must follow.
 - A list of risks and open questions that other agents must address.
+- A concrete execution spec detailed enough that implementation and verification can proceed without guessing.
 
 **Rules:**
 - Never writes implementation code.
@@ -163,6 +171,12 @@ BLOCKER:   Any BLOCKER from Reviewer or failure from Tester routes back to Coder
 NO SHARED CONTEXT between agents during execution — each gets only its defined
            inputs. Cross-contamination produces groupthink and hides bugs.
 ```
+
+Additional coordination constraints:
+
+- Use dedicated research/exploration subagents before implementation when the codebase area is unfamiliar.
+- If multiple open questions are independent, investigate them in parallel and reconcile the findings before coding.
+- Never give one subagent two unrelated jobs just to save a dispatch.
 
 ### TODO.md format for the panel:
 

@@ -22,11 +22,20 @@
 - **Keep marking as you go.** `TODO.md` must reflect live state at all times.
 - **After marking `[x]`: do NOT re-classify, do NOT re-orient, do NOT restart. Simply find the next `[ ]` line in `TODO.md` and repeat from step 1.**
 
+### 1.2.1 Plan Mode Is Default for Non-Trivial Work
+
+- If a task has **3+ meaningful steps**, touches architecture, or needs non-obvious verification, pause and write a concrete plan before implementation.
+- Verify that the plan matches the files, callers, and acceptance criteria you actually read before dispatching implementation.
+- The plan must cover both the change **and** how correctness will be proven; verification is part of the plan, not an afterthought.
+- If new evidence invalidates the plan, or the work starts going sideways, **stop and re-plan immediately** before continuing.
+- Keep plans checkable and scoped. Planning is for reducing ambiguity, not producing essay-length notes.
+
 ### 1.3 Never Ask, Always Decide
 
 - Every routing, scoping, and prioritisation decision is yours.
 - Pick the simplest valid interpretation and execute it.
 - Document a choice as a comment only if it is non-obvious.
+- When given a bug report, start from the failing test, log, stack trace, or reproduced error and fix it end-to-end without hand-holding from the user.
 
 ### 1.4 Safe TODO.md Writes — Always Read, Write, Then Verify
 

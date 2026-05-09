@@ -131,6 +131,11 @@ export function getMcpInstallSnapshot(target: CheckTarget): McpInstallInfo {
   const arg = _firstPositional(target.args || []);
   if (runner === 'npx') {
     if (!arg) return { status: 'installed', runner };
+    // If -y flag is present npx auto-fetches — no global install needed.
+    if ((target.args || []).includes('-y')) {
+      const pkg = _bareNpmPkg(arg);
+      return { status: _runnerCache.get(runner) ? 'installed' : 'missing-runner', runner, pkg };
+    }
     const pkg = _bareNpmPkg(arg);
     const key = `npm:${pkg}`;
     if (!_pkgCache.has(key)) return { status: 'unknown', runner, pkg };
@@ -155,6 +160,11 @@ export async function checkMcpInstallAsync(target: CheckTarget): Promise<McpInst
   const arg = _firstPositional(target.args || []);
   if (runner === 'npx') {
     if (!arg) return { status: 'installed', runner };
+    // If -y flag is present npx auto-fetches the package — no global install needed.
+    if ((target.args || []).includes('-y')) {
+      const pkg = _bareNpmPkg(arg);
+      return { status: 'installed', runner, pkg };
+    }
     const pkg = _bareNpmPkg(arg);
     return { status: (await _hasNpmGlobal(pkg)) ? 'installed' : 'missing-package', runner, pkg };
   }

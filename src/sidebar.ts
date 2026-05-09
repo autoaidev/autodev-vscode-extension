@@ -13,6 +13,7 @@ import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
+import { applyMcpSkills } from './protocolSections';
 import { Task, parseTodo } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId } from './sessionState';
@@ -126,7 +127,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
             enabled[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}) };
           }
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          if (root) saveProjectUserMcp(root, enabled);
+          if (root) {
+            saveProjectUserMcp(root, enabled);
+            try { applyMcpSkills(root, loadSettings()); } catch { /* ignore */ }
+          }
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(
             `AutoDev: ${Object.keys(enabled).length} MCP server(s) saved to .mcp.json.`

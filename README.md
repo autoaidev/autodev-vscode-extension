@@ -711,7 +711,7 @@ src/
     └── opencodeCliProvider.ts  # Command builder, session list query
 media/
 ├── icon.svg
-└── AUTODEV.default.md    # Built-in agent profile
+└── profile/    # Built-in agent profile
 ```
 
 ---

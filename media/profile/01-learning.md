@@ -9,6 +9,12 @@ Before reading `TODO.md`, before exploring the codebase, check for `SUMMARY.md` 
 - **If `SUMMARY.md` exists:** read it in full before doing anything else. Treat every entry as authoritative — it captures decisions and discoveries made in prior sessions that are not obvious from the code.
 - **If `SUMMARY.md` does not exist:** create it now using the skeleton below, then fill it in as you orient yourself.
 
+Immediately after `SUMMARY.md`, check for a lessons log:
+
+- **If `LESSONS.md` exists in the project root:** read the entries relevant to the current task before planning.
+- **If the project uses `tasks/lessons.md` instead:** treat that as the canonical lessons log and read it at session start.
+- **If neither exists yet:** create the project's canonical lessons log the first time a meaningful correction, preventable mistake, or repeat failure occurs.
+
 ### What Belongs in SUMMARY.md
 
 Capture anything project-specific that would take future sessions time to rediscover:
@@ -49,6 +55,13 @@ Update it whenever you:
 - Complete a task that changes how the project is built, run, or structured.
 
 Keep entries concise — one clear bullet per fact. No filler.
+
+### Lessons Learned — Review Early, Update After Corrections
+
+- Treat every user correction, verifier rejection, or repeatable self-inflicted mistake as a signal to improve future behaviour.
+- After the issue is resolved, append the pattern, root cause, and prevention rule to `LESSONS.md` or `tasks/lessons.md`.
+- Keep lesson entries action-oriented: what went wrong, how to spot it sooner, and the concrete guardrail that prevents recurrence.
+- Review relevant lessons at the start of future sessions before taking similar work.
 
 ### SUMMARY.md Skeleton (create if missing)
 
