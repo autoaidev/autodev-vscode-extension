@@ -3,8 +3,9 @@ import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // OpenCode hooks manager — installs/removes an OpenCode plugin that appends
-// hook events to ~/.autodev/hooks-events.jsonl in the same format as the
-// Claude Code hooks, so the task loop can stream them to Pixel Office.
+// hook events to <workspaceRoot>/.autodev/hooks-events.jsonl in the same
+// format as the Claude Code hooks, so the task loop can stream them to
+// Pixel Office.
 //
 // The plugin is placed at <workspaceRoot>/.opencode/plugins/autodev-hooks.ts
 // OpenCode discovers plugins in that directory automatically.
@@ -23,17 +24,24 @@ function pluginPath(workspaceRoot: string): string {
 
 // ---------------------------------------------------------------------------
 // Plugin content — TypeScript executed by OpenCode/Bun at runtime.
-// Uses Node-compatible fs/os/path modules (Bun supports these).
+// The JSONL path is baked in at install time (workspace-scoped, forward
+// slashes only so Bun/Windows path handling doesn't break the string).
 // ---------------------------------------------------------------------------
 
-const PLUGIN_CONTENT = `${PLUGIN_MARKER}
+function buildPluginContent(workspaceRoot: string): string {
+  // Bake in the workspace-scoped JSONL path with forward slashes so the
+  // plugin always writes to the right place regardless of the process cwd.
+  const jsonlPath = JSON.stringify(
+    path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl').replace(/\\/g, '/'),
+  );
+  return `${PLUGIN_MARKER}
 // AutoDev hooks plugin for OpenCode — auto-generated, do not edit.
-// Streams tool/session events to Pixel Office via ~/.autodev/hooks-events.jsonl
+// Streams tool/session events to Pixel Office via <workspaceRoot>/.autodev/hooks-events.jsonl
 import { appendFileSync, mkdirSync, existsSync } from 'fs';
-import { homedir } from 'os';
-import { join, dirname } from 'path';
+import { dirname } from 'path';
 
-const JSONL_PATH = join(homedir(), '.autodev', 'hooks-events.jsonl');
+// Path is baked in at install time (workspace-scoped, always forward slashes)
+const JSONL_PATH: string = ${jsonlPath};
 
 // High-frequency / large-payload events that are not useful in the UI
 const SKIP_EVENTS = new Set([
@@ -119,6 +127,7 @@ export const AutodevHooksPlugin = async () => ({
   },
 });
 `;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -127,7 +136,10 @@ export const AutodevHooksPlugin = async () => ({
 export function isOpenCodeHooksInstalled(workspaceRoot: string): boolean {
   try {
     const content = fs.readFileSync(pluginPath(workspaceRoot), 'utf8');
-    return content.includes(PLUGIN_MARKER);
+    // Check both the marker AND that the path is workspace-scoped (not a stale
+    // homedir path from an older install).
+    const expectedPath = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl').replace(/\\/g, '/');
+    return content.includes(PLUGIN_MARKER) && content.includes(expectedPath);
   } catch {
     return false;
   }
@@ -136,7 +148,29 @@ export function isOpenCodeHooksInstalled(workspaceRoot: string): boolean {
 export function installOpenCodeHooks(workspaceRoot: string): void {
   const dir = pluginDir(workspaceRoot);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(pluginPath(workspaceRoot), PLUGIN_CONTENT, 'utf8');
+  fs.writeFileSync(pluginPath(workspaceRoot), buildPluginContent(workspaceRoot), 'utf8');
+}
+
+/**
+ * Read the workspace-scoped hooks-events.jsonl and return the session ID from
+ * the most recent OpenCode session.created / session.idle / session.updated event.
+ * Returns undefined if the file is absent or no session event has been seen yet.
+ */
+export function getOpenCodeSessionIdFromHooks(workspaceRoot: string): string | undefined {
+  const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+  try {
+    const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
+    // Walk backwards — most recent event first
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const ev = JSON.parse(lines[i]);
+        if (ev.provider !== 'opencode') { continue; }
+        const sid: string | undefined = ev.session_id ?? undefined;
+        if (sid) { return sid; }
+      } catch { /* malformed line */ }
+    }
+  } catch { /* file absent */ }
+  return undefined;
 }
 
 export function uninstallOpenCodeHooks(workspaceRoot: string): void {

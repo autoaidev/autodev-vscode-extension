@@ -10,6 +10,7 @@ import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilot
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
 import { getManualHookCmd } from './hooksManager';
+import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -129,7 +130,9 @@ export async function sendPromptToAi(
       } else if (providerId === 'copilot-cli') {
         resolvedSessionId = await probeCopilotSession(root, log);
       } else if (providerId === 'opencode-cli') {
-        resolvedSessionId = await getLatestOpenCodeSessionId(root, log);
+        // Prefer hooks events (fast, no subprocess); fall back to session list
+        resolvedSessionId = getOpenCodeSessionIdFromHooks(root)
+          ?? await getLatestOpenCodeSessionId(root, log);
       }
       if (resolvedSessionId) {
         captureAndSaveSessionId(root, providerId, resolvedSessionId);

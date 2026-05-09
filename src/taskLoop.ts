@@ -12,6 +12,7 @@ import { loadSettingsForRoot, AutodevSettings } from './core/settingsLoader';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
+import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
@@ -810,10 +811,17 @@ export class TaskLoopRunner {
         // Capture and persist CLI session ID so the next task can resume it
         if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           if (activeProvider === 'opencode-cli') {
-            // opencode run doesn't output JSON, so read the session list directly
-            getLatestOpenCodeSessionId(this._workspaceRoot, msg => this._cb?.log(msg))
-              .then(id => { if (id && this._workspaceRoot) { saveSessionId(this._workspaceRoot, 'opencode-cli', id); } })
-              .catch(() => {});
+            // Prefer the session ID from hooks events (fast, no subprocess);
+            // fall back to `opencode session list` if hooks haven't fired yet.
+            const hooksSid = getOpenCodeSessionIdFromHooks(this._workspaceRoot);
+            if (hooksSid) {
+              saveSessionId(this._workspaceRoot, 'opencode-cli', hooksSid);
+              this._cb?.log(`OpenCode session ID from hooks: ${hooksSid}`);
+            } else {
+              getLatestOpenCodeSessionId(this._workspaceRoot, msg => this._cb?.log(msg))
+                .then(id => { if (id && this._workspaceRoot) { saveSessionId(this._workspaceRoot, 'opencode-cli', id); } })
+                .catch(() => {});
+            }
           } else if (activeProvider === 'claude-tui') {
             const sid = getClaudeTuiLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'claude-tui', sid); }
