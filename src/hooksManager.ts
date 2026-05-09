@@ -103,6 +103,9 @@ const HOOK_SCRIPTS_MARKER = '// __autodev_hooks_script__';
 const HOOK_APPEND_SCRIPT = `${HOOK_SCRIPTS_MARKER}
 // Reads one JSON event from stdin and appends it to <jsonlPath>.
 // Args: <jsonlPath> [injectEvent] [injectProvider]
+// Compatible with both CJS and ESM host packages (uses createRequire shim).
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const [,, jsonlPath, injectEvent, injectProvider] = process.argv;
 let s = '';
 process.stdin.on('data', c => s += c).on('end', () => {
@@ -124,6 +127,9 @@ const HOOK_EVENT_SCRIPT = `${HOOK_SCRIPTS_MARKER}
 // Reads a synthetic event payload from <payloadFile>, appends to <jsonlPath>,
 // then deletes the temp payload file.
 // Args: <jsonlPath> <payloadFile>
+// Compatible with both CJS and ESM host packages (uses createRequire shim).
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 const [,, jsonlPath, payloadFile] = process.argv;
 const fs = require('fs'), p = require('path');
 try {
@@ -145,8 +151,8 @@ function hookScriptsDir(workspaceRoot: string): string {
 function ensureHookScripts(workspaceRoot: string): void {
   const dir = hookScriptsDir(workspaceRoot);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'hook-append.js'), HOOK_APPEND_SCRIPT, 'utf8');
-  fs.writeFileSync(path.join(dir, 'hook-event.js'),  HOOK_EVENT_SCRIPT,  'utf8');
+  fs.writeFileSync(path.join(dir, 'hook-append.mjs'), HOOK_APPEND_SCRIPT, 'utf8');
+  fs.writeFileSync(path.join(dir, 'hook-event.mjs'),  HOOK_EVENT_SCRIPT,  'utf8');
 }
 
 /** Quote a file path for use in a shell command (handles spaces).  Uses
@@ -158,7 +164,7 @@ function shellQuotePath(p_: string): string {
 /** Shell command for Claude Code — Claude already includes hook_event_name in
  *  the stdin payload, so we don't need to inject anything. */
 function claudeHookCommand(workspaceRoot: string): string {
-  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.js');
+  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.mjs');
   const jsonl   = hooksJsonlPath(workspaceRoot);
   return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)}`;
 }
@@ -166,7 +172,7 @@ function claudeHookCommand(workspaceRoot: string): string {
 /** Shell command for one Copilot CLI event — Copilot doesn't include the
  *  event name in stdin, so we pass it as an argument. */
 function copilotHookCommand(eventName: string, workspaceRoot: string): string {
-  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.js');
+  const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.mjs');
   const jsonl   = hooksJsonlPath(workspaceRoot);
   return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${JSON.stringify(eventName)} "copilot-cli"`;
 }
@@ -183,7 +189,7 @@ export function getManualHookCmd(provider: string, hookEvent: string, workspaceR
   fs.mkdirSync(scriptsDir, { recursive: true });
   const payloadFile = path.join(scriptsDir, `evt-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   fs.writeFileSync(payloadFile, JSON.stringify(payload), 'utf8');
-  const script = path.join(scriptsDir, 'hook-event.js');
+  const script = path.join(scriptsDir, 'hook-event.mjs');
   const jsonl  = hooksJsonlPath(workspaceRoot);
   return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${shellQuotePath(payloadFile)}`;
 }
@@ -224,7 +230,8 @@ function isCurrentClaudeEntry(group: any, workspaceRoot: string): boolean {
   const cmd = group.hooks?.[0]?.command;
   if (typeof cmd !== 'string') return false;
   const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
-  return cmd.includes(JSON.stringify(expectedSink));
+  // Also require the .mjs extension so legacy .js installs are re-migrated.
+  return cmd.includes(JSON.stringify(expectedSink)) && cmd.includes('hook-append.mjs');
 }
 
 export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
@@ -328,7 +335,10 @@ function isAutodevCopilotEntry(entry: any): boolean {
 function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
   if (!isAutodevCopilotEntry(entry)) return false;
   const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
-  return typeof entry.bash === 'string' && entry.bash.includes(JSON.stringify(expectedSink));
+  // Also require the .mjs extension so legacy .js installs are re-migrated.
+  return typeof entry.bash === 'string'
+    && entry.bash.includes(JSON.stringify(expectedSink))
+    && entry.bash.includes('hook-append.mjs');
 }
 
 export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
