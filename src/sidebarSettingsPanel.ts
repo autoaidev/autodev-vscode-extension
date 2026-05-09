@@ -196,6 +196,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     copilotModel:(state.settings&&state.settings.copilotModel)||'',
     opencodeModel:(state.settings&&state.settings.opencodeModel)||'',
+    opencodeCacheEnabled:!!(state.settings&&state.settings.opencodeCacheEnabled),
     todoPath:document.getElementById('cfg_todoPath').value,
   };
   vscode.postMessage({command:'saveSettings',settings:s});

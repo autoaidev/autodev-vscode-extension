@@ -63,6 +63,11 @@ export interface AutodevSettings {
    */
   opencodeModel: string;
   /**
+   * When true, writes `setCacheKey: true` into the provider options of the
+   * project-level `opencode.json`, enabling prompt/model caching.
+   */
+  opencodeCacheEnabled: boolean;
+  /**
    * Per-project MCP server definitions managed by autodev. Stored in the
    * standard `mcpServers` shape (`{ <name>: { command, args, env } }`) so
    * users can paste server snippets verbatim from MCP docs (e.g.
@@ -137,6 +142,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   autoStartLoop: false,
   copilotModel: '',
   opencodeModel: '',
+  opencodeCacheEnabled: false,
   mcpServers: {},
   disabledBuiltinMcp: [],
   fallbackProvider: 'opencode-cli' as ProviderId,

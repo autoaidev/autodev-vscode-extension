@@ -43,25 +43,47 @@ import { dirname } from 'path';
 // Path is baked in at install time (workspace-scoped, always forward slashes)
 const JSONL_PATH: string = ${jsonlPath};
 
-// High-frequency / large-payload events that are not useful in the UI
+// High-frequency / large-payload events we intentionally skip in the generic catch-all
+// (tool events have dedicated hooks; these are too noisy or already handled explicitly)
 const SKIP_EVENTS = new Set([
   'message.part.updated',
   'message.part.delta',
   'message.part.removed',
   'session.diff',
+  // Skip events that have their own explicit named hooks below so we don't double-log
+  'tool.execute.before',
+  'tool.execute.after',
+  'permission.asked',
+  'permission.replied',
+  'tui.prompt.append',
+  'tui.command.execute',
+  'tui.toast.show',
+  'command.executed',
+  'file.edited',
 ]);
 
 const SESSION_MAP: Record<string, string> = {
-  'session.created':   'SessionStart',
-  'session.idle':      'Stop',
-  'session.error':     'StopFailure',
-  'session.deleted':   'SessionEnd',
-  'session.compacted': 'PostCompact',
-  'session.updated':   'SessionStatus',
-  'session.status':    'SessionStatus',
-  'message.updated':   'MessageUpdated',
-  'message.removed':   'MessageRemoved',
-  'todo.updated':      'TaskCreated',
+  'session.created':    'SessionStart',
+  'session.idle':       'Stop',
+  'session.error':      'StopFailure',
+  'session.deleted':    'SessionEnd',
+  'session.compacted':  'PostCompact',
+  'session.updated':    'SessionStatus',
+  'session.status':     'SessionStatus',
+  'message.updated':    'MessageUpdated',
+  'message.removed':    'MessageRemoved',
+  'todo.updated':       'TaskCreated',
+  'command.executed':   'CommandExecuted',
+  'file.edited':        'FileEdited',
+  'file.watcher.updated': 'FileWatcherUpdated',
+  'permission.asked':   'PermissionAsked',
+  'permission.replied': 'PermissionReplied',
+  'server.connected':   'ServerConnected',
+  'lsp.updated':        'LspUpdated',
+  'installation.updated': 'InstallationUpdated',
+  'tui.prompt.append':  'TuiPromptAppend',
+  'tui.command.execute':'TuiCommandExecute',
+  'tui.toast.show':     'TuiToastShow',
 };
 
 function appendEvent(ev: Record<string, unknown>): void {
@@ -73,21 +95,29 @@ function appendEvent(ev: Record<string, unknown>): void {
   } catch { }
 }
 
+// Helper to extract session ID from various event shapes
+function extractSessionId(input: any): string | null {
+  return input?.sessionID ?? input?.session_id ?? input?.properties?.sessionID ?? null;
+}
+
 export const AutodevHooksPlugin = async () => ({
-  'tool.execute.before': async (input: any, callData?: any) => {
+  // -------------------------------------------------------------------------
+  // Tool lifecycle — explicit named hooks (these do NOT fire via generic 'event')
+  // -------------------------------------------------------------------------
+  'tool.execute.before': async (input: any, output?: any) => {
     appendEvent({
       opencode_event:  'tool.execute.before',
       hook_event_name: 'PreToolUse',
       provider:        'opencode',
       tool_name:       input?.tool ?? 'unknown',
-      tool_input:      callData?.args ?? null,
-      session_id:      input?.sessionID ?? null,
+      tool_input:      output?.args ?? input?.args ?? null,
+      session_id:      extractSessionId(input),
       call_id:         input?.callID ?? null,
     });
   },
 
-  'tool.execute.after': async (input: any, callData?: any) => {
-    const rawOut = callData?.output;
+  'tool.execute.after': async (input: any, output?: any) => {
+    const rawOut = output?.output ?? output?.result ?? output?.text;
     const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
     appendEvent({
       opencode_event:  'tool.execute.after',
@@ -95,16 +125,104 @@ export const AutodevHooksPlugin = async () => ({
       provider:        'opencode',
       tool_name:       input?.tool ?? 'unknown',
       tool_input:      input?.args ?? null,
-      tool_output:     outText != null ? { title: callData?.title ?? null, text: outText } : null,
-      session_id:      input?.sessionID ?? null,
+      tool_output:     outText != null ? { title: output?.title ?? null, text: outText } : null,
+      session_id:      extractSessionId(input),
       call_id:         input?.callID ?? null,
     });
   },
 
+  // -------------------------------------------------------------------------
+  // Permission hooks — explicit so we always capture even if generic 'event'
+  // doesn't fire for them. Critical for detecting blocked/waiting states.
+  // -------------------------------------------------------------------------
+  'permission.asked': async (input: any, output?: any) => {
+    appendEvent({
+      opencode_event:  'permission.asked',
+      hook_event_name: 'PermissionAsked',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      tool_name:       input?.tool ?? null,
+      tool_input:      input?.args ?? null,
+      message:         input?.message ?? input?.description ?? null,
+    });
+  },
+
+  'permission.replied': async (input: any, output?: any) => {
+    appendEvent({
+      opencode_event:  'permission.replied',
+      hook_event_name: 'PermissionReplied',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      tool_name:       input?.tool ?? null,
+      granted:         input?.granted ?? output?.granted ?? null,
+    });
+  },
+
+  // -------------------------------------------------------------------------
+  // TUI events — explicit named hooks
+  // -------------------------------------------------------------------------
+  'tui.prompt.append': async (input: any) => {
+    appendEvent({
+      opencode_event:  'tui.prompt.append',
+      hook_event_name: 'TuiPromptAppend',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      text:            input?.text ?? null,
+    });
+  },
+
+  'tui.command.execute': async (input: any) => {
+    appendEvent({
+      opencode_event:  'tui.command.execute',
+      hook_event_name: 'TuiCommandExecute',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      command:         input?.command ?? input?.name ?? null,
+    });
+  },
+
+  'tui.toast.show': async (input: any) => {
+    appendEvent({
+      opencode_event:  'tui.toast.show',
+      hook_event_name: 'TuiToastShow',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      message:         input?.message ?? input?.text ?? null,
+    });
+  },
+
+  // -------------------------------------------------------------------------
+  // Command + file events — explicit named hooks
+  // -------------------------------------------------------------------------
+  'command.executed': async (input: any) => {
+    appendEvent({
+      opencode_event:  'command.executed',
+      hook_event_name: 'CommandExecuted',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      command:         input?.command ?? input?.name ?? null,
+      exit_code:       input?.exitCode ?? input?.exit_code ?? null,
+    });
+  },
+
+  'file.edited': async (input: any) => {
+    appendEvent({
+      opencode_event:  'file.edited',
+      hook_event_name: 'FileEdited',
+      provider:        'opencode',
+      session_id:      extractSessionId(input),
+      file:            input?.file ?? input?.path ?? null,
+    });
+  },
+
+  // -------------------------------------------------------------------------
+  // Generic catch-all for remaining events (session/message/todo/lsp/server…)
+  // SKIP_EVENTS excludes high-noise events and events already handled above.
+  // -------------------------------------------------------------------------
   'event': async (ctx: any) => {
     const evt   = ctx?.event ?? ctx ?? {};
     const t: string = evt?.type ?? '';
-    if (!t || SKIP_EVENTS.has(t)) return;
+    if (!t || SKIP_EVENTS.has(t)) { return; }
 
     const props     = evt?.properties ?? {};
     const sessionId = props?.sessionID ?? props?.id ?? null;

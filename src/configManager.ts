@@ -75,6 +75,38 @@ export class ConfigManager {
     }
   }
 
+  /**
+   * Enable or disable `setCacheKey: true` for all provider sections in the
+   * project-level `opencode.json`. When `enabled` is true, every existing
+   * provider entry gets `options.setCacheKey = true` added. When false, the
+   * key is deleted (options object is pruned if it becomes empty).
+   */
+  static applyOpenCodeCacheSettings(root: string, enabled: boolean, log?: (m: string) => void): void {
+    const projectFile = path.join(root, 'opencode.json');
+    _mergeJson(projectFile, (cfg) => {
+      const provider = _obj(cfg['provider']);
+      // Apply to every provider section that already exists in the file.
+      // We don't create new provider entries — only touch what's there so
+      // we don't accidentally set a key for a provider that isn't configured.
+      for (const providerName of Object.keys(provider)) {
+        const prov = _obj(provider[providerName]);
+        if (enabled) {
+          const opts = _obj(prov['options']);
+          opts['setCacheKey'] = true;
+          prov['options'] = opts;
+        } else {
+          const opts = prov['options'];
+          if (opts && typeof opts === 'object') {
+            delete (opts as Record<string, unknown>)['setCacheKey'];
+            if (Object.keys(opts).length === 0) { delete prov['options']; }
+          }
+        }
+        provider[providerName] = prov;
+      }
+      cfg['provider'] = provider;
+    }, log, 'OpenCode cache settings');
+  }
+
   // -------------------------------------------------------------------------
   // MCP sync — project-local only (no global config modifications)
   // -------------------------------------------------------------------------

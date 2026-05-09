@@ -403,13 +403,19 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       installHooks('project', root);
     }
 
-    // OpenCode hooks â€” install/uninstall plugin file
+    // OpenCode hooks — install/uninstall plugin file
     const wasOcEnabled = prev.openCodeHooksEnabled;
     const isOcEnabled  = next.openCodeHooksEnabled;
     if (!isOcEnabled) {
       if (wasOcEnabled || isOpenCodeHooksInstalled(root)) { uninstallOpenCodeHooks(root); }
     } else {
       installOpenCodeHooks(root);
+    }
+
+    // OpenCode cache — apply/remove setCacheKey from opencode.json when toggled
+    if (prev.opencodeCacheEnabled !== next.opencodeCacheEnabled) {
+      try { ConfigManager.applyOpenCodeCacheSettings(root, next.opencodeCacheEnabled); }
+      catch { /* non-fatal */ }
     }
   }
 
@@ -548,6 +554,10 @@ function buildHtml(_webview: vscode.Webview): string {
   <span class="provider-label">Model:</span>
   <select class="model-select" id="opencodeModelSelect"><option value="">Loading…</option></select>
 </div>
+<div class="resume-row" id="opencodeCacheRow" style="display:none">
+  <input type="checkbox" id="opencodeCacheCheck">
+  <label for="opencodeCacheCheck">Enable model caching</label>
+</div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
@@ -667,6 +677,17 @@ function renderProviders(){
     }
     ocModelSel.onchange=function(){
       vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelSel.value})});
+    };
+  }
+
+  var ocCacheRow=document.getElementById('opencodeCacheRow');
+  var ocCacheCheck=document.getElementById('opencodeCacheCheck');
+  if(ocCacheRow){ocCacheRow.style.display=isOpenCode?'flex':'none';}
+  if(isOpenCode&&ocCacheCheck){
+    var cacheEnabled=!!(state.settings&&state.settings.opencodeCacheEnabled);
+    if(ocCacheCheck.checked!==cacheEnabled){ocCacheCheck.checked=cacheEnabled;}
+    ocCacheCheck.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeCacheEnabled:ocCacheCheck.checked})});
     };
   }
   if(isCopilot&&modelSel){
