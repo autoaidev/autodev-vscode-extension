@@ -195,6 +195,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     openCodeHooksEnabled:document.getElementById('cfg_openCodeHooksEnabled').checked,
     resumeSession:!!(state.settings&&state.settings.resumeSession),
     copilotModel:(state.settings&&state.settings.copilotModel)||'',
+    opencodeModel:(state.settings&&state.settings.opencodeModel)||'',
     todoPath:document.getElementById('cfg_todoPath').value,
   };
   vscode.postMessage({command:'saveSettings',settings:s});

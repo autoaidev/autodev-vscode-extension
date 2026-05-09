@@ -534,6 +534,10 @@ function buildHtml(_webview: vscode.Webview): string {
   <span class="provider-label">Model:</span>
   <select class="model-select" id="modelSelect"></select>
 </div>
+<div class="model-row" id="opencodeModelRow" style="display:none">
+  <span class="provider-label">Model:</span>
+  <input type="text" class="model-input" id="opencodeModelInput" placeholder="e.g. anthropic/claude-sonnet-4-5" style="flex:1;min-width:0">
+</div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
@@ -637,6 +641,17 @@ function renderProviders(){
   var modelSel=document.getElementById('modelSelect');
   var isCopilot=state.selectedProvider==='copilot-cli';
   modelRow.style.display=isCopilot?'flex':'none';
+
+  var ocModelRow=document.getElementById('opencodeModelRow');
+  var ocModelInput=document.getElementById('opencodeModelInput');
+  var isOpenCode=state.selectedProvider==='opencode-cli';
+  ocModelRow.style.display=isOpenCode?'flex':'none';
+  if(isOpenCode&&ocModelInput){
+    ocModelInput.value=(state.settings&&state.settings.opencodeModel)||'';
+    ocModelInput.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocModelInput.value.trim()})});
+    };
+  }
   if(isCopilot&&modelSel){
     var MODELS=[
       {v:'',l:'Default model'},

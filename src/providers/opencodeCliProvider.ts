@@ -12,10 +12,12 @@ import { exec } from 'child_process';
 export function buildOpenCodeCliCommand(
   combinedFile: string,
   sessionId?: string,
+  model?: string,
 ): string {
   const session = sessionId ? ` -s ${sessionId}` : ' -c';
+  const modelFlag = model ? ` --model ${JSON.stringify(model)}` : '';
   const fileRef = JSON.stringify(`@${combinedFile}`);
-  return `opencode run${session} ${fileRef}`;
+  return `opencode run${session}${modelFlag} ${fileRef}`;
 }
 
 /**

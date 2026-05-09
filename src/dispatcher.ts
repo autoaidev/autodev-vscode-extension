@@ -168,7 +168,7 @@ export async function sendPromptToAi(
       }
     } else {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
-      cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId);
+      cmd = buildOpenCodeCliCommand(combinedFile, resolvedSessionId, settings.opencodeModel || undefined);
       cmd = teeCommand(cmd, stdoutFile);
       if (settings.hooksEnabled) {
         cmd = wrapWithSyntheticHooks(cmd, 'opencode-cli', root, path.basename(root));

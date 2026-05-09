@@ -57,6 +57,12 @@ export interface AutodevSettings {
    */
   copilotModel: string;
   /**
+   * Optional model override for OpenCode CLI. When set, passes `--model=<value>`
+   * to the `opencode` command. Leave empty to use the CLI default.
+   * Example values: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`.
+   */
+  opencodeModel: string;
+  /**
    * Per-project MCP server definitions managed by autodev. Stored in the
    * standard `mcpServers` shape (`{ <name>: { command, args, env } }`) so
    * users can paste server snippets verbatim from MCP docs (e.g.
@@ -130,6 +136,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   openCodeHooksEnabled: false,
   autoStartLoop: false,
   copilotModel: '',
+  opencodeModel: '',
   mcpServers: {},
   disabledBuiltinMcp: [],
   fallbackProvider: 'opencode-cli' as ProviderId,
