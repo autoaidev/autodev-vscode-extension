@@ -136,6 +136,10 @@ export class TaskLoopRunner {
   private _discordGateway: DiscordGateway | null = null;
   private _webhookPoller: WebhookPoller | null = null;
   private _emailPoller: EmailTaskPoller | null = null;
+  /** True after we last told the server "all_tasks_done" — cleared on task_start.
+   *  Used to re-assert idle state on WS reconnect, otherwise agent_online flips
+   *  the server-side status back to 'active' even though we have no work. */
+  private _idleNotified = false;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _hooksFileOffset = 0;
   /** Recently-forwarded hook-line hashes → first-seen timestamp (ms).
@@ -263,6 +267,16 @@ export class TaskLoopRunner {
           this._notifyWebhook('task_start', {
             iteration: this._iterations,
             task:      { text: this._currentTask },
+            workDir:   this._workspaceRoot,
+            gitRepo:   this._gitRepo,
+            gitBranch: this._gitBranch,
+          });
+        }
+        // Re-sync idle state if we previously drained the queue — otherwise the
+        // server-side `agent_online` handler flips status back to 'active' and
+        // the agent looks busy when it isn't.
+        if (!this._currentTask && this._idleNotified) {
+          this._notifyWebhook('all_tasks_done', {
             workDir:   this._workspaceRoot,
             gitRepo:   this._gitRepo,
             gitBranch: this._gitBranch,
@@ -680,6 +694,7 @@ export class TaskLoopRunner {
         if (remaining === 0) {
           if (!allTasksDoneNotified) {
             allTasksDoneNotified = true;
+            this._idleNotified = true;
             this._cb?.log('All tasks completed ✓ — polling for new tasks…');
             this._notifyWebhook('all_tasks_done', {
               workDir:   this._workspaceRoot,
@@ -732,6 +747,7 @@ export class TaskLoopRunner {
 
       if (!watchingInProgress) {
         this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
+        this._idleNotified = false;
         this._notifyWebhook('task_start', {
           iteration: this._iterations,
           task:      { text: task.text },
