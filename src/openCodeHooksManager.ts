@@ -46,9 +46,9 @@ const JSONL_PATH: string = ${jsonlPath};
 // High-frequency / large-payload events we intentionally skip in the generic catch-all
 // (tool events have dedicated hooks; these are too noisy or already handled explicitly)
 const SKIP_EVENTS = new Set([
-  'message.part.updated',
   'message.part.delta',
   'message.part.removed',
+  'message.removed',
   'session.diff',
   // Skip events that have their own explicit named hooks below so we don't double-log
   'tool.execute.before',
@@ -100,10 +100,15 @@ function extractSessionId(input: any): string | null {
   return input?.sessionID ?? input?.session_id ?? input?.properties?.sessionID ?? null;
 }
 
-// Accumulated latest assistant text per session — flushed on session.idle so
-// Pixel Office receives ONE AgentMessage event with the full turn text instead
-// of hundreds of streaming-token noise events.
+// messageId -> role ('user' | 'assistant') — populated from message.updated metadata events
+const msgRole = new Map<string, string>();
+// Accumulated assistant text per session.
+// message.part.updated fires for each text part with the full text so far
+// (last update per part-id is the complete text). We collect them by partId
+// and flush the combined text as one AgentMessage on session.idle.
 const sessionText = new Map<string, string>();
+// sessionId -> (partId -> latestText)
+const sessionPartText = new Map<string, Map<string, string>>();
 
 export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
@@ -111,13 +116,11 @@ export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   'tool.execute.before': async (input: any, output?: any) => {
     appendEvent({
-      opencode_event:  'tool.execute.before',
       hook_event_name: 'PreToolUse',
       provider:        'opencode',
       tool_name:       input?.tool ?? 'unknown',
       tool_input:      output?.args ?? input?.args ?? null,
       session_id:      extractSessionId(input),
-      call_id:         input?.callID ?? null,
     });
   },
 
@@ -125,14 +128,12 @@ export const AutodevHooksPlugin = async () => ({
     const rawOut = output?.output ?? output?.result ?? output?.text;
     const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
     appendEvent({
-      opencode_event:  'tool.execute.after',
       hook_event_name: 'PostToolUse',
       provider:        'opencode',
       tool_name:       input?.tool ?? 'unknown',
       tool_input:      input?.args ?? null,
       tool_output:     outText != null ? { title: output?.title ?? null, text: outText } : null,
       session_id:      extractSessionId(input),
-      call_id:         input?.callID ?? null,
     });
   },
 
@@ -142,7 +143,6 @@ export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   'permission.asked': async (input: any, output?: any) => {
     appendEvent({
-      opencode_event:  'permission.asked',
       hook_event_name: 'PermissionAsked',
       provider:        'opencode',
       session_id:      extractSessionId(input),
@@ -154,7 +154,6 @@ export const AutodevHooksPlugin = async () => ({
 
   'permission.replied': async (input: any, output?: any) => {
     appendEvent({
-      opencode_event:  'permission.replied',
       hook_event_name: 'PermissionReplied',
       provider:        'opencode',
       session_id:      extractSessionId(input),
@@ -168,27 +167,24 @@ export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   'tui.prompt.append': async (input: any) => {
     appendEvent({
-      opencode_event:  'tui.prompt.append',
       hook_event_name: 'TuiPromptAppend',
       provider:        'opencode',
       session_id:      extractSessionId(input),
-      text:            input?.text ?? null,
+      message:         input?.text ?? null,
     });
   },
 
   'tui.command.execute': async (input: any) => {
     appendEvent({
-      opencode_event:  'tui.command.execute',
       hook_event_name: 'TuiCommandExecute',
       provider:        'opencode',
       session_id:      extractSessionId(input),
-      command:         input?.command ?? input?.name ?? null,
+      message:         input?.command ?? input?.name ?? null,
     });
   },
 
   'tui.toast.show': async (input: any) => {
     appendEvent({
-      opencode_event:  'tui.toast.show',
       hook_event_name: 'TuiToastShow',
       provider:        'opencode',
       session_id:      extractSessionId(input),
@@ -201,49 +197,60 @@ export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   'command.executed': async (input: any) => {
     appendEvent({
-      opencode_event:  'command.executed',
       hook_event_name: 'CommandExecuted',
       provider:        'opencode',
       session_id:      extractSessionId(input),
-      command:         input?.command ?? input?.name ?? null,
-      exit_code:       input?.exitCode ?? input?.exit_code ?? null,
+      message:         input?.command ?? input?.name ?? null,
     });
   },
 
   'file.edited': async (input: any) => {
     appendEvent({
-      opencode_event:  'file.edited',
       hook_event_name: 'FileEdited',
       provider:        'opencode',
       session_id:      extractSessionId(input),
-      file:            input?.file ?? input?.path ?? null,
+      message:         input?.file ?? input?.path ?? null,
     });
   },
 
   // -------------------------------------------------------------------------
   // Generic catch-all for remaining events (session/message/todo/lsp/server…)
   // SKIP_EVENTS excludes high-noise events and events already handled above.
-  // message.updated is intercepted here: text is accumulated per-session and
-  // flushed as a single AgentMessage on session.idle, not on every token.
+  // message.part.updated (type:'text') is handled here to accumulate the AI's
+  // response text; it's flushed as a single AgentMessage on session.idle.
   // -------------------------------------------------------------------------
   'event': async (ctx: any) => {
     const evt   = ctx?.event ?? ctx ?? {};
     const t: string = evt?.type ?? '';
 
-    // --- message.updated: accumulate assistant text, never emit directly ---
+    // --- message.updated: track message role for filtering text parts later ---
     if (t === 'message.updated') {
       const uprops = evt?.properties ?? {};
-      const msgObj = uprops?.message ?? uprops?.info ?? {};
-      const urole  = msgObj?.role ?? uprops?.role ?? null;
-      const usid   = uprops?.sessionID ?? uprops?.id ?? null;
-      if (urole === 'assistant' && usid) {
-        const content = msgObj?.content ?? msgObj?.parts ?? [];
-        const text    = Array.isArray(content)
-          ? content.filter((p: any) => p?.type === 'text').map((p: any) => String(p?.text ?? '')).join('')
-          : (typeof content === 'string' ? content : '');
-        if (text) { sessionText.set(usid, text); }
+      const info   = uprops?.info ?? {};
+      const msgId  = info?.id ?? null;
+      const role   = info?.role ?? null;
+      if (msgId && role) { msgRole.set(msgId, role); }
+      return; // metadata-only — never emit directly
+    }
+
+    // --- message.part.updated: track ASSISTANT text parts by partId ---
+    // Each update carries the FULL accumulated text so far for that part.
+    // We only care about type:'text' (not 'reasoning', 'step-start', etc.)
+    // and only for messages with role 'assistant'.
+    if (t === 'message.part.updated') {
+      const uprops  = evt?.properties ?? {};
+      const part    = uprops?.part ?? {};
+      const sid     = uprops?.sessionID ?? part?.sessionID ?? null;
+      const msgId   = part?.messageID ?? null;
+      const isAsst  = !msgId || (msgRole.get(msgId) ?? 'assistant') === 'assistant';
+      if (sid && isAsst && part?.type === 'text' && typeof part?.text === 'string' && part.text) {
+        const partId = part?.id ?? 'default';
+        if (!sessionPartText.has(sid)) { sessionPartText.set(sid, new Map()); }
+        sessionPartText.get(sid)!.set(partId, part.text);
+        // Rebuild combined text for this session
+        sessionText.set(sid, [...sessionPartText.get(sid)!.values()].join('\\n\\n'));
       }
-      return; // never emit message.updated directly
+      return; // never emit directly — too noisy
     }
 
     if (!t || SKIP_EVENTS.has(t)) { return; }
@@ -253,31 +260,29 @@ export const AutodevHooksPlugin = async () => ({
     const msgInfo   = props?.info ?? null;
     const role      = msgInfo?.role   ?? null;
     const agent     = msgInfo?.agent  ?? null;
-    const modelId   = msgInfo?.model?.modelID ?? null;
+    const modelId   = msgInfo?.model?.modelID ?? msgInfo?.modelID ?? null;
     const errMsg    = props?.error?.message ?? props?.message ?? null;
 
     // --- session.idle: flush accumulated assistant text as AgentMessage ---
     if (t === 'session.idle' && sessionId && sessionText.has(sessionId)) {
       const text = sessionText.get(sessionId)!;
       sessionText.delete(sessionId);
-      appendEvent({
-        opencode_event:  'agent_message',
-        hook_event_name: 'AgentMessage',
-        provider:        'opencode',
-        session_id:      sessionId,
-        message_text:    text.slice(0, 3000),
-      });
+      sessionPartText.delete(sessionId);
+      if (text.trim()) {
+        appendEvent({
+          hook_event_name: 'AgentMessage',
+          provider:        'opencode',
+          session_id:      sessionId,
+          message:         text.slice(0, 3000),
+        });
+      }
     }
 
     appendEvent({
-      opencode_event:  t,
       hook_event_name: SESSION_MAP[t] ?? t,
       provider:        'opencode',
       session_id:      sessionId,
       message:         errMsg ?? (agent ? \`\${agent}\${modelId ? \` (\${modelId})\` : ''}\` : role),
-      role,
-      agent,
-      model:           modelId,
     });
   },
 });

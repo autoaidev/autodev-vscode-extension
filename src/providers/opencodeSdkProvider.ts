@@ -234,13 +234,10 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           }
         }
         _appendHookEvent(root, {
-          opencode_event:  'permission.updated',
           hook_event_name: 'PermissionReplied',
           provider:        'opencode-sdk',
           session_id:      permSid ?? null,
-          permission_id:   permId ?? null,
-          title:           permTitle ?? null,
-          response:        'always',
+          message:         permTitle ?? null,
         });
         continue; // already logged above
       }
@@ -253,13 +250,11 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           logger(`[OC] ▶ tool: ${toolName}`);
         }
         _appendHookEvent(root, {
-          opencode_event:  'tool.execute.before',
           hook_event_name: 'PreToolUse',
           provider:        'opencode-sdk',
           tool_name:       toolName ?? 'unknown',
           tool_input:      props?.args ?? props?.input ?? null,
           session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
-          call_id:         (props?.callID ?? props?.id) as string | undefined ?? null,
         });
         continue;
       }
@@ -270,14 +265,12 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
         const rawOut = props?.output ?? props?.result ?? props?.text;
         const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
         _appendHookEvent(root, {
-          opencode_event:  'tool.execute.after',
           hook_event_name: 'PostToolUse',
           provider:        'opencode-sdk',
           tool_name:       toolName ?? 'unknown',
           tool_input:      props?.args ?? props?.input ?? null,
           tool_output:     outText != null ? { text: outText } : null,
           session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
-          call_id:         (props?.callID ?? props?.id) as string | undefined ?? null,
         });
         continue;
       }
@@ -298,7 +291,6 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       if (type === 'session.compacted') {
         logger(`[OC] 🗜 session compacted`);
         _appendHookEvent(root, {
-          opencode_event:  'session.compacted',
           hook_event_name: 'PostCompact',
           provider:        'opencode-sdk',
           session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
@@ -318,16 +310,14 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           logger(`[OC] ────────────────────────────────────────`);
           // Emit as hook event so Pixel Office can display the full message text
           _appendHookEvent(root, {
-            opencode_event:  'agent_message',
             hook_event_name: 'AgentMessage',
             provider:        'opencode-sdk',
             session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-            message_text:    text.slice(0, 3000),
+            message:         text.slice(0, 3000),
           });
         }
         logger(`[OC] session.idle`);
         _appendHookEvent(root, {
-          opencode_event:  'session.idle',
           hook_event_name: 'Stop',
           provider:        'opencode-sdk',
           session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
@@ -340,11 +330,10 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       logger(`[OC] ${type} ${propsStr}`);
       if (type === 'session.error') {
         _appendHookEvent(root, {
-          opencode_event:  'session.error',
           hook_event_name: 'StopFailure',
           provider:        'opencode-sdk',
           session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-          error:           props?.error ?? props?.message ?? null,
+          message:         (props?.error ?? props?.message) as string | undefined ?? null,
         });
       }
     }
