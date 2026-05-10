@@ -276,7 +276,7 @@ export class TaskLoopRunner {
         // server-side `agent_online` handler flips status back to 'active' and
         // the agent looks busy when it isn't.
         if (!this._currentTask && this._idleNotified) {
-          this._notifyWebhook('all_tasks_done', {
+          this._notifyWebhook('agent_idle', {
             workDir:   this._workspaceRoot,
             gitRepo:   this._gitRepo,
             gitBranch: this._gitBranch,
@@ -697,6 +697,12 @@ export class TaskLoopRunner {
             this._idleNotified = true;
             this._cb?.log('All tasks completed ✓ — polling for new tasks…');
             this._notifyWebhook('all_tasks_done', {
+              workDir:   this._workspaceRoot,
+              gitRepo:   this._gitRepo,
+              gitBranch: this._gitBranch,
+            });
+            // Explicit idle state — server flips badge to 'idle' on this signal.
+            this._notifyWebhook('agent_idle', {
               workDir:   this._workspaceRoot,
               gitRepo:   this._gitRepo,
               gitBranch: this._gitBranch,

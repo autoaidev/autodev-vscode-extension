@@ -14,7 +14,7 @@ function uuid(): string { return crypto.randomUUID(); }
 // ---------------------------------------------------------------------------
 
 export type WebhookEvent =
-  | 'agent_online' | 'agent_offline'
+  | 'agent_online' | 'agent_offline' | 'agent_idle'
   | 'loop_start' | 'loop_complete'
   | 'task_start' | 'task_done' | 'task_fail' | 'task_progress' | 'task_checkin'
   | 'task_output' | 'all_tasks_done'
@@ -89,6 +89,8 @@ export class WebhookClient {
         return this.buildMessage('autodev online', payload, now);
       case 'agent_offline':
         return this.buildMessage('autodev going offline', payload, now);
+      case 'agent_idle':
+        return this.buildMessage('autodev idle', payload, now);
       case 'all_tasks_done':
         return this.buildMessage('All TODO tasks done — waiting for new tasks', payload, now);
 
