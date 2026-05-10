@@ -12,7 +12,7 @@ import { loadSettingsForRoot, AutodevSettings } from './core/settingsLoader';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
-import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
+import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
@@ -670,6 +670,16 @@ export class TaskLoopRunner {
         }
         if (provider === 'opencode-sdk') {
           return isOpencodeSdkBusy(this._workspaceRoot);
+        }
+        // opencode-cli may run on a remote machine (not launched by this extension).
+        // The JSONL hooks file is the authoritative source of truth: if the last
+        // event is a terminal Stop/StopFailure/SessionEnd (or the file is stale),
+        // treat the process as NOT running — regardless of the exit file.
+        // This prevents the exit-file `catch { return true }` fallback from
+        // incorrectly reporting "still running" when the file simply doesn't exist
+        // (remote session never wrote one), causing [~] tasks to be stuck forever.
+        if (provider === 'opencode-cli') {
+          return isOpenCodeCliActive(this._workspaceRoot);
         }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();

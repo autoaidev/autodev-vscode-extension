@@ -339,6 +339,34 @@ export function installOpenCodeHooks(workspaceRoot: string): void {
 }
 
 /**
+ * Return true if an opencode process is actively writing to the hooks JSONL.
+ * Used by taskLoop to decide whether [~] tasks are legitimately in-progress
+ * vs stranded (process died). Considers active if:
+ *  - the JSONL file was modified within the last `windowMs` milliseconds (default 90s), AND
+ *  - the last event in the file is NOT a terminal Stop/StopFailure/SessionEnd event.
+ */
+export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000): boolean {
+  const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+  try {
+    const stat = fs.statSync(jsonlFile);
+    if (Date.now() - stat.mtimeMs > windowMs) { return false; } // stale file
+    // Also check the last event — if it's a terminal event the session ended cleanly
+    const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const ev = JSON.parse(lines[i]);
+        if (ev.provider !== 'opencode') { continue; }
+        const name: string = ev.hook_event_name ?? '';
+        // These mark a completed/ended session — not active
+        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return false; }
+        return true; // last opencode event is something other than a terminal event
+      } catch { continue; }
+    }
+    return false;
+  } catch { return false; }
+}
+
+/**
  * Read the workspace-scoped hooks-events.jsonl and return the session ID from
  * the most recent OpenCode session.created / session.idle / session.updated event.
  * Returns undefined if the file is absent or no session event has been seen yet.
