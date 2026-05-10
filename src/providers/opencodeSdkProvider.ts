@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
+import * as path from 'path';
 import * as net from 'net';
 
 // ---------------------------------------------------------------------------
@@ -169,6 +170,21 @@ const _SKIP_LOG = new Set(['message.part.updated', 'sync', 'server.heartbeat']);
 /** Accumulated assistant text per root — flushed to the output channel on session.idle. */
 const _textBuffer = new Map<string, string>();
 
+// ---------------------------------------------------------------------------
+// JSONL sink — mirrors what the opencode plugin writes so the task-loop's
+// hooks-events.jsonl poller picks up SDK events and forwards them to the
+// WebSocket / Pixel Office in exactly the same way as CLI-based providers.
+// ---------------------------------------------------------------------------
+
+function _appendHookEvent(root: string, ev: Record<string, unknown>): void {
+  try {
+    const dir = path.join(root, '.autodev');
+    if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+    ev['timestamp'] = new Date().toISOString();
+    fs.appendFileSync(path.join(dir, 'hooks-events.jsonl'), JSON.stringify(ev) + '\n', 'utf8');
+  } catch { /* ignore write errors — non-critical */ }
+}
+
 async function _startEventLogger(root: string, client: SdkClient): Promise<void> {
   try {
     const evResult = await client.global.event();
@@ -217,22 +233,52 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
             logger(`[OC] permission approval failed: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
+        _appendHookEvent(root, {
+          opencode_event:  'permission.updated',
+          hook_event_name: 'PermissionReplied',
+          provider:        'opencode-sdk',
+          session_id:      permSid ?? null,
+          permission_id:   permId ?? null,
+          title:           permTitle ?? null,
+          response:        'always',
+        });
         continue; // already logged above
       }
 
-      // --- Activity tracking ---
+      // --- Activity tracking + JSONL hook events ---
       if (type === 'tool.execute.before') {
         const toolName = (props?.toolID ?? props?.name ?? props?.tool) as string | undefined;
         if (toolName) {
           _activity.set(root, `${toolName}`);
           logger(`[OC] ▶ tool: ${toolName}`);
         }
+        _appendHookEvent(root, {
+          opencode_event:  'tool.execute.before',
+          hook_event_name: 'PreToolUse',
+          provider:        'opencode-sdk',
+          tool_name:       toolName ?? 'unknown',
+          tool_input:      props?.args ?? props?.input ?? null,
+          session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
+          call_id:         (props?.callID ?? props?.id) as string | undefined ?? null,
+        });
         continue;
       }
       if (type === 'tool.execute.after') {
         const toolName = (props?.toolID ?? props?.name ?? props?.tool) as string | undefined;
         _activity.delete(root);
         logger(`[OC] ✓ tool done: ${toolName ?? '?'}`);
+        const rawOut = props?.output ?? props?.result ?? props?.text;
+        const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
+        _appendHookEvent(root, {
+          opencode_event:  'tool.execute.after',
+          hook_event_name: 'PostToolUse',
+          provider:        'opencode-sdk',
+          tool_name:       toolName ?? 'unknown',
+          tool_input:      props?.args ?? props?.input ?? null,
+          tool_output:     outText != null ? { text: outText } : null,
+          session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
+          call_id:         (props?.callID ?? props?.id) as string | undefined ?? null,
+        });
         continue;
       }
 
@@ -251,6 +297,12 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       // --- Session compacted ---
       if (type === 'session.compacted') {
         logger(`[OC] 🗜 session compacted`);
+        _appendHookEvent(root, {
+          opencode_event:  'session.compacted',
+          hook_event_name: 'PostCompact',
+          provider:        'opencode-sdk',
+          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
+        });
         continue;
       }
 
@@ -266,12 +318,27 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           logger(`[OC] ────────────────────────────────────────`);
         }
         logger(`[OC] session.idle`);
+        _appendHookEvent(root, {
+          opencode_event:  'session.idle',
+          hook_event_name: 'Stop',
+          provider:        'opencode-sdk',
+          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
+        });
         continue;
       }
 
-      // --- Default: log type + compact props ---
+      // --- Default: log type + compact props (write errors to JSONL too) ---
       const propsStr = props ? JSON.stringify(props) : '{}';
       logger(`[OC] ${type} ${propsStr}`);
+      if (type === 'session.error') {
+        _appendHookEvent(root, {
+          opencode_event:  'session.error',
+          hook_event_name: 'StopFailure',
+          provider:        'opencode-sdk',
+          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
+          error:           props?.error ?? props?.message ?? null,
+        });
+      }
     }
   } catch { /* server closed or client evicted — exit silently */ }
 }
