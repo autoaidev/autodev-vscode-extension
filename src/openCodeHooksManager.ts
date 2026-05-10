@@ -48,9 +48,11 @@ const JSONL_PATH: string = ${jsonlPath};
 const SKIP_EVENTS = new Set([
   'message.part.delta',
   'message.part.removed',
+  'message.part.updated', // replaced by session.next.text.ended (simpler, same data)
+  'message.updated',      // role-tracking no longer needed
   'message.removed',
   'session.diff',
-  // Skip events that have their own explicit named hooks below so we don't double-log
+  // Explicit named hooks — don't double-log
   'tool.execute.before',
   'tool.execute.after',
   'permission.asked',
@@ -60,6 +62,15 @@ const SKIP_EVENTS = new Set([
   'tui.toast.show',
   'command.executed',
   'file.edited',
+  // session.next.* lifecycle markers with no payload — skip the noisy ones
+  'session.next.step.started',
+  'session.next.reasoning.started',
+  'session.next.text.started',
+  'session.next.tool.input.started',
+  'session.next.tool.input.ended',
+  'session.next.tool.called',
+  'session.next.tool.success',
+  // session.next.tool.failed is NOT skipped — captures error message for failed tool calls
 ]);
 
 const SESSION_MAP: Record<string, string> = {
@@ -70,7 +81,6 @@ const SESSION_MAP: Record<string, string> = {
   'session.compacted':  'PostCompact',
   'session.updated':    'SessionStatus',
   'session.status':     'SessionStatus',
-  'message.updated':    'MessageUpdated',
   'message.removed':    'MessageRemoved',
   'todo.updated':       'TaskCreated',
   'command.executed':   'CommandExecuted',
@@ -84,6 +94,12 @@ const SESSION_MAP: Record<string, string> = {
   'tui.prompt.append':  'TuiPromptAppend',
   'tui.command.execute':'TuiCommandExecute',
   'tui.toast.show':     'TuiToastShow',
+  // session.next.* meaningful events
+  'session.next.prompted':       'UserMessage',
+  'session.next.step.ended':     'StepEnded',
+  'session.next.model.switched': 'ModelSwitched',
+  'session.next.agent.switched': 'AgentSwitched',
+  'session.next.reasoning.ended':'Reasoning',
 };
 
 function appendEvent(ev: Record<string, unknown>): void {
@@ -100,15 +116,10 @@ function extractSessionId(input: any): string | null {
   return input?.sessionID ?? input?.session_id ?? input?.properties?.sessionID ?? null;
 }
 
-// messageId -> role ('user' | 'assistant') — populated from message.updated metadata events
-const msgRole = new Map<string, string>();
 // Accumulated assistant text per session.
-// message.part.updated fires for each text part with the full text so far
-// (last update per part-id is the complete text). We collect them by partId
-// and flush the combined text as one AgentMessage on session.idle.
+// session.next.text.ended fires once per step with the complete generated text.
+// Multi-step sessions accumulate across steps and flush as AgentMessage on session.idle.
 const sessionText = new Map<string, string>();
-// sessionId -> (partId -> latestText)
-const sessionPartText = new Map<string, Map<string, string>>();
 
 export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
@@ -223,51 +234,39 @@ export const AutodevHooksPlugin = async () => ({
     const evt   = ctx?.event ?? ctx ?? {};
     const t: string = evt?.type ?? '';
 
-    // --- message.updated: track message role for filtering text parts later ---
-    if (t === 'message.updated') {
-      const uprops = evt?.properties ?? {};
-      const info   = uprops?.info ?? {};
-      const msgId  = info?.id ?? null;
-      const role   = info?.role ?? null;
-      if (msgId && role) { msgRole.set(msgId, role); }
-      return; // metadata-only — never emit directly
-    }
-
-    // --- message.part.updated: track ASSISTANT text parts by partId ---
-    // Each update carries the FULL accumulated text so far for that part.
-    // We only care about type:'text' (not 'reasoning', 'step-start', etc.)
-    // and only for messages with role 'assistant'.
-    if (t === 'message.part.updated') {
-      const uprops  = evt?.properties ?? {};
-      const part    = uprops?.part ?? {};
-      const sid     = uprops?.sessionID ?? part?.sessionID ?? null;
-      const msgId   = part?.messageID ?? null;
-      const isAsst  = !msgId || (msgRole.get(msgId) ?? 'assistant') === 'assistant';
-      if (sid && isAsst && part?.type === 'text' && typeof part?.text === 'string' && part.text) {
-        const partId = part?.id ?? 'default';
-        if (!sessionPartText.has(sid)) { sessionPartText.set(sid, new Map()); }
-        sessionPartText.get(sid)!.set(partId, part.text);
-        // Rebuild combined text for this session
-        sessionText.set(sid, [...sessionPartText.get(sid)!.values()].join('\\n\\n'));
-      }
-      return; // never emit directly — too noisy
-    }
-
     if (!t || SKIP_EVENTS.has(t)) { return; }
 
     const props     = evt?.properties ?? {};
     const sessionId = props?.sessionID ?? props?.id ?? null;
-    const msgInfo   = props?.info ?? null;
-    const role      = msgInfo?.role   ?? null;
-    const agent     = msgInfo?.agent  ?? null;
-    const modelId   = msgInfo?.model?.modelID ?? msgInfo?.modelID ?? null;
-    const errMsg    = props?.error?.message ?? props?.message ?? null;
+    const errMsg    = props?.error?.message ?? null;
+
+    // --- session.next.text.ended: accumulate assistant response text per session ---
+    // Fires once per step with the complete generated text. Flushed on session.idle.
+    if (t === 'session.next.text.ended') {
+      const text = props?.text ?? null;
+      if (sessionId && typeof text === 'string' && text.trim()) {
+        const prev = sessionText.get(sessionId) ?? '';
+        sessionText.set(sessionId, prev ? prev + '\\n\\n' + text : text);
+      }
+      return; // never emit directly — flushed as AgentMessage on session.idle
+    }
+
+    // --- session.next.prompted: the user's prompt text sent to the model ---
+    if (t === 'session.next.prompted') {
+      const promptText = props?.prompt?.text ?? null;
+      appendEvent({
+        hook_event_name: 'UserMessage',
+        provider:        'opencode',
+        session_id:      sessionId,
+        message:         typeof promptText === 'string' ? promptText.slice(0, 2000) : null,
+      });
+      return;
+    }
 
     // --- session.idle: flush accumulated assistant text as AgentMessage ---
     if (t === 'session.idle' && sessionId && sessionText.has(sessionId)) {
       const text = sessionText.get(sessionId)!;
       sessionText.delete(sessionId);
-      sessionPartText.delete(sessionId);
       if (text.trim()) {
         appendEvent({
           hook_event_name: 'AgentMessage',
@@ -278,11 +277,39 @@ export const AutodevHooksPlugin = async () => ({
       }
     }
 
+    // --- session.next.step.ended: token usage + cost ---
+    if (t === 'session.next.step.ended') {
+      const tokens = props?.tokens ?? null;
+      const cost   = props?.cost   ?? null;
+      appendEvent({
+        hook_event_name: 'StepEnded',
+        provider:        'opencode',
+        session_id:      sessionId,
+        message:         props?.finish ?? null,
+        tokens:          tokens,
+        cost:            cost,
+      });
+      return;
+    }
+
+    // Generic catch-all — extract message from known session.next.* fields
+    const agentName  = props?.agent ?? null;
+    const modelId    = props?.model?.id ?? props?.model?.modelID ?? null;
+    const reasonText = props?.text ?? null; // session.next.reasoning.ended
+    const promptText = props?.prompt?.text ?? null; // fallback
+    const message    = errMsg
+      ?? reasonText
+      ?? promptText
+      ?? (agentName && modelId ? \`\${agentName} (\${modelId})\`
+         : agentName ? agentName
+         : modelId  ? modelId
+         : null);
+
     appendEvent({
       hook_event_name: SESSION_MAP[t] ?? t,
       provider:        'opencode',
       session_id:      sessionId,
-      message:         errMsg ?? (agent ? \`\${agent}\${modelId ? \` (\${modelId})\` : ''}\` : role),
+      message:         message,
     });
   },
 });
