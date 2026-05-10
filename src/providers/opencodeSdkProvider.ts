@@ -316,6 +316,14 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           logger(`[OC] ── Assistant ──────────────────────────`);
           for (const line of text.split('\n')) { logger(line); }
           logger(`[OC] ────────────────────────────────────────`);
+          // Emit as hook event so Pixel Office can display the full message text
+          _appendHookEvent(root, {
+            opencode_event:  'agent_message',
+            hook_event_name: 'AgentMessage',
+            provider:        'opencode-sdk',
+            session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
+            message_text:    text.slice(0, 3000),
+          });
         }
         logger(`[OC] session.idle`);
         _appendHookEvent(root, {
@@ -442,7 +450,11 @@ export function sendOpencodeSdkPrompt(
             }
           }
         } else if (type === 'session.idle') {
-          if ((props?.sessionID as string | undefined) === sessionId) {
+          // Accept the event if its sessionID matches ours, OR if the event
+          // doesn't carry a sessionID at all (some SDK versions omit it on
+          // single-session servers — safe to assume it's ours).
+          const idleSid = (props?.sessionID ?? props?.id) as string | undefined;
+          if (!idleSid || idleSid === sessionId) {
             log('OpenCode SDK: session.idle — turn complete');
             break;
           }

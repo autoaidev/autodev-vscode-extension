@@ -171,6 +171,21 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           this._syncAndPushMcp();
           break;
         }
+        case 'openAgentProfile': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (root) {
+            const profilePath = path.join(root, 'AGENT_PROFILE.md');
+            if (!fs.existsSync(profilePath)) {
+              try { rebuildProfile(root); } catch { /* ignore, file may not exist yet */ }
+            }
+            if (fs.existsSync(profilePath)) {
+              void vscode.window.showTextDocument(vscode.Uri.file(profilePath));
+            } else {
+              vscode.window.showWarningMessage('AutoDev: AGENT_PROFILE.md not found. Save the profile first to generate it.');
+            }
+          }
+          break;
+        }
         case 'saveProfileSections': {
           const sections = (msg.sections ?? []) as string[];
           const customRefs = (msg.customRefs ?? []) as string[];

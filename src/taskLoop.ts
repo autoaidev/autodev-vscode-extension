@@ -1178,6 +1178,7 @@ export class TaskLoopRunner {
     const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
     const isClaudeTui = this._cb?.getActiveProvider() === 'claude-tui';
     const isOpenCodeCli = this._cb?.getActiveProvider() === 'opencode-cli';
+    const isOpencodeSdk = this._cb?.getActiveProvider() === 'opencode-sdk';
     return new Promise<void>((resolve, reject) => {
       if (this._state !== 'running') { resolve(); return; }
 
@@ -1465,7 +1466,12 @@ export class TaskLoopRunner {
         });
       };
 
-      if (this._workspaceRoot) {
+      // opencode-sdk: the persistent in-process SDK doesn't use the CLI exit-file
+      // reminder flow — doing so causes a re-prompt loop (the SDK writes '0' to the
+      // exit file when session.idle fires, the poller sees it, calls onCliExit(),
+      // which re-sends the prompt, which loops).  Instead, the poller resolves this
+      // promise directly when isOpencodeSdkBusy() becomes false (see below).
+      if (!isOpencodeSdk && this._workspaceRoot) {
         attachExitWatcher(exitFilePath(this._workspaceRoot, activeProvider));
       }
 
@@ -1496,13 +1502,23 @@ export class TaskLoopRunner {
         }
 
         const latestExit = exitFilePath(this._workspaceRoot, activeProvider);
-        if (latestExit !== watchedExitFile) { attachExitWatcher(latestExit); }
+        if (!isOpencodeSdk && latestExit !== watchedExitFile) { attachExitWatcher(latestExit); }
+
+        // opencode-sdk: resolve _waitForTaskCompletion as soon as the SDK
+        // session goes idle (isOpencodeSdkBusy false).  This avoids the
+        // CLI-style onCliExit() reminder re-prompt loop that the exit-file
+        // mechanism would otherwise trigger.
+        if (isOpencodeSdk && this._workspaceRoot && !isOpencodeSdkBusy(this._workspaceRoot)) {
+          check(); // one last todo-file check before resolving
+          if (!cancelled) { cleanup(); resolve(); }
+          return;
+        }
 
         // Poller-based exit fallback: the VS Code file-system watcher can miss
         // events (gitignored dirs, inotify limits, fast exits before re-attach).
         // Read the exit file directly every tick and trigger onCliExit() if it
         // became non-empty without the watcher firing.
-        if (latestExit && latestExit !== handledExitFile) {
+        if (!isOpencodeSdk && latestExit && latestExit !== handledExitFile) {
           try {
             if (fs.readFileSync(latestExit, 'utf8').trim() !== '') {
               handledExitFile = latestExit;

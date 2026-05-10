@@ -18,7 +18,10 @@ export const profilePanelHtml = `
     One path per line. Each path is appended as <code style="font-size:10px">@path</code> at the end of AGENT_PROFILE.md so agents auto-load those files.
   </div>
   <textarea id="profileCustomRefs" class="cfg-input" rows="4" placeholder="CLAUDE.md&#10;docs/architecture.md&#10;.cursor/rules/coding.mdc" style="resize:vertical;font-family:var(--vscode-editor-font-family,monospace);font-size:11px"></textarea>
-  <button class="cfg-save" id="saveProfileBtn" style="margin-top:8px">Save &amp; Rebuild Profile</button>
+  <div style="display:flex;gap:5px;margin-top:8px">
+    <button class="cfg-save" id="saveProfileBtn" style="flex:1;margin-top:0">Save &amp; Rebuild Profile</button>
+    <button class="cfg-save" id="openProfileBtn" style="flex:0 0 auto;margin-top:0;background:transparent;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-panel-border)" title="Open AGENT_PROFILE.md in editor">&#128196; Open</button>
+  </div>
 </div>
 `;
 
@@ -56,6 +59,10 @@ document.getElementById('profileClearAll').addEventListener('click', function() 
     cb.checked = false;
     cb.closest('.profile-section-row').classList.remove('checked');
   });
+});
+
+document.getElementById('openProfileBtn').addEventListener('click', function() {
+  vscode.postMessage({ command: 'openAgentProfile' });
 });
 
 document.getElementById('saveProfileBtn').addEventListener('click', function() {

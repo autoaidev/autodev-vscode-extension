@@ -100,6 +100,11 @@ function extractSessionId(input: any): string | null {
   return input?.sessionID ?? input?.session_id ?? input?.properties?.sessionID ?? null;
 }
 
+// Accumulated latest assistant text per session — flushed on session.idle so
+// Pixel Office receives ONE AgentMessage event with the full turn text instead
+// of hundreds of streaming-token noise events.
+const sessionText = new Map<string, string>();
+
 export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   // Tool lifecycle — explicit named hooks (these do NOT fire via generic 'event')
@@ -218,10 +223,29 @@ export const AutodevHooksPlugin = async () => ({
   // -------------------------------------------------------------------------
   // Generic catch-all for remaining events (session/message/todo/lsp/server…)
   // SKIP_EVENTS excludes high-noise events and events already handled above.
+  // message.updated is intercepted here: text is accumulated per-session and
+  // flushed as a single AgentMessage on session.idle, not on every token.
   // -------------------------------------------------------------------------
   'event': async (ctx: any) => {
     const evt   = ctx?.event ?? ctx ?? {};
     const t: string = evt?.type ?? '';
+
+    // --- message.updated: accumulate assistant text, never emit directly ---
+    if (t === 'message.updated') {
+      const uprops = evt?.properties ?? {};
+      const msgObj = uprops?.message ?? uprops?.info ?? {};
+      const urole  = msgObj?.role ?? uprops?.role ?? null;
+      const usid   = uprops?.sessionID ?? uprops?.id ?? null;
+      if (urole === 'assistant' && usid) {
+        const content = msgObj?.content ?? msgObj?.parts ?? [];
+        const text    = Array.isArray(content)
+          ? content.filter((p: any) => p?.type === 'text').map((p: any) => String(p?.text ?? '')).join('')
+          : (typeof content === 'string' ? content : '');
+        if (text) { sessionText.set(usid, text); }
+      }
+      return; // never emit message.updated directly
+    }
+
     if (!t || SKIP_EVENTS.has(t)) { return; }
 
     const props     = evt?.properties ?? {};
@@ -231,6 +255,19 @@ export const AutodevHooksPlugin = async () => ({
     const agent     = msgInfo?.agent  ?? null;
     const modelId   = msgInfo?.model?.modelID ?? null;
     const errMsg    = props?.error?.message ?? props?.message ?? null;
+
+    // --- session.idle: flush accumulated assistant text as AgentMessage ---
+    if (t === 'session.idle' && sessionId && sessionText.has(sessionId)) {
+      const text = sessionText.get(sessionId)!;
+      sessionText.delete(sessionId);
+      appendEvent({
+        opencode_event:  'agent_message',
+        hook_event_name: 'AgentMessage',
+        provider:        'opencode',
+        session_id:      sessionId,
+        message_text:    text.slice(0, 3000),
+      });
+    }
 
     appendEvent({
       opencode_event:  t,
