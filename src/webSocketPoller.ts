@@ -34,6 +34,7 @@ export class WebSocketPoller {
   private _onConnect: (() => void) | null = null;
   private _onTaskAppend: (() => void) | null = null;
   private _pendingFrames: unknown[] = [];
+  private _seenTaskIds = new Set<string>();
 
   // Heartbeat: send a WS Ping every 25 s and expect a Pong. If 2 pings in a
   // row come back without a pong (≈55 s), force-reconnect. Without this the
@@ -484,6 +485,22 @@ export class WebSocketPoller {
       const t = msg['task'] as Record<string, unknown>;
       const state = (t['status'] as Record<string, unknown> | undefined)?.['state'] as string | undefined;
       if (state !== 'TASK_STATE_SUBMITTED') { return; }
+
+      // Deduplicate by task ID so the same delivery isn't re-processed on reconnect,
+      // but a new task with identical text is still accepted.
+      const taskId = t['id'] as string | undefined;
+      if (taskId) {
+        if (this._seenTaskIds.has(taskId)) {
+          this._log(`WS task already processed (id=${taskId}), skipping`);
+          return;
+        }
+        this._seenTaskIds.add(taskId);
+        // Bound the set to avoid unbounded growth over long-running sessions
+        if (this._seenTaskIds.size > 1000) {
+          const oldest = this._seenTaskIds.values().next().value;
+          if (oldest) { this._seenTaskIds.delete(oldest); }
+        }
+      }
       const meta = (t['metadata'] as Record<string, unknown> | undefined) ?? {};
       if (meta['event'] !== 'user_message') { return; }
       const taskObj = meta['task'] as Record<string, unknown> | undefined;
@@ -525,18 +542,6 @@ export class WebSocketPoller {
       const fullText = attRefs.length > 0
         ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
-
-      // Deduplicate: skip if this exact task text is already present in TODO.md.
-      // This prevents double-entries when the server re-delivers tasks on reconnect.
-      try {
-        if (this._todoPath && fs.existsSync(this._todoPath)) {
-          const existing = fs.readFileSync(this._todoPath, 'utf8');
-          if (existing.includes(taskText)) {
-            this._log(`WS task already in TODO.md, skipping: "${taskText}"`);
-            return;
-          }
-        }
-      } catch { /* ignore read errors — proceed to append */ }
 
       this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
       if (!this._todoPath) { this._log('WS failed to append task to TODO.md: todoPath is empty'); return; }

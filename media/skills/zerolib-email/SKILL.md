@@ -21,6 +21,8 @@ The `zerolib-email` MCP is connected. Use it to communicate with stakeholders.
 - Do not CC, forward, or escalate to anyone the original sender did not include.
 - Subject line: prefix problem replies with `[needs input]`. Keep it short.
 - Never include credentials, API keys, or secrets in email bodies.
+- Every outbound email must include supporting artifacts when relevant: screenshots/images, logs, error traces, reports, repro steps, or diff snippets.
+- If a file cannot be attached through the MCP tool, include the exact workspace path and a short note describing why that artifact matters.
 
 ---
 
@@ -97,3 +99,4 @@ For each subtask, dispatch to the correct subagent — do not implement everythi
 - **Do not summarise away detail.** If the email lists 10 requirements, all 10 must appear as tracked subtasks or explicit acceptance criteria.
 - **Do not assume small means simple.** A one-line email request can imply significant changes — always explore before estimating.
 - **Do not mark the parent task done while any subtask is open.** The email sender's expectation is only met when every subtask is `[x]` and verification passes.
+- **Do not send context-free problem emails.** Attach or reference concrete artifacts so another agent can quickly narrow and solve the problem.

@@ -21,6 +21,8 @@ The `mcp-atlassian` MCP is connected. Use it to read and update Jira tickets tie
 - One comment per problem. Never reply to your own previous comments.
 - Do not @-mention anyone who isn't already a watcher / assignee / reporter.
 - Never include credentials or secrets in comments or descriptions.
+- Every outbound ticket comment/update must include supporting artifacts when relevant: screenshots/images, logs, stack traces, reports, repro notes, or diff snippets.
+- If an artifact cannot be attached through the MCP tool, include the exact workspace path and why the artifact helps another agent narrow the issue.
 
 ---
 
@@ -79,9 +81,11 @@ For each subtask, dispatch to the correct subagent:
 - Run subtasks **sequentially** — do not start the next until the current is `[x]`.
 - The parent task is marked `[x]` only when **every** subtask is `[x]`.
 - Transition the Jira ticket to `In Progress` when the first subtask starts; transition to `Done` only when all subtasks are `[x]` and verification passes.
+- Before transitioning to `Done`, ensure the ticket contains verification artifacts (test output, screenshots, logs, or report links/paths) that prove the result.
 
 ### Step 5 — Never truncate or shortcut
 
 - **Do not summarise away detail.** If the ticket has 10 acceptance criteria, all 10 must be tracked as subtasks or explicit verification checks.
 - **Do not assume small means simple.** A one-line ticket can imply significant changes — always explore before proceeding.
 - **Do not mark the parent task done while any subtask is open.**
+- **Do not post context-free blocker comments.** Always attach or reference concrete artifacts so another agent can continue diagnosis immediately.
