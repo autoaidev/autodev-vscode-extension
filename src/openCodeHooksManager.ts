@@ -367,6 +367,31 @@ export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000): b
 }
 
 /**
+ * Return true if the most recent opencode session exited cleanly (Stop event
+ * present), regardless of how long ago it was. Used by taskLoop to distinguish
+ * between "CLI crashed / never ran" vs "CLI finished intentionally and left
+ * a [~] task waiting for external input". If the exit was clean we should NOT
+ * reset the [~] task as stranded — just wait for new tasks from the pollers.
+ */
+export function openCodeExitedCleanly(workspaceRoot: string): boolean {
+  const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+  try {
+    const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const ev = JSON.parse(lines[i]);
+        if (ev.provider !== 'opencode') { continue; }
+        const name: string = ev.hook_event_name ?? '';
+        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return true; }
+        // Any non-terminal opencode event found before a Stop → session may still be active
+        return false;
+      } catch { continue; }
+    }
+  } catch { /* file absent */ }
+  return false;
+}
+
+/**
  * Read the workspace-scoped hooks-events.jsonl and return the session ID from
  * the most recent OpenCode session.created / session.idle / session.updated event.
  * Returns undefined if the file is absent or no session event has been seen yet.

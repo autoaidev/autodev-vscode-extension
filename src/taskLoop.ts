@@ -12,7 +12,7 @@ import { loadSettingsForRoot, AutodevSettings } from './core/settingsLoader';
 import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
-import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive } from './openCodeHooksManager';
+import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedCleanly } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
@@ -725,14 +725,27 @@ export class TaskLoopRunner {
           // marked them in-progress but never came back to finish them. Reset
           // them to [ ] so the next iteration picks them up instead of idling
           // forever.
+          //
+          // Exception: if opencode-cli exited cleanly (Stop event present), the
+          // [~] task was intentionally left in-progress while waiting for an
+          // external response (e.g. waiting for an email from another agent).
+          // In that case we must NOT reset — just wait; the email/webhook
+          // pollers will add new [ ] tasks when the response arrives, which
+          // will trigger a fresh opencode dispatch that also resolves the [~].
           if (!cliIsRunning) {
-            const stranded = tasks.filter(t => t.status === 'in-progress');
-            for (const t of stranded) {
-              await todoWriter.resetToTodo(todoPath, t).catch(() => {});
-            }
-            if (stranded.length > 0) {
-              this._cb?.log(`↩︎ Reset ${stranded.length} stranded [~] task(s) back to [ ] — CLI not running`);
-              continue; // re-pick immediately
+            const cleanExit = provider === 'opencode-cli' &&
+              openCodeExitedCleanly(this._workspaceRoot ?? '');
+            if (cleanExit) {
+              this._cb?.log(`⏳ opencode-cli exited cleanly with [~] task — waiting for external response…`);
+            } else {
+              const stranded = tasks.filter(t => t.status === 'in-progress');
+              for (const t of stranded) {
+                await todoWriter.resetToTodo(todoPath, t).catch(() => {});
+              }
+              if (stranded.length > 0) {
+                this._cb?.log(`↩︎ Reset ${stranded.length} stranded [~] task(s) back to [ ] — CLI not running`);
+                continue; // re-pick immediately
+              }
             }
           }
           this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
