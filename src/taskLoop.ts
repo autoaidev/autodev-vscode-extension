@@ -1506,7 +1506,7 @@ export class TaskLoopRunner {
         this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
         try {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
-          await this._cb!.sendToAi(reminder, task.text, undefined, reminderFile);
+          await this._cb!.sendToAi(reminder, task.text, false, reminderFile);
         } catch { /* ignore */ }
       };
 
@@ -1677,7 +1677,7 @@ export class TaskLoopRunner {
         this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
         try {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
-          await this._cb!.sendToAi(reminder, task.text, undefined, reminderFile);
+          await this._cb!.sendToAi(reminder, task.text, false, reminderFile);
         } catch { /* ignore */ }
 
         // TODO.md inactivity timeout — fires when TODO.md has not been touched

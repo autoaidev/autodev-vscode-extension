@@ -82,7 +82,9 @@ function writeCombinedFile(root: string, agentProfileFile: string, messageFile: 
   let combined = msgContent;
   if (includeProfile) {
     const profileContent = fs.readFileSync(agentProfileFile, 'utf8');
-    combined = `${profileContent}\n\n${msgContent}`;
+    // Task message FIRST so the agent sees the current task immediately,
+    // not buried after hundreds of lines of profile instructions.
+    combined = `${msgContent}\n\n---\n\n${profileContent}`;
   }
   const combinedFile = path.join(msgsDir, `temp_${Date.now()}.md`);
   fs.writeFileSync(combinedFile, combined, 'utf8');
