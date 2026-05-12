@@ -1,4 +1,4 @@
-import { appendTask, resetToTodo, resetAllInProgress, Task } from './todo';
+import { appendTask, resetToTodo, resetAllInProgress, markDone, Task } from './todo';
 
 /**
  * Serialises all mutating TODO.md operations so concurrent callers
@@ -35,6 +35,11 @@ class TodoWriteManager {
     /** Reset ALL [~] in-progress tasks back to [ ]. */
     resetAllInProgress(filePath: string): Promise<void> {
         return this._enqueue(filePath, () => resetAllInProgress(filePath));
+    }
+
+    /** Mark a task as [x] done in TODO.md. */
+    markDone(filePath: string, task: Task): Promise<void> {
+        return this._enqueue(filePath, () => markDone(filePath, task));
     }
 }
 

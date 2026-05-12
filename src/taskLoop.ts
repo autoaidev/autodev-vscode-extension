@@ -1454,7 +1454,10 @@ export class TaskLoopRunner {
         }
 
         if (decision.kind === 'give_up') {
-          this._cb?.log(`↪︎ CLI exited again without marking task done — moving on: ${discordLabel(task.text)}`);
+          this._cb?.log(`↪︎ CLI exited again without marking task done — auto-marking [x] and moving on: ${discordLabel(task.text)}`);
+          // Auto-mark the task done so the loop doesn't re-pick the same
+          // [ ] task on the next iteration, causing an infinite loop.
+          await todoWriter.markDone(todoPath, task).catch(() => {});
           cleanup();
           resolve();
           return;
@@ -1482,7 +1485,7 @@ export class TaskLoopRunner {
         const currentLine  = currentTasks.find(t => t.line === task.line || t.text === task.text);
         const currentMarker = currentLine?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
-          `Your process has finished.  If you have completed the task, mark it done in TODO.md now.`,
+          `Your process has finished but the task is not marked done.  You MUST mark it in TODO.md before exiting.`,
           ``,
           `Change the line:`,
           `  - [${currentMarker}] ${task.text}`,
@@ -1490,7 +1493,9 @@ export class TaskLoopRunner {
           `  - [x] ${date}  ${task.text}`,
           ``,
           `(two spaces between the date and task text, lowercase x, save the file)`,
-          `If you haven't finished yet, continue and mark it done when you are.`,
+          `If the work is not finished, mark it [~] in-progress instead:`,
+          `  - [~] ${task.text}`,
+          `Either way, you MUST update the marker — do NOT exit without doing this.`,
         ].join('\n');
         this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
         try {
