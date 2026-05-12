@@ -119,21 +119,43 @@ export function resetAllInProgress(filePath: string): void {
 
 export function markDone(filePath: string, task: Task): void {
   const date = new Date().toISOString().slice(0, 10);
-  const escaped = escapeRegex(task.text);
   const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split('\n');
 
-  // Try replacing [~] first, then [ ]
-  let updated = content.replace(
-    new RegExp(`(^\\s*(?:-\\s*)?)\\[~\\](\\s+${escaped}.*)$`, 'mu'),
-    `$1[x] ${date}  ${task.text}`
-  );
-  if (updated === content) {
-    updated = content.replace(
-      new RegExp(`(^\\s*(?:-\\s*)?)\\[\\s+\\](\\s+${escaped}.*)$`, 'mu'),
-      `$1[x] ${date}  ${task.text}`
-    );
+  // Primary: replace by line number — preserves the full original text including
+  // any [task-id] prefix, which the regex approach would miss (task.text strips the ID).
+  const lineIdx = task.line - 1;
+  if (lineIdx >= 0 && lineIdx < lines.length) {
+    const ln = lines[lineIdx];
+    const m = ln.match(/^(\s*(?:-\s*)?)(?:\[~\]|\[\s+\])(\s+.+)$/iu);
+    if (m) {
+      // Preserve everything after the marker (including any [task-id] prefix)
+      lines[lineIdx] = `${m[1]}[x] ${date}  ${m[2].trimStart()}`;
+      fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+      return;
+    }
   }
-  fs.writeFileSync(filePath, updated, 'utf8');
+
+  // Fallback: scan all lines — line number may have shifted since task was parsed.
+  // Match by task ID if available, otherwise by text (accounting for optional [task-id] prefix).
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const m = ln.match(/^(\s*(?:-\s*)?)(?:\[~\]|\[\s+\])\s+(.+)$/iu);
+    if (!m) { continue; }
+    const rawText = m[2].trim();
+    const idMatch = rawText.match(/^\[(task-(?:\d{4}-\d{2}-\d{2}|\d{8})-[a-f0-9]{6})\]\s+(.+)$/i);
+    const lineId   = idMatch ? idMatch[1] : undefined;
+    const lineText = idMatch ? idMatch[2] : rawText;
+    const matches = (task.id && lineId === task.id) || lineText === task.text;
+    if (matches) {
+      lines[i] = `${m[1]}[x] ${date}  ${rawText}`;
+      fs.writeFileSync(filePath, lines.join('\n'), 'utf8');
+      return;
+    }
+  }
+
+  // Nothing matched — write unchanged (better than corrupting the file)
+  fs.writeFileSync(filePath, content, 'utf8');
 }
 
 /** Append a new task line to the ## Todo section (at the bottom, before the next heading). */
