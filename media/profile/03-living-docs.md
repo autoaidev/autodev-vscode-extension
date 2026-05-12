@@ -163,3 +163,16 @@ All completed tasks are recorded here in reverse-chronological order.
 ```
 
 **Rule:** Create `CHANGELOG.md` if it does not exist. Never edit or delete past entries. The Done section of `TODO.md` is a status list; `CHANGELOG.md` is the detailed record.
+
+---
+
+### CONTRACTS.md — Agent Contact Directory & Communication Protocol
+
+**Purpose:** The single source of truth for how agents contact the human and each other. Lists real email addresses, `@local` routing aliases, per-channel rules, and the escalation thresholds that must be met before the human is contacted. See **§0.5** for the full protocol.
+
+**Update when:**
+- A new agent or human contact is added to the project.
+- An address, alias, or routing rule changes.
+- An escalation threshold is revised.
+
+**Rule:** Create `CONTRACTS.md` from the skeleton in §0.5 at the start of the first session if it does not exist. Never guess or invent contact addresses — leave blanks for the human to fill in. Mark removed contacts `[inactive]` rather than deleting them.

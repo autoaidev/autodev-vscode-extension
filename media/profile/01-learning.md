@@ -15,6 +15,11 @@ Immediately after `SUMMARY.md`, check for a lessons log:
 - **If the project uses `tasks/lessons.md` instead:** treat that as the canonical lessons log and read it at session start.
 - **If neither exists yet:** create the project's canonical lessons log the first time a meaningful correction, preventable mistake, or repeat failure occurs.
 
+Immediately after the lessons log, check for `CONTRACTS.md`:
+
+- **If `CONTRACTS.md` exists:** read the `## Human Contacts` and `## Agent Contacts` sections now so you know who to reach and how before any work begins. Never rely on memory for contact addresses.
+- **If `CONTRACTS.md` does not exist:** create it from the skeleton in §0.5 (blank — do not fill in addresses yourself; leave them for the human to complete), then continue.
+
 ### What Belongs in SUMMARY.md
 
 Capture anything project-specific that would take future sessions time to rediscover:
