@@ -3,7 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { ProviderId, PROVIDERS } from './providers';
 import { IProcessLauncher } from './core/adapters';
-import { getSessionId, captureAndSaveSessionId, AGENT_PROFILE_FILE, newMessageOutput, autodevDir } from './sessionState';
+import { getSessionId, captureAndSaveSessionId, getSessionClearedAt, AGENT_PROFILE_FILE, newMessageOutput, autodevDir } from './sessionState';
 import { loadSettingsForRoot } from './core/settingsLoader';
 import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } from './providers/claudeCliProvider';
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
@@ -11,7 +11,6 @@ import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
 import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
 import { getManualHookCmd } from './hooksManager';
-import { getOpenCodeSessionIdFromHooks } from './openCodeHooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -133,9 +132,10 @@ export async function sendPromptToAi(
       } else if (providerId === 'copilot-cli') {
         resolvedSessionId = await probeCopilotSession(root, log);
       } else if (providerId === 'opencode-cli') {
-        // Prefer hooks events (fast, no subprocess); fall back to session list
-        resolvedSessionId = getOpenCodeSessionIdFromHooks(root)
-          ?? await getLatestOpenCodeSessionId(root, log);
+        // Use session list (filters by directory) with notBefore to skip
+        // sessions created before the last "New Session" clear.
+        const clearedAt = getSessionClearedAt(root, 'opencode-cli');
+        resolvedSessionId = await getLatestOpenCodeSessionId(root, log, clearedAt);
       }
       if (resolvedSessionId) {
         captureAndSaveSessionId(root, providerId, resolvedSessionId);

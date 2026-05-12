@@ -16,7 +16,7 @@ import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from 
 import { applyMcpSkills } from './protocolSections';
 import { Task, parseTodo } from './todo';
 import { todoWriter } from './todoWriteManager';
-import { getSessionId, clearSessionId } from './sessionState';
+import { getSessionId, clearSessionId, saveSessionName, getSessionName } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
 import { sidebarBaseCss } from './sidebarCss';
 import { tasksPanelHtml, tasksPanelScript } from './sidebarTasksPanel';
@@ -113,6 +113,29 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'newSession': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
+          break;
+        }
+        case 'compactSession': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const provider = this._selectedProvider;
+          const sid = getSessionId(root, provider);
+          if (!sid) { vscode.window.showWarningMessage('AutoDev: No active session to compact.'); break; }
+          vscode.window.showInformationMessage('AutoDev: Running /compact…');
+          taskLoopRunner.compact(root, provider).catch((e: unknown) => {
+            vscode.window.showErrorMessage(`AutoDev: Compact failed: ${e instanceof Error ? e.message : String(e)}`);
+          });
+          break;
+        }
+        case 'renameSession': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const sid = getSessionId(root, this._selectedProvider);
+          if (!sid) { vscode.window.showWarningMessage('AutoDev: No active session to rename.'); break; }
+          const name = String(msg.name ?? '').trim();
+          saveSessionName(root, sid, name || '');
+          vscode.window.showInformationMessage(name ? `AutoDev: Session renamed to "${name}".` : 'AutoDev: Session name cleared.');
+          this._push();
           break;
         }
         case 'getOpenCodeModels': {
@@ -533,6 +556,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       claudeActivity: this._claudeActivity,
       settings,
       sessionId,
+      sessionName: (root && sessionId) ? (getSessionName(root, sessionId) ?? null) : null,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
       cozempicInstalled: this._checkCozempic(),
@@ -598,12 +622,41 @@ function buildHtml(_webview: vscode.Webview): string {
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
-  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session â€” next run starts a new session">&#8635; New</button>
+  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
+</div>
+<div class="model-row" id="resetSessionRow" style="display:none">
+  <span class="provider-label">Reset session:</span>
+  <select id="resetSessionSelect" style="flex:1;min-width:0">
+    <option value="0">No reset</option>
+    <option value="5">Every 5 tasks</option>
+    <option value="10">Every 10 tasks</option>
+    <option value="20">Every 20 tasks</option>
+    <option value="custom">Custom&hellip;</option>
+  </select>
+  <input type="number" id="resetSessionCustom" min="1" max="999" style="width:55px;display:none" placeholder="N">
+</div>
+<div class="model-row" id="profileEveryRow" style="display:none">
+  <span class="provider-label">Re-send profile:</span>
+  <select id="profileEverySelect" style="flex:1;min-width:0">
+    <option value="0">First task only</option>
+    <option value="5">Every 5 tasks</option>
+    <option value="10">Every 10 tasks</option>
+    <option value="20">Every 20 tasks</option>
+    <option value="custom">Custom&hellip;</option>
+  </select>
+  <input type="number" id="profileEveryCustom" min="1" max="999" style="width:55px;display:none" placeholder="N">
 </div>
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
   <span style="flex-shrink:0">Session:</span>
-  <span class="session-id-val" id="sessionIdVal"></span>
+  <span class="session-id-val" id="sessionIdVal" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <button class="new-session-btn" id="compactBtn" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
+  <button class="new-session-btn" id="renameSessionBtn" title="Set a display name for this session">&#x270F;</button>
+</div>
+<div class="model-row" id="renameRow" style="display:none;gap:4px">
+  <input type="text" id="renameInput" placeholder="Session name…" style="flex:1;min-width:0">
+  <button class="new-session-btn" id="renameSaveBtn">Save</button>
+  <button class="new-session-btn" id="renameCancelBtn">&#x2715;</button>
 </div>
 <div class="loop-bar">
   <span class="loop-status" id="loopStatus">&#9711; Idle</span>
@@ -684,15 +737,78 @@ function renderProviders(){
   resumeCheck.checked=resumeOn;
   resumeCheck.onchange=function(){
     _pendingResume=resumeCheck.checked;
+    if(resetSessRow){resetSessRow.style.display=(isCli&&resumeCheck.checked)?'flex':'none';}
     vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resumeSession:resumeCheck.checked})});
   };
   var newSessBtn=document.getElementById('newSessionBtn');
   if(newSessBtn){newSessBtn.onclick=function(){vscode.postMessage({command:'newSession'});};}
+  var resetSessRow=document.getElementById('resetSessionRow');
+  var resetSel=document.getElementById('resetSessionSelect');
+  var resetCustom=document.getElementById('resetSessionCustom');
+  if(resetSessRow){resetSessRow.style.display=(isCli&&resumeOn)?'flex':'none';}
+  if(resetSel&&resetCustom){
+    var curReset=(state.settings&&state.settings.resetSessionEveryNTurns)||0;
+    var knownVals=['0','5','10','20'];
+    if(knownVals.indexOf(String(curReset))!==-1){resetSel.value=String(curReset);resetCustom.style.display='none';}
+    else{resetSel.value='custom';resetCustom.style.display='';resetCustom.value=String(curReset);}
+    resetSel.onchange=function(){
+      if(resetSel.value==='custom'){resetCustom.style.display='';}
+      else{resetCustom.style.display='none';var v=parseInt(resetSel.value,10)||0;vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resetSessionEveryNTurns:v})});}
+    };
+    resetCustom.onchange=function(){
+      var v=parseInt(resetCustom.value,10)||0;
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{resetSessionEveryNTurns:v})});
+    };
+  }
+  var profileEveryRow=document.getElementById('profileEveryRow');
+  var profileEverySel=document.getElementById('profileEverySelect');
+  var profileEveryCustom=document.getElementById('profileEveryCustom');
+  if(profileEveryRow){profileEveryRow.style.display=isCli?'flex':'none';}
+  if(profileEverySel&&profileEveryCustom){
+    var curPe=(state.settings&&state.settings.profileEveryNTasks)||0;
+    var peVals=['0','5','10','20'];
+    if(peVals.indexOf(String(curPe))!==-1){profileEverySel.value=String(curPe);profileEveryCustom.style.display='none';}
+    else{profileEverySel.value='custom';profileEveryCustom.style.display='';profileEveryCustom.value=String(curPe);}
+    profileEverySel.onchange=function(){
+      if(profileEverySel.value==='custom'){profileEveryCustom.style.display='';}
+      else{profileEveryCustom.style.display='none';var v=parseInt(profileEverySel.value,10)||0;vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{profileEveryNTasks:v})});}
+    };
+    profileEveryCustom.onchange=function(){
+      var v=parseInt(profileEveryCustom.value,10)||0;
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{profileEveryNTasks:v})});
+    };
+  }
   var sidRow=document.getElementById('sessionIdRow');
   var sidVal=document.getElementById('sessionIdVal');
   var hasSession=isCli&&resumeOn&&state.sessionId;
   sidRow.style.display=hasSession?'flex':'none';
-  if(sidVal){sidVal.textContent=state.sessionId||'';}
+  if(sidVal){
+    var displayName=state.sessionName||state.sessionId||'';
+    sidVal.textContent=displayName;
+    sidVal.title=state.sessionId||'';
+  }
+  var compactBtn=document.getElementById('compactBtn');
+  if(compactBtn){compactBtn.onclick=function(){vscode.postMessage({command:'compactSession'});};}
+  var renameSessionBtn=document.getElementById('renameSessionBtn');
+  var renameRow=document.getElementById('renameRow');
+  var renameInput=document.getElementById('renameInput');
+  var renameSaveBtn=document.getElementById('renameSaveBtn');
+  var renameCancelBtn=document.getElementById('renameCancelBtn');
+  if(renameSessionBtn&&renameRow){
+    renameSessionBtn.onclick=function(){
+      renameRow.style.display='flex';
+      if(renameInput){renameInput.value=state.sessionName||'';renameInput.focus();}
+    };
+  }
+  if(renameCancelBtn&&renameRow){renameCancelBtn.onclick=function(){renameRow.style.display='none';};}
+  if(renameSaveBtn&&renameInput&&renameRow){
+    renameSaveBtn.onclick=function(){
+      var n=renameInput.value.trim();
+      vscode.postMessage({command:'renameSession',name:n});
+      renameRow.style.display='none';
+    };
+    renameInput.onkeydown=function(e){if(e.key==='Enter'){renameSaveBtn.click();}if(e.key==='Escape'){renameCancelBtn.click();}};
+  }
 
   var modelRow=document.getElementById('modelRow');
   var modelSel=document.getElementById('modelSelect');

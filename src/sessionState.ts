@@ -151,7 +151,34 @@ export function saveSessionId(root: string, providerId: ProviderId, sessionId: s
 export function clearSessionId(root: string, providerId: ProviderId): void {
   const map = readMap(root);
   delete map[providerId];
+  // Record the time of the clear so discovery helpers can ignore stale sessions
+  map[`${providerId}-cleared-at`] = String(Date.now());
   writeMap(root, map);
+}
+
+/**
+ * Returns the epoch-ms timestamp of the last clearSessionId() call for this
+ * provider, or 0 if clearSessionId() has never been called.
+ */
+export function getSessionClearedAt(root: string, providerId: ProviderId): number {
+  const raw = readMap(root)[`${providerId}-cleared-at`];
+  return raw ? parseInt(raw, 10) : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Session display names — stored in session-state.json keyed by session ID
+// ---------------------------------------------------------------------------
+
+/** Save a human-readable display name for a session ID. */
+export function saveSessionName(root: string, sessionId: string, name: string): void {
+  const map = readMap(root);
+  map[`name:${sessionId}`] = name;
+  writeMap(root, map);
+}
+
+/** Get the saved display name for a session ID, or undefined if none. */
+export function getSessionName(root: string, sessionId: string): string | undefined {
+  return readMap(root)[`name:${sessionId}`] ?? undefined;
 }
 
 // ---------------------------------------------------------------------------

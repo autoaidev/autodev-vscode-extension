@@ -206,12 +206,16 @@ function readOrEmpty(filePath: string): string {
   } catch { return ''; }
 }
 
-function buildTaskInstruction(task: Task, todoPath: string, noCommit = false): string {
+function buildTaskInstruction(task: Task, todoPath: string, root: string, noCommit = false): string {
   const date = new Date().toISOString().slice(0, 10);
   // Full raw task marker line as it appears (or will appear) in TODO.md
   const taskId   = task.id ? `[${task.id}] ` : '';
   const taskLine = `- [ ] ${taskId}${task.text}`;
   const doneLine = `- [x] ${date}  ${taskId}${task.text}`;
+  // Absolute file:// URI for the profile so agents that support @-references
+  // can load it regardless of their working directory.
+  const profileAbsPath = path.join(root, AGENT_PROFILE_FILE).replace(/\\/g, '/');
+  const profileRef = `@file://${profileAbsPath.startsWith('/') ? '' : '/'}${profileAbsPath}`;
 
   return `> ⚠️ **NEW TASK — READ THIS BEFORE ANYTHING ELSE**
 
@@ -236,6 +240,8 @@ function buildTaskInstruction(task: Task, todoPath: string, noCommit = false): s
 > This loop runs continuously. Each task dispatch is a fresh task. "Standing by" or "already done" is not acceptable — complete the work.
 
 ---
+
+**Full protocol and agent instructions:** ${profileRef}
 
 `;
 }
@@ -310,7 +316,7 @@ export function buildMessage(
   syncCopilotInstructions(root, finalProfileBody);
   // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
   const todoPath = path.join(todoDir, 'TODO.md');
-  const taskMessage = buildTaskInstruction(task, todoPath, meta.noCommit);
+  const taskMessage = buildTaskInstruction(task, todoPath, root, meta.noCommit);
 
   const messageFile = writeMessageFile(root, taskMessage);
 

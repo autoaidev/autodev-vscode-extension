@@ -16,7 +16,7 @@ import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedClean
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
-import { captureAndSaveSessionId, saveSessionId, getSessionId, stdoutFilePath, exitFilePath } from './sessionState';
+import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
@@ -167,10 +167,45 @@ export class TaskLoopRunner {
   private _compactedTaskLines = new Set<number>();
   /** Counts completed tasks since the last auto-compact run. */
   private _autoCompactCounter = 0;
+  /** Counts completed tasks since the last session reset. */
+  private _resetSessionCounter = 0;
+  /** Counts tasks dispatched since the last profile-included send. */
+  private _profileSentCounter = 0;
 
   get state(): LoopState { return this._state; }
   get currentTask(): string | undefined { return this._currentTask; }
   get resumeAt(): Date | undefined { return this._resumeAt; }
+
+  /** Manually trigger a /compact on the current session for the given provider/root. */
+  async compact(root: string, provider: ProviderId): Promise<void> {
+    const log = (m: string) => this._cb?.log(m);
+    log(`🗜 Manual compact triggered (provider: ${provider})`);
+    try {
+      if (provider === 'claude-cli') {
+        let sid = getSessionId(root, 'claude-cli');
+        if (!sid) { sid = findLatestClaudeSession(root); }
+        if (sid) { await runClaudeCompact(sid, root, log); log('🗜 Compact complete'); }
+        else { log('⚠️ Compact: no Claude session ID found'); }
+      } else if (provider === 'claude-tui') {
+        let sid = getSessionId(root, 'claude-tui');
+        if (!sid) { sid = getClaudeTuiLatestSessionId(root); }
+        if (sid) { await runClaudeTuiCompact(root, sid, log); log('🗜 Compact complete'); }
+        else { log('⚠️ Compact: no Claude TUI session ID found'); }
+      } else if (provider === 'opencode-cli') {
+        let sid = getSessionId(root, 'opencode-cli');
+        if (!sid) { sid = await getLatestOpenCodeSessionId(root, log); }
+        if (sid) { await runOpenCodeCompact(sid, root, log); log('🗜 Compact complete'); }
+        else { log('⚠️ Compact: no OpenCode session ID found'); }
+      } else if (provider === 'opencode-sdk') {
+        await runOpencodeSdkCompact(root, log);
+        log('🗜 Compact complete (opencode-sdk)');
+      } else {
+        log(`⚠️ Compact not supported for provider: ${provider}`);
+      }
+    } catch (e) {
+      log(`⚠️ Compact failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   /** Resume the loop after a rate-limit pause. Clears the scheduled timer. */
   retry(): void {
@@ -195,6 +230,8 @@ export class TaskLoopRunner {
     this._iterations = 0;
     this._compactedTaskLines.clear();
     this._autoCompactCounter = 0;
+    this._resetSessionCounter = 0;
+    this._profileSentCounter = 0;
     this._hookLineSeen.clear();
     this._setState('running');
 
@@ -679,7 +716,8 @@ export class TaskLoopRunner {
         // incorrectly reporting "still running" when the file simply doesn't exist
         // (remote session never wrote one), causing [~] tasks to be stuck forever.
         if (provider === 'opencode-cli') {
-          return isOpenCodeCliActive(this._workspaceRoot);
+          const ocSid = getSessionId(this._workspaceRoot, 'opencode-cli');
+          return isOpenCodeCliActive(this._workspaceRoot, 90_000, ocSid);
         }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
@@ -734,7 +772,7 @@ export class TaskLoopRunner {
           // will trigger a fresh opencode dispatch that also resolves the [~].
           if (!cliIsRunning) {
             const cleanExit = provider === 'opencode-cli' &&
-              openCodeExitedCleanly(this._workspaceRoot ?? '');
+              openCodeExitedCleanly(this._workspaceRoot ?? '', getSessionId(this._workspaceRoot ?? '', 'opencode-cli'));
             if (cleanExit) {
               this._cb?.log(`⏳ opencode-cli exited cleanly with [~] task — waiting for external response…`);
             } else {
@@ -775,8 +813,16 @@ export class TaskLoopRunner {
       this._currentTask = task.text;
       this._setState('running', task.text);
 
+      // Decide whether to include the full profile in this dispatch.
+      // Always include on first task; also re-include every profileEveryNTasks if set.
+      const profileInterval = settings.profileEveryNTasks ?? 0;
+      const includeProfile = this._iterations === 1
+        || (profileInterval > 0 && this._profileSentCounter >= profileInterval);
+      if (includeProfile) { this._profileSentCounter = 0; }
+      this._profileSentCounter++;
+
       // Build prompt (needed even when not sending, for messageFile path)
-      const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), this._iterations === 1);
+      const { prompt, messageFile } = buildPrompt(task, this._workspaceRoot!, path.dirname(todoPath), includeProfile);
       const remaining = countRemaining(parseTodo(todoPath));
 
       if (!watchingInProgress) {
@@ -802,7 +848,7 @@ export class TaskLoopRunner {
           this._cb?.log(`⏳ CLI still running — skipping send, waiting for task completion…`);
         } else {
           // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
-          await this._cb!.sendToAi(prompt, task.text, this._iterations === 1, messageFile);
+          await this._cb!.sendToAi(prompt, task.text, includeProfile, messageFile);
         }
 
         // Wait for the AI to mark the task [x] done in TODO.md
@@ -886,7 +932,9 @@ export class TaskLoopRunner {
           if (activeProvider === 'opencode-cli') {
             // Prefer the session ID from hooks events (fast, no subprocess);
             // fall back to `opencode session list` if hooks haven't fired yet.
-            const hooksSid = getOpenCodeSessionIdFromHooks(this._workspaceRoot);
+            // Pass taskStartTime so we ignore stale/foreign hooks events from
+            // before this dispatch (prevents cross-folder contamination).
+            const hooksSid = getOpenCodeSessionIdFromHooks(this._workspaceRoot, taskStartTime);
             if (hooksSid) {
               saveSessionId(this._workspaceRoot, 'opencode-cli', hooksSid);
               this._cb?.log(`OpenCode session ID from hooks: ${hooksSid}`);
@@ -913,6 +961,7 @@ export class TaskLoopRunner {
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._completedCount++;
         this._autoCompactCounter++;
+        this._resetSessionCounter++;
         this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
@@ -1007,6 +1056,29 @@ export class TaskLoopRunner {
           } catch (compactErr) {
             const cm = compactErr instanceof Error ? compactErr.message : String(compactErr);
             this._cb?.log(`⚠️ Auto-compact failed (non-fatal): ${cm}`);
+          }
+        }
+
+        // --- Session reset: clear session every N completed tasks ---------
+        const resetInterval = settings.resetSessionEveryNTurns ?? 0;
+        if (settings.resumeSession && resetInterval > 0 && this._resetSessionCounter >= resetInterval) {
+          this._resetSessionCounter = 0;
+          const rsProvider = this._cb?.getActiveProvider() ?? '';
+          this._cb?.log(`🔄 Session reset triggered after ${resetInterval} tasks (provider: ${rsProvider})`);
+          this._notifyDiscord(`🔄 Session reset after ${resetInterval} tasks — summarising and starting fresh`);
+          // Ask the agent to write a summary before the session is cleared
+          try {
+            const summaryMsg = `Before this session ends, please summarise everything accomplished so far into a file called SUMMARY.md in the project root. Include: tasks completed, key decisions made, any issues found, and current project state. Write comprehensively so the next session can continue without context loss. Then stop — do not pick up any new tasks.`;
+            const summaryFile = writeMessageFile(this._workspaceRoot!, summaryMsg);
+            await this._cb!.sendToAi(summaryMsg, 'session-summary', false, summaryFile);
+          } catch (rsErr) {
+            const rm = rsErr instanceof Error ? rsErr.message : String(rsErr);
+            this._cb?.log(`⚠️ Session reset summary failed (non-fatal): ${rm}`);
+          }
+          // Clear the session ID so the next dispatch starts a fresh session
+          if (this._workspaceRoot && rsProvider) {
+            clearSessionId(this._workspaceRoot, rsProvider as import('./providers').ProviderId);
+            this._cb?.log(`🔄 Session ID cleared — next task will start a new session`);
           }
         }
       } catch (err) {

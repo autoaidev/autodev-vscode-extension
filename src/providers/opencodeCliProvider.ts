@@ -23,21 +23,26 @@ export function buildOpenCodeCliCommand(
 /**
  * Get the latest OpenCode session ID for this workspace directory by querying
  * `opencode session list`. No tokens consumed — purely a metadata read.
+ *
+ * @param notBefore  Epoch-ms timestamp — ignore sessions created before this
+ *                   time (used after "New Session" to skip the old session).
  */
 export function getLatestOpenCodeSessionId(
   cwd: string,
   log: (msg: string) => void,
+  notBefore = 0,
 ): Promise<string | undefined> {
   return new Promise(resolve => {
-    exec('opencode session list -n 5 --format json', { cwd, encoding: 'utf8', timeout: 10000 }, (_err, stdout) => {
+    exec('opencode session list -n 10 --format json', { cwd, encoding: 'utf8', timeout: 10000 }, (_err, stdout) => {
       try {
-        const sessions = JSON.parse(stdout ?? '[]') as Array<{ id: string; directory: string; updated: number }>;
+        const sessions = JSON.parse(stdout ?? '[]') as Array<{ id: string; directory: string; created: number; updated: number }>;
         const cwdNorm = cwd.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
         const match = sessions
           .filter(s => s.directory.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === cwdNorm)
+          .filter(s => !notBefore || (s.created ?? 0) > notBefore)
           .sort((a, b) => b.updated - a.updated)[0];
         const id = match?.id;
-        log(`OpenCode session list: ${id ?? 'none found for this directory'}`);
+        log(`OpenCode session list: ${id ?? 'none found for this directory'}${notBefore ? ` (notBefore=${new Date(notBefore).toISOString()})` : ''}`);
         resolve(id);
       } catch {
         resolve(undefined);

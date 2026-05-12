@@ -29,19 +29,28 @@ function pluginPath(workspaceRoot: string): string {
 // ---------------------------------------------------------------------------
 
 function buildPluginContent(workspaceRoot: string): string {
-  // Bake in the workspace-scoped JSONL path with forward slashes so the
+  // Bake in the workspace-scoped JSONL dir with forward slashes so the
   // plugin always writes to the right place regardless of the process cwd.
-  const jsonlPath = JSON.stringify(
-    path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl').replace(/\\/g, '/'),
+  const autodevDir = JSON.stringify(
+    path.join(workspaceRoot, '.autodev').replace(/\\/g, '/'),
   );
   return `${PLUGIN_MARKER}
 // AutoDev hooks plugin for OpenCode — auto-generated, do not edit.
-// Streams tool/session events to Pixel Office via <workspaceRoot>/.autodev/hooks-events.jsonl
+// Streams tool/session events to Pixel Office via <workspaceRoot>/.autodev/
 import { appendFileSync, mkdirSync, existsSync } from 'fs';
-import { dirname } from 'path';
+import { join } from 'path';
 
-// Path is baked in at install time (workspace-scoped, always forward slashes)
-const JSONL_PATH: string = ${jsonlPath};
+// Dir is baked in at install time (workspace-scoped, always forward slashes)
+const AUTODEV_DIR: string = ${autodevDir};
+// Global file for session-ID discovery; per-session files for state tracking
+const GLOBAL_JSONL = join(AUTODEV_DIR, 'hooks-events.jsonl');
+
+function sessionJsonlPath(sessionId: string | null): string | null {
+  if (!sessionId) { return null; }
+  // Replace chars that are unsafe in filenames but keep the ID readable
+  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return join(AUTODEV_DIR, \`hooks-events-\${safe}.jsonl\`);
+}
 
 // High-frequency / large-payload events we intentionally skip in the generic catch-all
 // (tool events have dedicated hooks; these are too noisy or already handled explicitly)
@@ -104,10 +113,15 @@ const SESSION_MAP: Record<string, string> = {
 
 function appendEvent(ev: Record<string, unknown>): void {
   try {
-    const dir = dirname(JSONL_PATH);
-    if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }); }
+    if (!existsSync(AUTODEV_DIR)) { mkdirSync(AUTODEV_DIR, { recursive: true }); }
     ev['timestamp'] = new Date().toISOString();
-    appendFileSync(JSONL_PATH, JSON.stringify(ev) + '\\n', 'utf8');
+    const line = JSON.stringify(ev) + '\\n';
+    // Always write to global file (used for session-ID discovery)
+    appendFileSync(GLOBAL_JSONL, line, 'utf8');
+    // Also write to per-session file when we know the session ID
+    const sid = typeof ev['session_id'] === 'string' ? ev['session_id'] as string : null;
+    const perFile = sessionJsonlPath(sid);
+    if (perFile) { appendFileSync(perFile, line, 'utf8'); }
   } catch { }
 }
 
@@ -323,10 +337,9 @@ export const AutodevHooksPlugin = async () => ({
 export function isOpenCodeHooksInstalled(workspaceRoot: string): boolean {
   try {
     const content = fs.readFileSync(pluginPath(workspaceRoot), 'utf8');
-    // Check both the marker AND that the path is workspace-scoped (not a stale
-    // homedir path from an older install).
-    const expectedPath = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl').replace(/\\/g, '/');
-    return content.includes(PLUGIN_MARKER) && content.includes(expectedPath);
+    // Check both the marker AND that the dir is workspace-scoped (not a stale install).
+    const expectedDir = path.join(workspaceRoot, '.autodev').replace(/\\/g, '/');
+    return content.includes(PLUGIN_MARKER) && content.includes(expectedDir);
   } catch {
     return false;
   }
@@ -340,26 +353,27 @@ export function installOpenCodeHooks(workspaceRoot: string): void {
 
 /**
  * Return true if an opencode process is actively writing to the hooks JSONL.
- * Used by taskLoop to decide whether [~] tasks are legitimately in-progress
- * vs stranded (process died). Considers active if:
- *  - the JSONL file was modified within the last `windowMs` milliseconds (default 90s), AND
- *  - the last event in the file is NOT a terminal Stop/StopFailure/SessionEnd event.
+ * Prefers the per-session file when sessionId is known; falls back to the global file.
  */
-export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000): boolean {
-  const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000, sessionId?: string): boolean {
+  const safeId = sessionId ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '_') : undefined;
+  const perFile = safeId ? path.join(workspaceRoot, '.autodev', `hooks-events-${safeId}.jsonl`) : undefined;
+  const jsonlFile = (perFile && fs.existsSync(perFile))
+    ? perFile
+    : path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
   try {
     const stat = fs.statSync(jsonlFile);
     if (Date.now() - stat.mtimeMs > windowMs) { return false; } // stale file
-    // Also check the last event — if it's a terminal event the session ended cleanly
     const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const ev = JSON.parse(lines[i]);
         if (ev.provider !== 'opencode') { continue; }
+        // If reading global file, filter to the requested session
+        if (!perFile && sessionId && ev.session_id && ev.session_id !== sessionId) { continue; }
         const name: string = ev.hook_event_name ?? '';
-        // These mark a completed/ended session — not active
         if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return false; }
-        return true; // last opencode event is something other than a terminal event
+        return true;
       } catch { continue; }
     }
     return false;
@@ -367,23 +381,24 @@ export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000): b
 }
 
 /**
- * Return true if the most recent opencode session exited cleanly (Stop event
- * present), regardless of how long ago it was. Used by taskLoop to distinguish
- * between "CLI crashed / never ran" vs "CLI finished intentionally and left
- * a [~] task waiting for external input". If the exit was clean we should NOT
- * reset the [~] task as stranded — just wait for new tasks from the pollers.
+ * Return true if the most recent opencode session exited cleanly (Stop event present).
+ * Prefers the per-session file when sessionId is known.
  */
-export function openCodeExitedCleanly(workspaceRoot: string): boolean {
-  const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+export function openCodeExitedCleanly(workspaceRoot: string, sessionId?: string): boolean {
+  const safeId = sessionId ? sessionId.replace(/[^a-zA-Z0-9_-]/g, '_') : undefined;
+  const perFile = safeId ? path.join(workspaceRoot, '.autodev', `hooks-events-${safeId}.jsonl`) : undefined;
+  const jsonlFile = (perFile && fs.existsSync(perFile))
+    ? perFile
+    : path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
   try {
     const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const ev = JSON.parse(lines[i]);
         if (ev.provider !== 'opencode') { continue; }
+        if (!perFile && sessionId && ev.session_id && ev.session_id !== sessionId) { continue; }
         const name: string = ev.hook_event_name ?? '';
         if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return true; }
-        // Any non-terminal opencode event found before a Stop → session may still be active
         return false;
       } catch { continue; }
     }
@@ -393,11 +408,18 @@ export function openCodeExitedCleanly(workspaceRoot: string): boolean {
 
 /**
  * Read the workspace-scoped hooks-events.jsonl and return the session ID from
- * the most recent OpenCode session.created / session.idle / session.updated event.
+ * the most recent OpenCode session event.
  * Returns undefined if the file is absent or no session event has been seen yet.
+ *
+ * @param notBefore  Only consider events with a timestamp >= this ISO string or
+ *                   epoch-ms number.  Pass the task-start time to avoid picking
+ *                   up stale/foreign sessions from before this dispatch.
  */
-export function getOpenCodeSessionIdFromHooks(workspaceRoot: string): string | undefined {
+export function getOpenCodeSessionIdFromHooks(workspaceRoot: string, notBefore?: string | number): string | undefined {
   const jsonlFile = path.join(workspaceRoot, '.autodev', 'hooks-events.jsonl');
+  const cutoff = notBefore
+    ? (typeof notBefore === 'number' ? new Date(notBefore).toISOString() : notBefore)
+    : undefined;
   try {
     const lines = fs.readFileSync(jsonlFile, 'utf8').split('\n').filter(Boolean);
     // Walk backwards — most recent event first
@@ -405,6 +427,7 @@ export function getOpenCodeSessionIdFromHooks(workspaceRoot: string): string | u
       try {
         const ev = JSON.parse(lines[i]);
         if (ev.provider !== 'opencode') { continue; }
+        if (cutoff && ev.timestamp && ev.timestamp < cutoff) { break; } // events are chronological
         const sid: string | undefined = ev.session_id ?? undefined;
         if (sid) { return sid; }
       } catch { /* malformed line */ }

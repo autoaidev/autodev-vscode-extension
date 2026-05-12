@@ -117,6 +117,19 @@ export interface AutodevSettings {
    * 0 = use OpenCode default.
    */
   opencodeChunkTimeout: number;
+  /**
+   * Reset the agent session every N completed tasks (0 = disabled).
+   * Only active when resumeSession is true.
+   * When triggered, the agent is asked to summarise to SUMMARY.md before the
+   * session ID is cleared so the next task starts a fresh session.
+   */
+  resetSessionEveryNTurns: number;
+  /**
+   * Re-send the full agent profile (includeProfile=true) every N completed tasks.
+   * 0 = only send on the first task of each loop start.
+   * Useful to keep long-running agents on protocol even in resumed sessions.
+   */
+  profileEveryNTasks: number;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -166,6 +179,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   autoCompactInterval: 5,
   opencodeTimeout: 0,
   opencodeChunkTimeout: 0,
+  resetSessionEveryNTurns: 0,
+  profileEveryNTasks: 0,
 };
 
 /**
