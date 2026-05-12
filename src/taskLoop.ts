@@ -1350,10 +1350,13 @@ export class TaskLoopRunner {
         }
 
         // Context length error detection (OpenCode)
-        if (isOpenCodeCli && content.toLowerCase().includes('maximum context length')) {
-          cleanup();
-          reject(new ContextLengthError(content.trim()));
-          return;
+        if (isOpenCodeCli) {
+          const lc = content.toLowerCase();
+          if (lc.includes('maximum context length') || lc.includes('prompt is too long')) {
+            cleanup();
+            reject(new ContextLengthError(content.trim()));
+            return;
+          }
         }
 
         // Context length error detection (Claude). Patterns observed:
@@ -1414,13 +1417,21 @@ export class TaskLoopRunner {
         if (cancelled) { return; }
 
         // Fast-path: if the stdout capture file already contains a rate-limit
-        // phrase at exit time, raise immediately without waiting for a hooks event.
+        // or context-length phrase at exit time, raise immediately.
+        const exitStdout = readStdoutFile();
         if (isClaudeCli) {
-          const stdoutContent = readStdoutFile();
-          const rlFromStdout = RateLimitDetector.detect(stdoutContent);
+          const rlFromStdout = RateLimitDetector.detect(exitStdout);
           if (rlFromStdout) {
             cleanup();
             reject(rlFromStdout);
+            return;
+          }
+        }
+        if (isOpenCodeCli) {
+          const lc = exitStdout.toLowerCase();
+          if (lc.includes('maximum context length') || lc.includes('prompt is too long')) {
+            cleanup();
+            reject(new ContextLengthError(exitStdout.trim()));
             return;
           }
         }
@@ -1533,6 +1544,7 @@ export class TaskLoopRunner {
 
       poller = setInterval(async () => {
         check();
+        checkStdout(); // also poll stdout every tick — file watcher can miss events on Linux
 
         if (!this._workspaceRoot) { return; }
 
