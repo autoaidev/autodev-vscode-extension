@@ -42,7 +42,13 @@ export class CliExitHandler {
   decide(): CliExitDecision {
     if (this.isTaskDone()) { return { kind: 'done' }; }
 
-    if (this.taskIsInProgress()) { return { kind: 'deferred' }; }
+    // If the agent marked [~] after we already sent a reminder, treat it as
+    // give_up so the caller auto-marks [x] — avoids an infinite loop where
+    // the agent keeps marking [~] and exiting on every retry.
+    if (this.taskIsInProgress()) {
+      if (this.reminderSent) { return { kind: 'give_up' }; }
+      return { kind: 'deferred' };
+    }
 
     const rl = this.findRecentRateLimit();
     if (rl) { return { kind: 'rate_limit', error: rl }; }

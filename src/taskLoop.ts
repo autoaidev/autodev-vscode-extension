@@ -740,10 +740,15 @@ export class TaskLoopRunner {
             } else {
               const stranded = tasks.filter(t => t.status === 'in-progress');
               for (const t of stranded) {
-                await todoWriter.resetToTodo(todoPath, t).catch(() => {});
+                // Auto-mark as [x] done rather than resetting to [ ].
+                // Resetting to [ ] causes an infinite loop: the agent picks it
+                // up, marks [~] again, exits, and we end up here forever.
+                // If the CLI exited leaving a [~] task it means the agent
+                // already worked on it — treat it as done.
+                await todoWriter.markDone(todoPath, t).catch(() => {});
               }
               if (stranded.length > 0) {
-                this._cb?.log(`↩︎ Reset ${stranded.length} stranded [~] task(s) back to [ ] — CLI not running`);
+                this._cb?.log(`✅ Auto-marked ${stranded.length} stranded [~] task(s) as done — CLI exited without completing them`);
                 continue; // re-pick immediately
               }
             }
