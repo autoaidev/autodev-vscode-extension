@@ -20,6 +20,7 @@ import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, s
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
 import { DiscordPoller } from './discordPoller';
+import { PeriodicActionManager, PERIODIC_ACTIONS } from './periodicActions';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
 import { EmailTaskPoller } from './emailPoller';
@@ -171,6 +172,8 @@ export class TaskLoopRunner {
   private _resetSessionCounter = 0;
   /** Counts tasks dispatched since the last profile-included send. */
   private _profileSentCounter = 0;
+  /** Manages all "every N tasks" periodic action counters. */
+  private readonly _periodicMgr = new PeriodicActionManager();
 
   get state(): LoopState { return this._state; }
   get currentTask(): string | undefined { return this._currentTask; }
@@ -232,6 +235,7 @@ export class TaskLoopRunner {
     this._autoCompactCounter = 0;
     this._resetSessionCounter = 0;
     this._profileSentCounter = 0;
+    this._periodicMgr.resetAndPersist(callbacks.workspaceRoot);
     this._hookLineSeen.clear();
     this._setState('running');
 
@@ -962,6 +966,7 @@ export class TaskLoopRunner {
         this._completedCount++;
         this._autoCompactCounter++;
         this._resetSessionCounter++;
+        this._periodicMgr.increment(this._iterations, this._workspaceRoot);
         this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
@@ -1079,6 +1084,29 @@ export class TaskLoopRunner {
           if (this._workspaceRoot && rsProvider) {
             clearSessionId(this._workspaceRoot, rsProvider as import('./providers').ProviderId);
             this._cb?.log(`🔄 Session ID cleared — next task will start a new session`);
+          }
+        }
+
+        // --- Periodic actions: compact / skill / memory / summary / etc. --
+        for (const action of this._periodicMgr.getDue(settings)) {
+          this._periodicMgr.markHandled(action.id, this._iterations, this._workspaceRoot);
+          this._cb?.log(`${action.icon} Periodic action '${action.id}' triggered`);
+          this._notifyDiscord(`${action.icon} Periodic action: ${action.label}`);
+          try {
+            if (action.type === 'compact') {
+              const acProvider = this._cb?.getActiveProvider() ?? '';
+              if (acProvider && this._workspaceRoot) {
+                await this.compact(this._workspaceRoot, acProvider as ProviderId);
+              } else {
+                this._cb?.log(`⚠️ Periodic compact: no active provider`);
+              }
+            } else {
+              const msgFile = writeMessageFile(this._workspaceRoot!, action.prompt);
+              await this._cb!.sendToAi(action.prompt, action.id, false, msgFile);
+            }
+          } catch (paErr) {
+            const pm = paErr instanceof Error ? paErr.message : String(paErr);
+            this._cb?.log(`⚠️ Periodic action '${action.id}' failed (non-fatal): ${pm}`);
           }
         }
       } catch (err) {

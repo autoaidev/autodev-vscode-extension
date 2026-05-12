@@ -125,6 +125,30 @@ export interface AutodevSettings {
    */
   resetSessionEveryNTurns: number;
   /**
+   * Run /compact on the active session every N completed tasks (0 = disabled).
+   * Complements the existing autoCompact/autoCompactInterval toggle — use one
+   * or the other; both can be active simultaneously.
+   */
+  compactEveryNTasks: number;
+  /**
+   * Prompt the agent to create/update a SKILLS.md file every N completed tasks.
+   * 0 = disabled. The agent is asked to record reusable patterns, commands,
+   * and learnings it has discovered into SKILLS.md before continuing.
+   */
+  skillEveryNTasks: number;
+  /**
+   * Prompt the agent to update SUMMARY.md every N completed tasks.
+   * 0 = disabled. The agent is asked to merge new findings into SUMMARY.md
+   * and update LESSONS.md with any corrections or repeat failures.
+   */
+  memoryEveryNTasks: number;
+  /**
+   * Prompt the agent to write a full project state summary to SUMMARY.md
+   * every N completed tasks (more comprehensive than the memory update).
+   * 0 = disabled.
+   */
+  summaryEveryNTasks: number;
+  /**
    * Re-send the full agent profile (includeProfile=true) every N completed tasks.
    * 0 = only send on the first task of each loop start.
    * Useful to keep long-running agents on protocol even in resumed sessions.
@@ -181,6 +205,10 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   opencodeChunkTimeout: 0,
   resetSessionEveryNTurns: 0,
   profileEveryNTasks: 0,
+  compactEveryNTasks: 0,
+  skillEveryNTasks: 0,
+  memoryEveryNTasks: 0,
+  summaryEveryNTasks: 0,
 };
 
 /**

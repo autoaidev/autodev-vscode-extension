@@ -23,6 +23,7 @@ import { tasksPanelHtml, tasksPanelScript } from './sidebarTasksPanel';
 import { profilePanelHtml, profilePanelScript } from './sidebarProfilePanel';
 import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
 import { PROFILE_SECTIONS } from './profileBuilder';
+import { PERIODIC_ACTIONS } from './periodicActions';
 import { rebuildProfile } from './messageBuilder';
 
 // ---------------------------------------------------------------------------
@@ -646,6 +647,18 @@ function buildHtml(_webview: vscode.Webview): string {
   </select>
   <input type="number" id="profileEveryCustom" min="1" max="999" style="width:55px;display:none" placeholder="N">
 </div>
+${PERIODIC_ACTIONS.map(a => `
+<div class="model-row" id="periodicRow-${a.id}" style="display:none">
+  <span class="provider-label">${a.icon} ${a.label}:</span>
+  <select id="periodicSel-${a.id}" style="flex:1;min-width:0">
+    <option value="0">Disabled</option>
+    <option value="5">Every 5 tasks</option>
+    <option value="10">Every 10 tasks</option>
+    <option value="20">Every 20 tasks</option>
+    <option value="custom">Custom&hellip;</option>
+  </select>
+  <input type="number" id="periodicCustom-${a.id}" min="1" max="999" style="width:55px;display:none" placeholder="N">
+</div>`).join('')}
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
   <span style="flex-shrink:0">Session:</span>
@@ -778,6 +791,45 @@ function renderProviders(){
       vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{profileEveryNTasks:v})});
     };
   }
+  var skillEveryRow=document.getElementById('skillEveryRow');
+  var skillEverySel=document.getElementById('skillEverySelect');
+  var skillEveryCustom=document.getElementById('skillEveryCustom');
+  if(skillEveryRow){skillEveryRow.style.display=isCli?'flex':'none';}
+  if(skillEverySel&&skillEveryCustom){
+    var curSk=(state.settings&&state.settings.skillEveryNTasks)||0;
+    var skVals=['0','5','10','20'];
+    if(skVals.indexOf(String(curSk))!==-1){skillEverySel.value=String(curSk);skillEveryCustom.style.display='none';}
+    else{skillEverySel.value='custom';skillEveryCustom.style.display='';skillEveryCustom.value=String(curSk);}
+    skillEverySel.onchange=function(){
+      if(skillEverySel.value==='custom'){skillEveryCustom.style.display='';}
+      else{skillEveryCustom.style.display='none';var v=parseInt(skillEverySel.value,10)||0;vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{skillEveryNTasks:v})});}
+    };
+    skillEveryCustom.onchange=function(){
+      var v=parseInt(skillEveryCustom.value,10)||0;
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{skillEveryNTasks:v})});
+    };
+  }
+  // --- Periodic action rows (skill / memory / summary / ...) ---------------
+  ${PERIODIC_ACTIONS.map(a => `(function(){
+    var row=document.getElementById('periodicRow-${a.id}');
+    var sel=document.getElementById('periodicSel-${a.id}');
+    var cust=document.getElementById('periodicCustom-${a.id}');
+    if(row){row.style.display=isCli?'flex':'none';}
+    if(sel&&cust){
+      var cur=(state.settings&&state.settings.${a.settingKey})||0;
+      var preset=['0','5','10','20'];
+      if(preset.indexOf(String(cur))!==-1){sel.value=String(cur);cust.style.display='none';}
+      else{sel.value='custom';cust.style.display='';cust.value=String(cur);}
+      sel.onchange=function(){
+        if(sel.value==='custom'){cust.style.display='';}
+        else{cust.style.display='none';var v=parseInt(sel.value,10)||0;vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{${a.settingKey}:v})});}
+      };
+      cust.onchange=function(){
+        var v=parseInt(cust.value,10)||0;
+        vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{${a.settingKey}:v})});
+      };
+    }
+  })();`).join('\n  ')}
   var sidRow=document.getElementById('sessionIdRow');
   var sidVal=document.getElementById('sessionIdVal');
   var hasSession=isCli&&resumeOn&&state.sessionId;
