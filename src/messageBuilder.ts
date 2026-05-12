@@ -206,17 +206,33 @@ function readOrEmpty(filePath: string): string {
   } catch { return ''; }
 }
 
-function buildTaskInstruction(taskText: string, todoContent: string, noCommit = false): string {
+function buildTaskInstruction(task: Task, todoPath: string, noCommit = false): string {
   const commitLine = noCommit
     ? 'Do **NOT** commit — the user is responsible for all git operations.'
     : 'Commit each completed task with a descriptive conventional commit message.';
 
-  return `Read \`TODO.md\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
+  const date = new Date().toISOString().slice(0, 10);
+  // Full raw task marker line as it appears (or will appear) in TODO.md
+  const taskId   = task.id ? `[${task.id}] ` : '';
+  const taskLine = `- [ ] ${taskId}${task.text}`;
+  const doneLine = `- [x] ${date}  ${taskId}${task.text}`;
+
+  return `## Your current task
+
+**Task:** ${taskId}${task.text}
+**TODO.md line ${task.line}:** \`${taskLine}\`
+
+You MUST update that exact line when done:
+\`${doneLine}\`
+
+---
+
+Read \`${todoPath}\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
 
 For each task:
 1. Mark it \`[~]\` in \`TODO.md\` **before** starting any work.
 2. Implement the task fully.
-3. Mark it \`[x] YYYY-MM-DD  task text\` in \`TODO.md\` when done (ISO date, two spaces, original task text).
+3. Mark it \`[x] ${date}  task text\` in \`TODO.md\` when done (ISO date, two spaces, original task text including any \`[task-id]\` prefix).
 4. ${commitLine}
 5. Immediately continue to the next \`[ ]\` task — do not pause or stop.
 
@@ -293,7 +309,8 @@ export function buildMessage(
   injectAgentProfileRef(root, sectionPaths);
   syncCopilotInstructions(root, finalProfileBody);
   // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
-  const taskMessage = buildTaskInstruction(task.text, '', meta.noCommit);
+  const todoPath = path.join(todoDir, 'TODO.md');
+  const taskMessage = buildTaskInstruction(task, todoPath, meta.noCommit);
 
   const messageFile = writeMessageFile(root, taskMessage);
 
