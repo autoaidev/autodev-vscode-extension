@@ -117,6 +117,22 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
       'Quality gate: lint + tests green before any task is marked `[x]`.',
     ],
   },
+  {
+    id: '14-contracts', label: 'Agent Contracts & Contact Directory', file: '14-contracts.md',
+    keyRules: [
+      'Read `CONTRACTS.md` before contacting any human or agent — it lists real addresses and routing rules.',
+      'Never invent or guess an email address; if the address is missing, log in `TROUBLESHOOTING.md` and continue.',
+      'Contact the human only when all escalation thresholds in `CONTRACTS.md` are met.',
+    ],
+  },
+  {
+    id: '15-soul', label: 'Soul Protocol — Agent Identity & Communication Memory', file: '15-soul.md',
+    keyRules: [
+      'Read `SOUL.md` at the very start of every session — before `SUMMARY.md`. It holds your name, addresses, and message history.',
+      'When a message arrives, check `SOUL.md` to recognise the thread. Never act confused — your identity is stable.',
+      'After every sent or received message, update `## Communication History` in `SOUL.md` and commit.',
+    ],
+  },
 ];
 
 /** Returns all section IDs in order — useful as the default "all enabled" value. */
@@ -212,6 +228,43 @@ export function assembleProfileBody(
     body += validCustom.map(r => r.startsWith('@') ? r : `@${r}`).join('\n');
     body += '\n';
   }
+
+  // Always append SOUL.md reference so agents load their identity anchor first.
+  body += [
+    '',
+    '---',
+    '',
+    '## Agent Identity Anchor',
+    '',
+    '@SOUL.md',
+    '<think>',
+    'IMPORTANT: Read SOUL.md before processing any incoming message.',
+    'It contains your name, your contact addresses, and your full communication history.',
+    'When a message arrives, check ## Communication History to recognise the thread.',
+    'Never act confused about who you are — your identity is stable across all sessions.',
+    'If SOUL.md does not exist yet, create it from the skeleton in §0.0.',
+    '</think>',
+    '',
+  ].join('\n');
+
+  // Always append a direct reference to CONTRACTS.md so agents auto-load
+  // the project's contact directory regardless of which sections are enabled.
+  // Uses both @-syntax (Claude/OpenCode) and a <think> block (reasoning models).
+  body += [
+    '',
+    '---',
+    '',
+    '## Project Contact Directory',
+    '',
+    '@CONTRACTS.md',
+    '<think>',
+    'IMPORTANT: Read CONTRACTS.md before sending any email, message, or task to another agent.',
+    'It lists every human and agent contact address, per-channel routing rules, and the escalation',
+    'thresholds that must be met before contacting the human.',
+    'Never invent or guess a contact address — if it is not in CONTRACTS.md, do not send.',
+    '</think>',
+    '',
+  ].join('\n');
 
   return { body, sectionPaths };
 }

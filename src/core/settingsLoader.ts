@@ -125,6 +125,17 @@ export interface AutodevSettings {
    */
   resetSessionEveryNTurns: number;
   /**
+   * How many times the loop will dispatch the same task before giving up and
+   * force-marking it done. Prevents a single stuck task from blocking the queue
+   * indefinitely. Default: 3. Set to 0 to disable (never force-done).
+   */
+  maxTaskAttempts: number;
+  /**
+   * Move completed [x] tasks from TODO.md into TODO_ARCHIVE.md every N
+   * completed tasks (0 = disabled). Keeps the active TODO file short.
+   */
+  pruneTodoEveryNTasks: number;
+  /**
    * Run /compact on the active session every N completed tasks (0 = disabled).
    * Complements the existing autoCompact/autoCompactInterval toggle — use one
    * or the other; both can be active simultaneously.
@@ -204,6 +215,8 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   opencodeTimeout: 0,
   opencodeChunkTimeout: 0,
   resetSessionEveryNTurns: 0,
+  maxTaskAttempts: 3,
+  pruneTodoEveryNTasks: 0,
   profileEveryNTasks: 0,
   compactEveryNTasks: 0,
   skillEveryNTasks: 0,

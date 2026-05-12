@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import * as crypto from 'crypto';
 
 /** Generate a task ID like "task-2026-04-21-a3f9k2" */
@@ -180,4 +181,82 @@ export function appendTask(filePath: string, text: string, id?: string): string 
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---------------------------------------------------------------------------
+// TODO pruning — move completed tasks to TODO_ARCHIVE.md
+// ---------------------------------------------------------------------------
+
+/**
+ * Move all completed `[x]` lines from `todoPath` into
+ * `<workspaceRoot>/TODO_ARCHIVE.md`, grouped under a dated heading.
+ *
+ * - The original `[x]` lines (and any immediately-following indented subtask
+ *   lines that belong to them) are removed from `TODO.md`.
+ * - `TODO_ARCHIVE.md` is created if it does not exist; entries are appended
+ *   so history is never lost.
+ * - Returns the number of top-level `[x]` lines moved.
+ */
+export function pruneTodoToArchive(todoPath: string, workspaceRoot: string): number {
+  if (!fs.existsSync(todoPath)) { return 0; }
+
+  const raw = fs.readFileSync(todoPath, 'utf8');
+  const lines = raw.split('\n');
+
+  const keptLines: string[] = [];
+  const doneLines: string[] = [];
+  let doneCount = 0;
+
+  // Walk line-by-line.  A done block = the [x] line itself plus any
+  // immediately-following lines that are indented (subtasks / continuations).
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const isDone = /^\s*(?:-\s*)?\[x\]/iu.test(line);
+
+    if (isDone) {
+      doneCount++;
+      doneLines.push(line);
+      i++;
+      // Collect indented continuation lines that belong to this done task
+      while (i < lines.length) {
+        const next = lines[i];
+        // A continuation is any non-empty line that starts with whitespace
+        // (indented subtask) and is not itself a new top-level task marker
+        if (next.trim() === '') { break; }
+        if (/^\s+/.test(next) && !/^\s*(?:-\s*)?\[/.test(next)) {
+          doneLines.push(next);
+          i++;
+        } else {
+          break;
+        }
+      }
+    } else {
+      keptLines.push(line);
+      i++;
+    }
+  }
+
+  if (doneCount === 0) { return 0; }
+
+  // Re-write TODO.md without the done lines, collapsing consecutive blank lines
+  const newTodo = keptLines
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')  // collapse 3+ blank lines to 2
+    .trimEnd() + '\n';
+  fs.writeFileSync(todoPath, newTodo, 'utf8');
+
+  // Append to TODO_ARCHIVE.md
+  const archivePath = path.join(workspaceRoot, 'TODO_ARCHIVE.md');
+  const date = new Date().toISOString().slice(0, 10);
+  const heading = `\n## Archived ${date}\n\n`;
+  const archiveBlock = heading + doneLines.join('\n') + '\n';
+
+  if (!fs.existsSync(archivePath)) {
+    fs.writeFileSync(archivePath, '# TODO Archive\n\nCompleted tasks archived from TODO.md.\n' + archiveBlock, 'utf8');
+  } else {
+    fs.appendFileSync(archivePath, archiveBlock, 'utf8');
+  }
+
+  return doneCount;
 }

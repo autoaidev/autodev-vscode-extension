@@ -2,7 +2,21 @@
 
 **`SUMMARY.md` is your persistent project memory.** It survives across sessions and accumulates hard-won knowledge about this specific codebase.
 
-### On Session Start — Read First
+### On Session Start — Full Reading Order
+
+Every session must begin with the following files, in this exact order:
+
+1. **`SOUL.md`** — your identity anchor. Read it first. It tells you your name, your contact addresses, and your message history. See **§0.0** for the full soul protocol. If it does not exist, create it before doing anything else.
+2. **`SUMMARY.md`** — project memory (this section).
+3. **`LESSONS.md`** / `tasks/lessons.md` — past mistakes and corrections.
+4. **`CONTRACTS.md`** — contact addresses and communication rules.
+5. **`TODO.md`** — the task queue.
+
+**Never skip SOUL.md.** Without it you have no stable identity across sessions.
+
+---
+
+### SUMMARY.md — Read Before TODO.md
 
 Before reading `TODO.md`, before exploring the codebase, check for `SUMMARY.md` in the project root:
 

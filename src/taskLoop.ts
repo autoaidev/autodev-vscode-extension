@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import { execSync } from 'child_process';
-import { parseTodo, pickNextTask, countRemaining, Task } from './todo';
+import { parseTodo, pickNextTask, countRemaining, Task, pruneTodoToArchive } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { buildPrompt } from './prompt';
 import { writeMessageFile } from './messageBuilder';
@@ -166,6 +166,9 @@ export class TaskLoopRunner {
   private _loopStartTime = 0;
   /** Task lines that have already had /compact run — prevents infinite compact loops. */
   private _compactedTaskLines = new Set<number>();
+  /** Dispatch attempt counter per task key (id or text). After 3 failed attempts the
+   *  loop force-marks the task done so it doesn't block the queue indefinitely. */
+  private _taskAttempts = new Map<string, number>();
   /** Counts completed tasks since the last auto-compact run. */
   private _autoCompactCounter = 0;
   /** Counts completed tasks since the last session reset. */
@@ -232,6 +235,7 @@ export class TaskLoopRunner {
     this._cb = callbacks;
     this._iterations = 0;
     this._compactedTaskLines.clear();
+    this._taskAttempts.clear();
     this._autoCompactCounter = 0;
     this._resetSessionCounter = 0;
     this._profileSentCounter = 0;
@@ -813,6 +817,24 @@ export class TaskLoopRunner {
 
       if (!watchingInProgress) {
         this._iterations++;
+        // Track how many times we've dispatched this specific task.
+        // If the agent hasn't marked it done after 3 attempts, force-mark it
+        // ourselves and move on so the queue doesn't get stuck.
+        const taskKey = task.id ?? task.text;
+        const attempts = (this._taskAttempts.get(taskKey) ?? 0) + 1;
+        this._taskAttempts.set(taskKey, attempts);
+        const maxAttempts = settings.maxTaskAttempts ?? 3;
+        if (attempts > maxAttempts) {
+          this._taskAttempts.delete(taskKey);
+          this._cb?.log(`⚠️ Task not marked done after ${maxAttempts} attempt(s) — force-marking complete: ${task.text}`);
+          this._notifyDiscord(`⚠️ Task force-marked done after ${maxAttempts} failed attempt(s):\n${task.text}`);
+          await todoWriter.markDone(todoPath, task).catch(() => {});
+          this._completedCount++;
+          continue;
+        }
+        if (attempts > 1) {
+          this._cb?.log(`🔁 Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
+        }
       }
       this._currentTask = task.text;
       this._setState('running', task.text);
@@ -968,6 +990,7 @@ export class TaskLoopRunner {
         this._resetSessionCounter++;
         this._periodicMgr.increment(this._iterations, this._workspaceRoot);
         this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
+        this._taskAttempts.delete(task.id ?? task.text); // task done — reset attempt counter
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
         const totalKnown = this._iterations + afterRemaining;
@@ -1087,7 +1110,7 @@ export class TaskLoopRunner {
           }
         }
 
-        // --- Periodic actions: compact / skill / memory / summary / etc. --
+        // --- Periodic actions: compact / pruneTodo / skill / memory / summary / etc. --
         for (const action of this._periodicMgr.getDue(settings)) {
           this._periodicMgr.markHandled(action.id, this._iterations, this._workspaceRoot);
           this._cb?.log(`${action.icon} Periodic action '${action.id}' triggered`);
@@ -1099,6 +1122,16 @@ export class TaskLoopRunner {
                 await this.compact(this._workspaceRoot, acProvider as ProviderId);
               } else {
                 this._cb?.log(`⚠️ Periodic compact: no active provider`);
+              }
+            } else if (action.type === 'pruneTodo') {
+              if (this._workspaceRoot) {
+                const pruned = pruneTodoToArchive(todoPath, this._workspaceRoot);
+                if (pruned > 0) {
+                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
+                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
+                } else {
+                  this._cb?.log(`🧹 Prune TODO: no completed tasks to move`);
+                }
               }
             } else {
               const msgFile = writeMessageFile(this._workspaceRoot!, action.prompt);
