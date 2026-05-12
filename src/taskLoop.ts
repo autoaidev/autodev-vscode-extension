@@ -1485,17 +1485,18 @@ export class TaskLoopRunner {
         const currentLine  = currentTasks.find(t => t.line === task.line || t.text === task.text);
         const currentMarker = currentLine?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
-          `Your process has finished but the task is not marked done.  You MUST mark it in TODO.md before exiting.`,
+          `STOP. Your process has finished but your current task is NOT marked done.`,
           ``,
-          `Change the line:`,
+          `Read TODO.md now: cat ${todoPath}`,
+          ``,
+          `Find line ${task.line} (task: ${task.text}):`,
           `  - [${currentMarker}] ${task.text}`,
-          `to exactly:`,
-          `  - [x] ${date}  ${task.text}`,
           ``,
-          `(two spaces between the date and task text, lowercase x, save the file)`,
-          `If the work is not finished, mark it [~] in-progress instead:`,
-          `  - [~] ${task.text}`,
-          `Either way, you MUST update the marker — do NOT exit without doing this.`,
+          `You MUST change it to one of:`,
+          `  [x] — done:        - [x] ${date}  ${task.text}`,
+          `  [~] — in progress: - [~] ${task.text}`,
+          ``,
+          `Do NOT exit without updating that line. Save the file after editing.`,
         ].join('\n');
         this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
         try {
@@ -1655,15 +1656,18 @@ export class TaskLoopRunner {
         const currentLine2  = currentTasks2.find(t => t.line === task.line || t.text === task.text);
         const currentMarker2 = currentLine2?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
-          `Reminder: when you are done with the task, mark it done in TODO.md.`,
+          `REMINDER: you have an unfinished task. Read TODO.md now: cat ${todoPath}`,
           ``,
-          `Change the line:`,
+          `Find line ${task.line} (task: ${task.text}):`,
           `  - [${currentMarker2}] ${task.text}`,
-          `to exactly:`,
+          ``,
+          `When done, change it to:`,
           `  - [x] ${date}  ${task.text}`,
           ``,
-          `(two spaces between the date and task text, lowercase x, save the file)`,
-          `If you have already finished, do this now.`,
+          `If still in progress, mark it:`,
+          `  - [~] ${task.text}`,
+          ``,
+          `Save the file. Do NOT exit without updating that line.`,
         ].join('\n');
         this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
         try {
