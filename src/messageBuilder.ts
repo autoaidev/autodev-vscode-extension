@@ -207,36 +207,36 @@ function readOrEmpty(filePath: string): string {
 }
 
 function buildTaskInstruction(task: Task, todoPath: string, noCommit = false): string {
-  const commitLine = noCommit
-    ? 'Do **NOT** commit — the user is responsible for all git operations.'
-    : 'Commit each completed task with a descriptive conventional commit message.';
-
   const date = new Date().toISOString().slice(0, 10);
   // Full raw task marker line as it appears (or will appear) in TODO.md
   const taskId   = task.id ? `[${task.id}] ` : '';
   const taskLine = `- [ ] ${taskId}${task.text}`;
   const doneLine = `- [x] ${date}  ${taskId}${task.text}`;
 
-  return `## Your current task
+  return `> ⚠️ **NEW TASK — READ THIS BEFORE ANYTHING ELSE**
 
-**Task:** ${taskId}${task.text}
-**TODO.md line ${task.line}:** \`${taskLine}\`
+## Current task
 
-You MUST update that exact line when done:
-\`${doneLine}\`
+**Task ID:** \`${taskId.trim() || '(no id)'}\`
+**Task text:** ${task.text}
+**TODO.md:** \`${todoPath}\`  line ${task.line}
+
+> **IMPORTANT:** Even if you have done a similar task before, this is a **new independent task** that requires real work. Do NOT just mark it done — actually complete the task fully.
+
+### Steps required
+
+1. Open \`${todoPath}\` and find line ${task.line}:
+   \`${taskLine}\`
+2. Mark it in-progress **before** starting: change \`[ ]\` to \`[~]\`
+3. **Actually do the work** described by the task text above. Follow all protocol instructions from your agent profile (check emails, update JIRA, send notifications, etc. as required).
+4. When the work is fully done, mark it complete:
+   \`${doneLine}\`
+5. Continue to the next \`[ ]\` task in \`${todoPath}\` — do not stop until all tasks are done.
+
+> This loop runs continuously. Each task dispatch is a fresh task. "Standing by" or "already done" is not acceptable — complete the work.
 
 ---
 
-Read \`${todoPath}\`, work through every unfinished task from top to bottom, and do not stop until all tasks are marked \`[x]\`.
-
-For each task:
-1. Mark it \`[~]\` in \`TODO.md\` **before** starting any work.
-2. Implement the task fully.
-3. Mark it \`[x] ${date}  task text\` in \`TODO.md\` when done (ISO date, two spaces, original task text including any \`[task-id]\` prefix).
-4. ${commitLine}
-5. Immediately continue to the next \`[ ]\` task — do not pause or stop.
-
-The session ends only when \`TODO.md\` contains zero \`[ ]\` and zero \`[~]\` entries.
 `;
 }
 
