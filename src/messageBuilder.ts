@@ -217,17 +217,10 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
   const profileAbsPath = path.join(root, AGENT_PROFILE_FILE).replace(/\\/g, '/');
   const profileRef = `@file://${profileAbsPath.startsWith('/') ? '' : '/'}${profileAbsPath}`;
 
-  // Inline any attachment files referenced in the task text.
-  // Pattern: markdown links whose href points inside ATTACHMENTS_DIR —
-  // e.g. [Subject](/.autodev/messages/attachments/email_xxx/message.md)
-  // We resolve the path, read the file, and embed the content so the model
-  // never has to open an external file reference to understand the task.
-  const attachmentsDir = ATTACHMENTS_DIR.replace(/\\/g, '/');
-  const linkRe = /\[([^\]]*)\]\(\/?((?:[^)]*\/)?\.autodev\/messages\/attachments\/[^)]+)\)/g;
+  // Inline attachment files from task.attachments (populated at parse time by todo.ts).
+  // This replaces the fragile regex scan over task.text — paths are already extracted.
   const inlinedFiles: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = linkRe.exec(task.text)) !== null) {
-    const relPath = m[2].replace(/\\/g, '/');
+  for (const relPath of task.attachments ?? []) {
     const absPath = path.join(root, relPath);
     if (fs.existsSync(absPath)) {
       try {
@@ -236,23 +229,12 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
       } catch { /* skip unreadable files */ }
     }
   }
-  // Also inline the message.md for any attachment group referenced by @path or plain path
-  // in task text (e.g. the email poller uses a leading / making the above regex cover it).
-  // Secondary pass: bare paths like `.autodev/messages/attachments/xxx/message.md`
-  const bareRe = new RegExp(`\\.autodev/messages/attachments/[^\\s)'"]+`, 'g');
-  while ((m = bareRe.exec(task.text)) !== null) {
-    const relPath = m[0].replace(/\\/g, '/');
-    const absPath = path.join(root, relPath);
-    const label = path.basename(absPath);
-    if (fs.existsSync(absPath) && !inlinedFiles.some(b => b.includes(label))) {
-      try {
-        const content = fs.readFileSync(absPath, 'utf8').trim();
-        inlinedFiles.push(`### Attachment: ${label}\n\n${content}`);
-      } catch { /* skip */ }
-    }
-  }
   const inlinedSection = inlinedFiles.length > 0
     ? `\n---\n\n## Message Content (inlined — do not try to open the file)\n\n${inlinedFiles.join('\n\n---\n\n')}\n`
+    : '';
+
+  const attachmentRef = task.attachments && task.attachments.length > 0
+    ? `**Attachments:** ${task.attachments.map(p => `\`${p}\``).join(', ')}\n`
     : '';
 
   return `> ⚠️ **NEXT TASK — BEGIN IMMEDIATELY, DO NOT HALT**
@@ -262,6 +244,7 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
 **Task ID:** \`${taskId.trim() || '(no id)'}\`
 **Task text:** ${task.text}
 **TODO.md:** \`${todoPath}\`  line ${task.line}
+${attachmentRef}
 
 > **IMPORTANT:** Even if you have done a similar task before, this is a **new independent task** that requires real work. Do NOT just mark it done — actually complete the task fully.
 
@@ -270,7 +253,8 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
 1. Open \`${todoPath}\` and find line ${task.line}:
    \`${taskLine}\`
 2. Mark it in-progress **before** starting: change \`[ ]\` to \`[~]\`
-3. **Actually do the work** described by the task text above. Follow all protocol instructions from your agent profile (check emails, update JIRA, send notifications, etc. as required).
+3. **Actually do the work** described by the task text above. Follow all protocol instructions from your agent profile. 
+ 3.1 Discover the real task by opening the attachment files related to the todo entry, which are part of the task instructions. The files are listed above and may include important context, data, or subtasks. They are embedded in the message for your convenience, so read them carefully.
 4. When the work is fully done, mark it complete:
    \`${doneLine}\`
 5. Continue to the next \`[ ]\` task in \`${todoPath}\` — do not stop until all tasks are done.

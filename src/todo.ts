@@ -22,6 +22,12 @@ export interface Task {
   completedDate?: string;
   /** 1-based line number in the file */
   line: number;
+  /**
+   * Workspace-relative paths to attachment files embedded in the task text.
+   * Populated at parse time from markdown links that point inside
+   * `.autodev/messages/attachments/`. Ready to use — no regex scanning needed.
+   */
+  attachments?: string[];
 }
 
 /** Parse TODO.md into an ordered list of Tasks. */
@@ -49,6 +55,29 @@ function extractId(raw: string): { id?: string; text: string } {
   return { text: raw };
 }
 
+/**
+ * Extract workspace-relative attachment paths from task text.
+ * Matches markdown links whose href points inside .autodev/messages/attachments/
+ * as well as bare paths of the same form.
+ */
+function extractAttachments(text: string): string[] {
+  const paths: string[] = [];
+  // Markdown links: [label](/.autodev/messages/attachments/group/file)
+  const linkRe = /\[([^\]]*)\]\(\/?((?:[^)]*\/)?[.]autodev\/messages\/attachments\/[^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(text)) !== null) {
+    const rel = m[2].replace(/\\/g, '/');
+    if (!paths.includes(rel)) { paths.push(rel); }
+  }
+  // Bare paths: .autodev/messages/attachments/group/file
+  const bareRe = /(?:^|[\s(['"])(\.autodev\/messages\/attachments\/[^\s)'"]+)/g;
+  while ((m = bareRe.exec(text)) !== null) {
+    const rel = m[1].replace(/\\/g, '/');
+    if (!paths.includes(rel)) { paths.push(rel); }
+  }
+  return paths;
+}
+
 function parseLine(line: string, lineNo: number): Task | null {
   const ln = line.trimEnd();
 
@@ -56,21 +85,24 @@ function parseLine(line: string, lineNo: number): Task | null {
   let m = ln.match(/^\s*(?:-\s*)?\[x\]\s*(\d{4}-\d{2}-\d{2}\s+)?(.+)$/iu);
   if (m) {
     const { id, text } = extractId(m[2].trim());
-    return { id, status: 'done', text, completedDate: m[1]?.trim(), line: lineNo };
+    const attachments = extractAttachments(text);
+    return { id, status: 'done', text, completedDate: m[1]?.trim(), line: lineNo, ...(attachments.length ? { attachments } : {}) };
   }
 
   // In progress: - [~] text
   m = ln.match(/^\s*(?:-\s*)?\[~\]\s*(.+)$/iu);
   if (m) {
     const { id, text } = extractId(m[1].trim());
-    return { id, status: 'in-progress', text, line: lineNo };
+    const attachments = extractAttachments(text);
+    return { id, status: 'in-progress', text, line: lineNo, ...(attachments.length ? { attachments } : {}) };
   }
 
   // Todo:        - [ ] text
   m = ln.match(/^\s*(?:-\s*)?\[\s+\]\s*(.+)$/iu);
   if (m) {
     const { id, text } = extractId(m[1].trim());
-    return { id, status: 'todo', text, line: lineNo };
+    const attachments = extractAttachments(text);
+    return { id, status: 'todo', text, line: lineNo, ...(attachments.length ? { attachments } : {}) };
   }
 
   return null;
