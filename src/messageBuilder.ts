@@ -217,6 +217,44 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
   const profileAbsPath = path.join(root, AGENT_PROFILE_FILE).replace(/\\/g, '/');
   const profileRef = `@file://${profileAbsPath.startsWith('/') ? '' : '/'}${profileAbsPath}`;
 
+  // Inline any attachment files referenced in the task text.
+  // Pattern: markdown links whose href points inside ATTACHMENTS_DIR —
+  // e.g. [Subject](/.autodev/messages/attachments/email_xxx/message.md)
+  // We resolve the path, read the file, and embed the content so the model
+  // never has to open an external file reference to understand the task.
+  const attachmentsDir = ATTACHMENTS_DIR.replace(/\\/g, '/');
+  const linkRe = /\[([^\]]*)\]\(\/?((?:[^)]*\/)?\.autodev\/messages\/attachments\/[^)]+)\)/g;
+  const inlinedFiles: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(task.text)) !== null) {
+    const relPath = m[2].replace(/\\/g, '/');
+    const absPath = path.join(root, relPath);
+    if (fs.existsSync(absPath)) {
+      try {
+        const content = fs.readFileSync(absPath, 'utf8').trim();
+        inlinedFiles.push(`### Attachment: ${path.basename(absPath)}\n\n${content}`);
+      } catch { /* skip unreadable files */ }
+    }
+  }
+  // Also inline the message.md for any attachment group referenced by @path or plain path
+  // in task text (e.g. the email poller uses a leading / making the above regex cover it).
+  // Secondary pass: bare paths like `.autodev/messages/attachments/xxx/message.md`
+  const bareRe = new RegExp(`\\.autodev/messages/attachments/[^\\s)'"]+`, 'g');
+  while ((m = bareRe.exec(task.text)) !== null) {
+    const relPath = m[0].replace(/\\/g, '/');
+    const absPath = path.join(root, relPath);
+    const label = path.basename(absPath);
+    if (fs.existsSync(absPath) && !inlinedFiles.some(b => b.includes(label))) {
+      try {
+        const content = fs.readFileSync(absPath, 'utf8').trim();
+        inlinedFiles.push(`### Attachment: ${label}\n\n${content}`);
+      } catch { /* skip */ }
+    }
+  }
+  const inlinedSection = inlinedFiles.length > 0
+    ? `\n---\n\n## Message Content (inlined — do not try to open the file)\n\n${inlinedFiles.join('\n\n---\n\n')}\n`
+    : '';
+
   return `> ⚠️ **NEW TASK — READ THIS BEFORE ANYTHING ELSE**
 
 ## Current task
@@ -242,8 +280,7 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
 ---
 
 **Full protocol and agent instructions:** ${profileRef}
-
-`;
+${inlinedSection}`;
 }
 
 /**
