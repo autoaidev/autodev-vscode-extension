@@ -218,9 +218,11 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
   const profileRef = `@file://${profileAbsPath.startsWith('/') ? '' : '/'}${profileAbsPath}`;
 
   // Inline attachment files from task.attachments (populated at parse time by todo.ts).
-  // This replaces the fragile regex scan over task.text — paths are already extracted.
+  // Only .md files are inlined as text — binary attachments (images, PDFs, etc.)
+  // are listed in the header reference but not embedded.
   const inlinedFiles: string[] = [];
   for (const relPath of task.attachments ?? []) {
+    if (!relPath.toLowerCase().endsWith('.md')) { continue; }
     const absPath = path.join(root, relPath);
     if (fs.existsSync(absPath)) {
       try {
