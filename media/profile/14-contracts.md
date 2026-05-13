@@ -55,6 +55,8 @@ When you need to contact someone:
 
 These rules apply regardless of channel (email, webhook, Discord, etc.):
 
+- **Email is the primary agent-to-agent communication medium.** It is the only channel that guarantees delivery. All other records (Jira comments, TODO.md edits, logs, changelogs) are audit trails — they are NOT notifications.
+- **Jira comments and status transitions do NOT notify agents.** If an agent must act on a Jira ticket update, you must send them an email. Always. No exceptions.
 - **Do NOT send a message just to report a task is done.** Mark `[x]` in `TODO.md` and continue.
 - **Only contact the human when** at least one of the escalation thresholds in `CONTRACTS.md` is met.
 - **Only contact another agent when** you have a specific, actionable item for that agent to act on.
@@ -109,10 +111,11 @@ Never remove a contact entry — mark it `[inactive]` instead so history is pres
 
 | Message type | Send to | Channel | Condition |
 |---|---|---|---|
-| Task assignment (to another agent) |  | email | always |
-| Blocker / needs input |  | email | threshold met (see below) |
-| Error / failure report |  | email | threshold met |
-| Status update |  | — | do NOT send |
+| Task assignment (to another agent) |  | **email** | always — email is the only guaranteed notification channel |
+| Task update / status change (to another agent) |  | **email** | whenever another agent must act; Jira/TODO updates alone are NOT enough |
+| Blocker / needs input |  | **email** | threshold met (see below) |
+| Error / failure report |  | **email** | threshold met |
+| Status update (no action required) |  | — | do NOT send |
 
 ---
 

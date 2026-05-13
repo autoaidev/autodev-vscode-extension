@@ -8,12 +8,20 @@ description: >-
   acceptance criteria and enforces proper subtask decomposition before coding.
   Apply even for simple-looking tickets — a one-line ticket often implies
   significant cross-cutting changes.
+  IMPORTANT: Jira comments do NOT notify other agents. After updating a ticket,
+  always send an email to notify any agent that needs to act.
 user-invocable: false
 ---
 
 ## Jira protocol (mcp-atlassian MCP)
 
 The `mcp-atlassian` MCP is connected. Use it to read and update Jira tickets tied to your tasks.
+
+> **⚠️ Jira comments and status transitions do NOT notify other agents.**
+> Agents do not watch Jira. Updating a ticket is a record, not a delivery.
+> **If another agent must act on a task update, you MUST send them an email** using
+> the address listed in `CONTRACTS.md`. The email is the notification; the Jira
+> update is the audit trail. Both are required.
 
 **Comment rules — to avoid notification loops:**
 - **Do NOT** comment just to say a ticket is done. Transition status (`In Progress` → `Done`) and move on.
@@ -23,6 +31,12 @@ The `mcp-atlassian` MCP is connected. Use it to read and update Jira tickets tie
 - Never include credentials or secrets in comments or descriptions.
 - Every outbound ticket comment/update must include supporting artifacts when relevant: screenshots/images, logs, stack traces, reports, repro notes, or diff snippets.
 - If an artifact cannot be attached through the MCP tool, include the exact workspace path and why the artifact helps another agent narrow the issue.
+
+**Agent notification rules (critical):**
+- After **any** ticket update, status transition, or comment that another agent needs to act on: **send that agent an email notification** using their address from `CONTRACTS.md`.
+- The email must include: ticket ID + link, what changed, what the receiving agent must do next, and any relevant artifacts.
+- Use subject prefix `[task]` for new assignments and `[status]` for updates on existing work.
+- **Do not assume the agent saw the Jira update.** Email is the only reliable notification channel.
 
 ---
 
@@ -37,6 +51,7 @@ Read the entire ticket before forming any plan:
 - Read any linked tickets, attachments, or referenced documents.
 - Note the ticket type (Story, Bug, Task, Sub-task), priority, assignee, and reporter.
 - Extract every explicit requirement, constraint, and definition of done.
+- **If the ticket includes artifacts** (screenshots, logs, error dumps, reports, design files): download or save them to the workspace before starting work. Reference their paths in your `TODO.md` subtask notes. These artifacts are evidence — use them to narrow the problem and attach them to any follow-up comments or agent emails.
 
 ### Step 2 — Task analysis
 
@@ -82,6 +97,7 @@ For each subtask, dispatch to the correct subagent:
 - The parent task is marked `[x]` only when **every** subtask is `[x]`.
 - Transition the Jira ticket to `In Progress` when the first subtask starts; transition to `Done` only when all subtasks are `[x]` and verification passes.
 - Before transitioning to `Done`, ensure the ticket contains verification artifacts (test output, screenshots, logs, or report links/paths) that prove the result.
+- **Attach artifacts to the ticket as evidence.** If the task produced or consumed any artifact (screenshot, log file, test report, diff, recording), attach it directly to the Jira ticket. If the MCP tool cannot attach files, add a comment with the exact workspace path and a one-line description of what each artifact proves. Downstream agents and reviewers must be able to reproduce the verdict from the ticket alone.
 
 ### Step 5 — Never truncate or shortcut
 
@@ -89,3 +105,4 @@ For each subtask, dispatch to the correct subagent:
 - **Do not assume small means simple.** A one-line ticket can imply significant changes — always explore before proceeding.
 - **Do not mark the parent task done while any subtask is open.**
 - **Do not post context-free blocker comments.** Always attach or reference concrete artifacts so another agent can continue diagnosis immediately.
+- **Do not close a ticket without evidence.** Every completed ticket must have at least one attached or path-referenced artifact proving the work is done and correct.
