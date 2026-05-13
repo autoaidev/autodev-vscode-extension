@@ -1043,8 +1043,10 @@ export class TaskLoopRunner {
         }
 
         // --- Auto-compact: run /compact every N completed tasks -----------
+        // Skip the legacy autoCompact mechanism when compactEveryNTasks is set —
+        // the new periodic-action system handles it and they must not both fire.
         const compactInterval = settings.autoCompactInterval ?? 5;
-        if (settings.autoCompact && this._autoCompactCounter >= compactInterval) {
+        if (settings.autoCompact && !(settings.compactEveryNTasks > 0) && this._autoCompactCounter >= compactInterval) {
           this._autoCompactCounter = 0;
           const acProvider = this._cb?.getActiveProvider() ?? '';
           this._cb?.log(`🗜 Auto-compact triggered after ${compactInterval} tasks (provider: ${acProvider})`);

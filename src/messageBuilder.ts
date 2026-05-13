@@ -255,7 +255,7 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
     ? `\n---\n\n## Message Content (inlined — do not try to open the file)\n\n${inlinedFiles.join('\n\n---\n\n')}\n`
     : '';
 
-  return `> ⚠️ **NEW TASK — READ THIS BEFORE ANYTHING ELSE**
+  return `> ⚠️ **NEXT TASK — BEGIN IMMEDIATELY, DO NOT HALT**
 
 ## Current task
 
@@ -357,11 +357,12 @@ export function buildMessage(
 
   const messageFile = writeMessageFile(root, taskMessage);
 
-  // For UI providers (non-CLI) embed the profile inline since they can't read files
+  // Task message FIRST so the agent sees what to do immediately,
+  // then the full protocol/profile follows as context.
   const parts: string[] = [];
+  parts.push(taskMessage);
   if (includeProfile && finalProfileBody.trim()) {
     parts.push(`# Project Instructions (AUTODEV.md)\n\n${finalProfileBody.trim()}`);
   }
-  parts.push(taskMessage);
   return { prompt: parts.join('\n\n---\n\n'), messageFile };
 }
