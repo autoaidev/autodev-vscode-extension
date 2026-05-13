@@ -136,6 +136,12 @@ export interface AutodevSettings {
    */
   pruneTodoEveryNTasks: number;
   /**
+   * Trigger the auto-learn / journal review cycle every N completed tasks
+   * (0 = disabled). The agent reads JOURNAL.md, extracts patterns, updates
+   * LESSONS.md, and optionally creates skill files. Default: 0.
+   */
+  journalLearnEveryNTasks: number;
+  /**
    * Run /compact on the active session every N completed tasks (0 = disabled).
    * Complements the existing autoCompact/autoCompactInterval toggle — use one
    * or the other; both can be active simultaneously.
@@ -217,6 +223,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   resetSessionEveryNTurns: 0,
   maxTaskAttempts: 3,
   pruneTodoEveryNTasks: 0,
+  journalLearnEveryNTasks: 0,
   profileEveryNTasks: 0,
   compactEveryNTasks: 0,
   skillEveryNTasks: 0,

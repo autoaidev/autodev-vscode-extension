@@ -96,6 +96,28 @@ Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP
     icon: '🧹',
     type: 'pruneTodo',
     prompt: '', // unused — handled by the extension, not the AI
+  },
+  // ─── Journal auto-learn ──────────────────────────────────────────────────
+  // Prompts the agent to review JOURNAL.md and distil patterns into LESSONS.md.
+  {
+    id: 'journalLearn',
+    label: 'Auto-Learn (Journal Review)',
+    settingKey: 'journalLearnEveryNTasks',
+    icon: '🔬',
+    type: 'prompt' as const,
+    prompt: `You are performing an autonomous research journal review (inspired by the autoresearch loop). Follow these steps exactly:
+
+1. Read JOURNAL.md in the project root. Find the most recent '## Auto-learn YYYY-MM-DD' heading. All entries after that heading (or all entries if none exists) are unreviewed.
+2. For each unreviewed entry, tally:
+   - Any hypothesis type that appears in 2+ 'discard' rows → recurring anti-pattern for this codebase.
+   - Any approach that appears in 2+ 'keep' rows → best practice worth formalising.
+   - Any 'keep' row with ΔC = '-' → simplification win worth highlighting.
+   - Any row where the Outcome contradicted the Hypothesis → knowledge gap about how the codebase actually works.
+3. Update LESSONS.md — add one entry per new pattern found. Format: 'YYYY-MM-DD — [Pattern Title]: [one sentence description and why it matters in this codebase]'. Do not duplicate existing entries.
+4. If any pattern appears 3+ times and is actionable, check for a matching skill file in .claude/skills/. Create or update it.
+5. Append to JOURNAL.md: a new '## Auto-learn YYYY-MM-DD' heading followed by a one-paragraph summary of what was reviewed and what was learned.
+6. Commit: git add JOURNAL.md LESSONS.md && git commit -m 'chore: auto-learn journal review'
+7. Continue immediately with the next task — do not wait or ask for confirmation.`,
   },];
 
 // ---------------------------------------------------------------------------

@@ -133,6 +133,14 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
       'After every sent or received message, update `## Communication History` in `SOUL.md` and commit.',
     ],
   },
+  {
+    id: '16-journal', label: 'Research Journal & Auto-Learn Loop', file: '16-journal.md',
+    keyRules: [
+      'Before every non-trivial task, write a one-line hypothesis in `JOURNAL.md` (status: pending) before touching code.',
+      'After every task: log the outcome (keep/discard), apply the simplicity criterion, commit `JOURNAL.md` with the code change.',
+      'Never delete journal rows — `discard` entries are the most valuable data; they prevent re-trying failed approaches.',
+    ],
+  },
 ];
 
 /** Returns all section IDs in order — useful as the default "all enabled" value. */
@@ -243,6 +251,23 @@ export function assembleProfileBody(
     'When a message arrives, check ## Communication History to recognise the thread.',
     'Never act confused about who you are — your identity is stable across all sessions.',
     'If SOUL.md does not exist yet, create it from the skeleton in §0.0.',
+    '</think>',
+    '',
+  ].join('\n');
+
+  // Always append JOURNAL.md reference so agents write and read the research log.
+  body += [
+    '',
+    '---',
+    '',
+    '## Research Journal',
+    '',
+    '@JOURNAL.md',
+    '<think>',
+    'IMPORTANT: Before every non-trivial task, write a hypothesis row in JOURNAL.md (status: pending).',
+    'After the task: update the row to keep or discard. Apply the simplicity criterion.',
+    'Commit JOURNAL.md together with the code change. Never delete rows — discards are valuable data.',
+    'If JOURNAL.md does not exist yet, create it from the skeleton in §0.6.',
     '</think>',
     '',
   ].join('\n');
