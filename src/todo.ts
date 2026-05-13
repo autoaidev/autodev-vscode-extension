@@ -63,10 +63,12 @@ function extractId(raw: string): { id?: string; text: string } {
 function extractAttachments(text: string): string[] {
   const paths: string[] = [];
   // Markdown links: [label](/.autodev/messages/attachments/group/file)
-  const linkRe = /\[([^\]]*)\]\(\/?((?:[^)]*\/)?[.]autodev\/messages\/attachments\/[^)]+)\)/g;
+  // Use (?:[^\[\]]|\[[^\]]*\])* for the label to handle JIRA-style subjects
+  // like [[URGENT] Subject Text](url) that contain ] inside the label.
+  const linkRe = /\[(?:[^\[\]]|\[[^\]]*\])*\]\(\/?((?:[^)]*\/)?[.]autodev\/messages\/attachments\/[^)]+)\)/g;
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(text)) !== null) {
-    const rel = m[2].replace(/\\/g, '/');
+    const rel = m[1].replace(/\\/g, '/');
     if (!paths.includes(rel)) { paths.push(rel); }
   }
   // Bare paths: .autodev/messages/attachments/group/file

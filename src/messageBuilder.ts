@@ -245,7 +245,7 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
 **Task text:** ${task.text}
 **TODO.md:** \`${todoPath}\`  line ${task.line}
 ${attachmentRef}
-
+see in 
 > **IMPORTANT:** Even if you have done a similar task before, this is a **new independent task** that requires real work. Do NOT just mark it done — actually complete the task fully.
 
 ### Steps required
