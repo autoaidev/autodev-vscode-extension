@@ -15,6 +15,7 @@
 import * as fs   from 'fs';
 import * as os   from 'os';
 import * as path from 'path';
+import { appendHookEvent } from '../hookEventNormalizer';
 
 // ---------------------------------------------------------------------------
 // Minimal runtime types mirroring @github/copilot sdk/index.d.ts
@@ -25,6 +26,8 @@ interface SdkLocalSession {
   on(eventType: string, handler: SdkEventHandler): () => void;
   send(options: { prompt: string }): Promise<void>;
   dispose(): void;
+  respondToPermission(requestId: string, response: { kind: string }): void;
+  respondToUserInput(requestId: string, response: { kind: string; text?: string }): void;
 }
 interface SdkModule {
   LocalSession: new (options: unknown) => SdkLocalSession;
@@ -249,10 +252,31 @@ async function _sendAsync(
 
     // Wire up output streaming to stdoutFile (registered once per session)
     const localState = state;
+    const hooksJsonlDir = path.join(root, '.autodev');
+    const hooksJsonlPath = path.join(hooksJsonlDir, 'hooks-events.jsonl');
+    log('Copilot SDK: hooks-events.jsonl → ' + hooksJsonlPath);
     session.on('*', (ev: SdkSessionEvent) => {
-      // Log all non-ephemeral events for diagnostics
+      // Auto-approve all permission requests (yolo / allow-all mode)
+      if (ev.type === 'permission.requested' && ev.data?.['requestId']) {
+        try { session.respondToPermission(ev.data['requestId'] as string, { kind: 'allow' }); } catch { /* ignore */ }
+      }
+      // Auto-respond to user_input requests
+      if (ev.type === 'user_input.requested' && ev.data?.['requestId']) {
+        try { session.respondToUserInput(ev.data['requestId'] as string, { kind: 'accept', text: '' }); } catch { /* ignore */ }
+      }
       if (!ev.ephemeral) {
-        localState.log?.('Copilot SDK [event]: ' + ev.type);
+        const d = ev.data ?? {};
+        const toolName = (d['toolName'] ?? d['name']) as string | undefined;
+        const extra = (ev.type === 'tool.execution_start' || ev.type === 'tool.execution_complete')
+          ? ' [' + (toolName ?? '?') + ']'
+          : '';
+        localState.log?.('Copilot SDK [event]: ' + ev.type + extra);
+        appendHookEvent(
+          hooksJsonlPath, 'copilot-sdk',
+          ev as unknown as Record<string, unknown>,
+          fs, path,
+          (e) => localState.log?.('Copilot SDK [hooks write error]: ' + String(e)),
+        );
       }
       if (!localState.stdoutFile) { return; }
       if (ev.type === 'assistant.turn_start') {
@@ -264,7 +288,6 @@ async function _sendAsync(
           try { fs.appendFileSync(localState.stdoutFile, chunk, 'utf8'); } catch { /* ignore */ }
         }
       } else if (ev.type === 'assistant.message' && !localState.deltasSeen) {
-        // No streaming deltas — write full message content
         const content = ev.data?.['content'] as string | undefined;
         if (content) {
           try { fs.appendFileSync(localState.stdoutFile, content + '\n', 'utf8'); } catch { /* ignore */ }
@@ -285,13 +308,14 @@ async function _sendAsync(
   // Completion helper — safe to call multiple times (no-ops after first call)
   let completionFired = false;
   let offIdleHandle: (() => void) | null = null;
+  let offTaskComplete: (() => void) | null = null;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
-  const _complete = (reason: string) => {
+  const _complete = (reason: string, exitCode = 0) => {
     if (completionFired) { return; }
     completionFired = true;
-    offIdleHandle?.();
-    offIdleHandle = null;
+    offIdleHandle?.();   offIdleHandle = null;
+    offTaskComplete?.(); offTaskComplete = null;
     if (timeoutHandle !== null) { clearTimeout(timeoutHandle); timeoutHandle = null; }
     log('Copilot SDK: task complete (' + reason + ')');
     const ef = state!.exitFile;
@@ -299,27 +323,38 @@ async function _sendAsync(
     state!.stdoutFile = null;
     state!.log        = null;
     _busyRoots.delete(root);
-    if (ef) { try { fs.writeFileSync(ef, '0\n', 'utf8'); } catch { /* ignore */ } }
+    if (ef) { try { fs.writeFileSync(ef, exitCode + '\n', 'utf8'); } catch { /* ignore */ } }
   };
 
-  // 10-minute hard timeout
+  // 3-minute timeout: dispose the stuck session so the next task gets a fresh one
   timeoutHandle = setTimeout(() => {
-    log('Copilot SDK: timeout (10min) — marking task failed');
+    log('Copilot SDK: timeout (3min) — disposing stuck session');
     completionFired = true;
-    offIdleHandle?.();
-    offIdleHandle = null;
+    offIdleHandle?.();   offIdleHandle = null;
+    offTaskComplete?.(); offTaskComplete = null;
+    // Dispose the session (it's stuck on a tool execution — can't recover)
+    const s = _sessions.get(root);
+    if (s) {
+      try { s.session.dispose(); } catch { /* ignore */ }
+      _sessions.delete(root);
+    }
     _busyRoots.delete(root);
     const ef = state!.exitFile;
     state!.exitFile = null; state!.stdoutFile = null; state!.log = null;
     if (ef) { try { fs.writeFileSync(ef, '1\n', 'utf8'); } catch { /* ignore */ } }
-  }, 10 * 60 * 1000);
+  }, 3 * 60 * 1000);
 
-  // session.idle fires when the agent finishes a turn (before send() resolves)
+  // session.idle fires when the agent finishes a turn
   offIdleHandle = state.session.on('session.idle', () => {
     log('Copilot SDK: session.idle fired');
     _complete('session.idle');
   });
-  state.offIdle = () => { completionFired = true; offIdleHandle?.(); offIdleHandle = null; };
+  // session.task_complete is an additional completion signal
+  offTaskComplete = state.session.on('session.task_complete', () => {
+    log('Copilot SDK: session.task_complete fired');
+    _complete('session.task_complete');
+  });
+  state.offIdle = () => { completionFired = true; offIdleHandle?.(); offIdleHandle = null; offTaskComplete?.(); offTaskComplete = null; };
 
   log('Copilot SDK: sending prompt (' + promptText.length + ' chars)');
   await state.session.send({ prompt: promptText });

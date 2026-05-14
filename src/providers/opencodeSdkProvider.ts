@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
+import { normalizeEvent } from '../hookEventNormalizer';
 
 // ---------------------------------------------------------------------------
 // Minimal TypeScript interfaces for the parts of the SDK we use.
@@ -171,17 +172,17 @@ const _SKIP_LOG = new Set(['message.part.updated', 'sync', 'server.heartbeat']);
 const _textBuffer = new Map<string, string>();
 
 // ---------------------------------------------------------------------------
-// JSONL sink — mirrors what the opencode plugin writes so the task-loop's
-// hooks-events.jsonl poller picks up SDK events and forwards them to the
-// WebSocket / Pixel Office in exactly the same way as CLI-based providers.
+// JSONL sink — normalizes raw SDK events to the unified hook schema and
+// appends them to <root>/.autodev/hooks-events.jsonl for the WS poller.
 // ---------------------------------------------------------------------------
 
-function _appendHookEvent(root: string, ev: Record<string, unknown>): void {
+function _appendHookEvent(root: string, rawEv: Record<string, unknown>): void {
   try {
+    const normalized = normalizeEvent('opencode-sdk', rawEv);
+    if (!normalized) { return; }
     const dir = path.join(root, '.autodev');
     if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-    ev['timestamp'] = new Date().toISOString();
-    fs.appendFileSync(path.join(dir, 'hooks-events.jsonl'), JSON.stringify(ev) + '\n', 'utf8');
+    fs.appendFileSync(path.join(dir, 'hooks-events.jsonl'), JSON.stringify(normalized) + '\n', 'utf8');
   } catch { /* ignore write errors — non-critical */ }
 }
 
@@ -234,10 +235,8 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           }
         }
         _appendHookEvent(root, {
-          hook_event_name: 'PermissionReplied',
-          provider:        'opencode-sdk',
-          session_id:      permSid ?? null,
-          message:         permTitle ?? null,
+          type:       'permission.updated',
+          payload:    { type: 'permission.updated', properties: { id: permId, sessionID: permSid, title: permTitle } },
         });
         continue; // already logged above
       }
@@ -249,13 +248,7 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           _activity.set(root, `${toolName}`);
           logger(`[OC] ▶ tool: ${toolName}`);
         }
-        _appendHookEvent(root, {
-          hook_event_name: 'PreToolUse',
-          provider:        'opencode-sdk',
-          tool_name:       toolName ?? 'unknown',
-          tool_input:      props?.args ?? props?.input ?? null,
-          session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
-        });
+        _appendHookEvent(root, { payload: { type: 'tool.execute.before', properties: props ?? {} } });
         continue;
       }
       if (type === 'tool.execute.after') {
@@ -264,14 +257,7 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
         logger(`[OC] ✓ tool done: ${toolName ?? '?'}`);
         const rawOut = props?.output ?? props?.result ?? props?.text;
         const outText = typeof rawOut === 'string' ? rawOut.slice(0, 400) : null;
-        _appendHookEvent(root, {
-          hook_event_name: 'PostToolUse',
-          provider:        'opencode-sdk',
-          tool_name:       toolName ?? 'unknown',
-          tool_input:      props?.args ?? props?.input ?? null,
-          tool_output:     outText != null ? { text: outText } : null,
-          session_id:      (props?.sessionID ?? props?.session_id) as string | undefined ?? null,
-        });
+        _appendHookEvent(root, { payload: { type: 'tool.execute.after', properties: props ?? {} } });
         continue;
       }
 
@@ -290,11 +276,7 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       // --- Session compacted ---
       if (type === 'session.compacted') {
         logger(`[OC] 🗜 session compacted`);
-        _appendHookEvent(root, {
-          hook_event_name: 'PostCompact',
-          provider:        'opencode-sdk',
-          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-        });
+        _appendHookEvent(root, { payload: { type: 'session.compacted', properties: props ?? {} } });
         continue;
       }
 
@@ -309,19 +291,13 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
           for (const line of text.split('\n')) { logger(line); }
           logger(`[OC] ────────────────────────────────────────`);
           // Emit as hook event so Pixel Office can display the full message text
-          _appendHookEvent(root, {
-            hook_event_name: 'AgentMessage',
-            provider:        'opencode-sdk',
-            session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-            message:         text.slice(0, 3000),
-          });
+          _appendHookEvent(root, { payload: { type: 'session.idle', properties: { ...(props ?? {}), _assistantText: text.slice(0, 3000) } } });
+          // Also emit Stop so pixel-office knows the turn ended
+          _appendHookEvent(root, { payload: { type: 'session.idle', properties: props ?? {} } });
+        } else {
+          logger(`[OC] session.idle`);
+          _appendHookEvent(root, { payload: { type: 'session.idle', properties: props ?? {} } });
         }
-        logger(`[OC] session.idle`);
-        _appendHookEvent(root, {
-          hook_event_name: 'Stop',
-          provider:        'opencode-sdk',
-          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-        });
         continue;
       }
 
@@ -329,12 +305,7 @@ async function _startEventLogger(root: string, client: SdkClient): Promise<void>
       const propsStr = props ? JSON.stringify(props) : '{}';
       logger(`[OC] ${type} ${propsStr}`);
       if (type === 'session.error') {
-        _appendHookEvent(root, {
-          hook_event_name: 'StopFailure',
-          provider:        'opencode-sdk',
-          session_id:      (props?.sessionID ?? props?.id) as string | undefined ?? null,
-          message:         (props?.error ?? props?.message) as string | undefined ?? null,
-        });
+        _appendHookEvent(root, { payload: { type: 'session.error', properties: props ?? {} } });
       }
     }
   } catch { /* server closed or client evicted — exit silently */ }

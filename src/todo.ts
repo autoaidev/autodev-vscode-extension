@@ -205,9 +205,14 @@ export function appendTask(filePath: string, text: string, id?: string): string 
     const rest = content.slice(afterHeading);
     const nextSection = rest.match(/^##\s+/mu);
     const insertAt = nextSection ? afterHeading + nextSection.index! : content.length;
-    content = content.slice(0, insertAt) + line + '\n' + content.slice(insertAt);
+    // Ensure the preceding content ends with a newline so the new task is on its own line
+    const before = content.slice(0, insertAt);
+    const after  = content.slice(insertAt);
+    const sep = before.length > 0 && !before.endsWith('\n') ? '\n' : '';
+    content = before + sep + line + '\n' + after;
   } else {
-    content += `\n## Todo\n${line}\n`;
+    const sep = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+    content += sep + `## Todo\n${line}\n`;
   }
   fs.writeFileSync(filePath, content, 'utf8');
   return taskId;
