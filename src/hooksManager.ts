@@ -177,6 +177,15 @@ function copilotHookCommand(eventName: string, workspaceRoot: string): string {
   return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${JSON.stringify(eventName)} "copilot-cli"`;
 }
 
+/** Same command as copilotHookCommand but uses Windows-native path separators
+ *  so that PowerShell can execute it without WSL path translation issues.
+ *  On Windows, copilot runs "bash" hooks via WSL which cannot resolve h:/...
+ *  paths; the "powershell" field runs natively and handles them correctly. */
+function copilotPowershellHookCommand(eventName: string, workspaceRoot: string): string {
+  // PowerShell handles forward-slash quoted paths fine — same command string.
+  return copilotHookCommand(eventName, workspaceRoot);
+}
+
 /** Returns a shell command that synthesises a hook event with no stdin payload.
  *  Writes the payload to a small temp JSON file in .autodev/scripts/ so that
  *  no shell quoting of JSON is required (avoids PowerShell stripping quotes).
@@ -326,19 +335,24 @@ function copilotSettingsPath(workspaceRoot: string): string {
  * part of the JSON-stringified absolute path).
  */
 function isAutodevCopilotEntry(entry: any): boolean {
-  return typeof entry?.bash === 'string'
-    && entry.bash.includes('hooks-events.jsonl')
-    && entry.bash.includes('.autodev');
+  const cmd = entry?.bash ?? entry?.powershell ?? '';
+  return typeof cmd === 'string'
+    && cmd.includes('hooks-events.jsonl')
+    && cmd.includes('.autodev');
 }
 
-/** True if the entry's bash command writes to *this* workspace's JSONL sink. */
+/** True if the entry's bash/powershell command writes to *this* workspace's JSONL sink. */
 function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
   if (!isAutodevCopilotEntry(entry)) return false;
   const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
+  const cmd = entry?.bash ?? entry?.powershell ?? '';
   // Also require the .mjs extension so legacy .js installs are re-migrated.
-  return typeof entry.bash === 'string'
-    && entry.bash.includes(JSON.stringify(expectedSink))
-    && entry.bash.includes('hook-append.mjs');
+  // Also require the powershell field (added in v1.0.218) so Windows installs
+  // without it are treated as stale and re-installed with both fields.
+  return typeof cmd === 'string'
+    && cmd.includes(JSON.stringify(expectedSink))
+    && cmd.includes('hook-append.mjs')
+    && typeof entry?.powershell === 'string';
 }
 
 export function areCopilotHooksInstalled(workspaceRoot: string): boolean {
@@ -365,7 +379,11 @@ export function installCopilotHooks(workspaceRoot: string): void {
     const existing = ((hooks[ev] ?? []) as any[]).filter(e => !isAutodevCopilotEntry(e));
     existing.push({
       type: 'command',
+      // bash: used by copilot on Linux/macOS (and by Git Bash on Windows)
       bash: copilotHookCommand(ev, workspaceRoot),
+      // powershell: used by copilot on Windows — WSL bash cannot resolve
+      // Windows drive-letter paths (h:/...) so we supply a native PS command.
+      powershell: copilotPowershellHookCommand(ev, workspaceRoot),
       timeoutSec: 30,
     });
     hooks[ev] = existing;

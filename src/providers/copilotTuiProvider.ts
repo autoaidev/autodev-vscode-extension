@@ -1,0 +1,353 @@
+// ---------------------------------------------------------------------------
+// copilotTuiProvider - GitHub Copilot in-process SDK integration.
+//
+// Uses @github/copilot sdk/index.js (LocalSession) directly - no subprocess,
+// no PTY, no hooks file watching.  Auth is read from the Windows Credential
+// Manager (via keytar) or from the GITHUB_TOKEN / GH_TOKEN env var.
+//
+// Completion detection: session.on('session.idle', ...) fires when the agent
+// finishes each turn.  The exitFile is written at that point.
+//
+// Multi-turn: LocalSession persists conversation history.  The same session
+// object is reused for all tasks within a workspace root.
+// ---------------------------------------------------------------------------
+
+import * as fs   from 'fs';
+import * as os   from 'os';
+import * as path from 'path';
+
+// ---------------------------------------------------------------------------
+// Minimal runtime types mirroring @github/copilot sdk/index.d.ts
+// ---------------------------------------------------------------------------
+interface SdkSessionEvent { type: string; data?: Record<string, unknown>; ephemeral?: boolean; }
+type SdkEventHandler = (event: SdkSessionEvent) => void;
+interface SdkLocalSession {
+  on(eventType: string, handler: SdkEventHandler): () => void;
+  send(options: { prompt: string }): Promise<void>;
+  dispose(): void;
+}
+interface SdkModule {
+  LocalSession: new (options: unknown) => SdkLocalSession;
+}
+interface KeytarModule {
+  findCredentials(service: string): Promise<Array<{ account: string; password: string }>>;
+}
+
+// ---------------------------------------------------------------------------
+// SDK + keytar path resolution
+// ---------------------------------------------------------------------------
+function _copilotNpmRoot(): string {
+  if (process.platform === 'win32') {
+    return path.join(os.homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@github', 'copilot');
+  }
+  for (const candidate of [
+    '/usr/local/lib/node_modules/@github/copilot',
+    '/usr/lib/node_modules/@github/copilot',
+    path.join(os.homedir(), '.npm', 'node_modules', '@github', 'copilot'),
+  ]) {
+    if (fs.existsSync(candidate)) { return candidate; }
+  }
+  return '/usr/local/lib/node_modules/@github/copilot';
+}
+
+function _sdkPath(): string {
+  return path.join(_copilotNpmRoot(), 'sdk', 'index.js');
+}
+
+function _keytarPath(): string | null {
+  const p = path.join(_copilotNpmRoot(), 'prebuilds', process.platform + '-' + process.arch, 'keytar.node');
+  return fs.existsSync(p) ? p : null;
+}
+
+// ---------------------------------------------------------------------------
+// Auth loading (cached after first successful load)
+// ---------------------------------------------------------------------------
+interface AuthInfo {
+  type: 'gh-cli';
+  host: string;
+  login: string;
+  token: string;
+  copilotUser?: unknown;
+}
+
+let _authCache: AuthInfo | undefined;
+let _authLoadingPromise: Promise<AuthInfo | undefined> | null = null;
+
+async function _fetchCopilotUser(token: string): Promise<unknown> {
+  const res = await fetch('https://api.github.com/copilot_internal/user', {
+    headers: { 'Authorization': 'token ' + token, 'User-Agent': 'GitHubCopilotCLI/1.0' },
+  });
+  if (!res.ok) { throw new Error('HTTP ' + res.status); }
+  return res.json();
+}
+
+async function _loadAuth(): Promise<AuthInfo | undefined> {
+  const envToken =
+    process.env['COPILOT_GITHUB_TOKEN'] ||
+    process.env['GITHUB_COPILOT_GITHUB_TOKEN'] ||
+    process.env['GH_TOKEN'] ||
+    process.env['GITHUB_TOKEN'];
+
+  if (envToken) {
+    const copilotUser = await _fetchCopilotUser(envToken).catch(() => undefined);
+    return { type: 'gh-cli', host: 'https://github.com', login: 'unknown', token: envToken, copilotUser };
+  }
+
+  const kp = _keytarPath();
+  if (kp) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const keytar = require(kp) as KeytarModule;
+      const creds = await keytar.findCredentials('copilot-cli');
+      if (creds.length > 0) {
+        const { account, password: token } = creds[0];
+        const loginMatch = account.match(/:([^:]+)$/);
+        const login = loginMatch ? loginMatch[1] : 'unknown';
+        const copilotUser = await _fetchCopilotUser(token).catch(() => undefined);
+        return { type: 'gh-cli', host: 'https://github.com', login, token, copilotUser };
+      }
+    } catch { /* keytar unavailable */ }
+  }
+
+  return undefined;
+}
+
+function _getAuth(): Promise<AuthInfo | undefined> {
+  if (_authCache) { return Promise.resolve(_authCache); }
+  if (!_authLoadingPromise) {
+    _authLoadingPromise = _loadAuth().then(a => {
+      _authCache = a;
+      _authLoadingPromise = null;
+      return a;
+    });
+  }
+  return _authLoadingPromise;
+}
+
+export function clearCopilotAuthCache(): void {
+  _authCache = undefined;
+  _authLoadingPromise = null;
+}
+
+// ---------------------------------------------------------------------------
+// SDK module loading (cached after first import)
+// ---------------------------------------------------------------------------
+let _sdkPromise: Promise<SdkModule> | null = null;
+
+function _getSdk(): Promise<SdkModule> {
+  if (!_sdkPromise) {
+    const p = _sdkPath();
+    const url = p.startsWith('/') ? 'file://' + p : 'file:///' + p.replace(/\\/g, '/');
+    // Use Function() wrapper to prevent esbuild from transforming import() → require().
+    // require() does not support file:// URLs; real dynamic import() does.
+    _sdkPromise = ((Function('u', 'return import(u)')(url)) as Promise<SdkModule>).catch(e => {
+      _sdkPromise = null;
+      throw new Error('Failed to load Copilot SDK from ' + p + ': ' + (e?.message ?? e));
+    });
+  }
+  return _sdkPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Per-workspace state
+// ---------------------------------------------------------------------------
+interface CopilotSdkState {
+  session:    SdkLocalSession;
+  stdoutFile: string | null;
+  exitFile:   string | null;
+  log:        ((msg: string) => void) | null;
+  offIdle:    (() => void) | null;
+  deltasSeen: boolean;
+}
+
+const _sessions  = new Map<string, CopilotSdkState>();
+const _busyRoots = new Set<string>();
+
+// ---------------------------------------------------------------------------
+// Public interface (same shape as the old PTY-based provider)
+// ---------------------------------------------------------------------------
+
+export function isCopilotTuiBusy(root: string): boolean {
+  return _busyRoots.has(root);
+}
+
+export function getLatestCopilotTuiSessionId(root: string): string | undefined {
+  return _sessions.has(root) ? 'copilot-sdk:' + path.basename(root) : undefined;
+}
+
+export function readCopilotTuiOutputSince(stdoutFile: string, fromByte: number): string {
+  try {
+    const raw = fs.readFileSync(stdoutFile, 'utf8');
+    return fromByte > 0 ? raw.slice(fromByte) : raw;
+  } catch { return ''; }
+}
+
+// ---------------------------------------------------------------------------
+// sendCopilotTuiPrompt - fire-and-forget entry point
+// ---------------------------------------------------------------------------
+
+export function sendCopilotTuiPrompt(
+  root: string,
+  promptFilePath: string,
+  _resolvedSessionId: string | undefined,
+  stdoutFile: string,
+  exitFile: string,
+  log: (msg: string) => void,
+  showOutput?: () => void,
+): void {
+  showOutput?.();
+  try { fs.writeFileSync(stdoutFile, '', 'utf8'); } catch { /* ignore */ }
+  try { fs.writeFileSync(exitFile,   '', 'utf8'); } catch { /* ignore */ }
+
+  _busyRoots.add(root);
+
+  _sendAsync(root, promptFilePath, stdoutFile, exitFile, log).catch(e => {
+    log('Copilot SDK error: ' + (e?.message ?? String(e)));
+    _busyRoots.delete(root);
+    try { fs.writeFileSync(exitFile, '1\n', 'utf8'); } catch { /* ignore */ }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Core async implementation
+// ---------------------------------------------------------------------------
+
+async function _sendAsync(
+  root: string,
+  promptFilePath: string,
+  stdoutFile: string,
+  exitFile: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  let promptText: string;
+  try {
+    promptText = fs.readFileSync(promptFilePath, 'utf8');
+  } catch (e) {
+    throw new Error('Cannot read prompt file ' + promptFilePath + ': ' + (e as Error).message);
+  }
+
+  const [authInfo, sdk] = await Promise.all([_getAuth(), _getSdk()]);
+  if (!authInfo) {
+    throw new Error(
+      'No GitHub Copilot credentials found. ' +
+      'Set the GITHUB_TOKEN env var or run copilot auth login.',
+    );
+  }
+
+  let state = _sessions.get(root);
+  if (!state) {
+    log('Copilot SDK: creating LocalSession for ' + path.basename(root));
+    const session = new sdk.LocalSession({
+      authInfo,
+      workingDirectory: root,
+      runningInInteractiveMode: false,
+      askUserDisabled: true,
+    });
+
+    state = { session, stdoutFile: null, exitFile: null, log: null, offIdle: null, deltasSeen: false };
+    _sessions.set(root, state);
+
+    // Wire up output streaming to stdoutFile (registered once per session)
+    const localState = state;
+    session.on('*', (ev: SdkSessionEvent) => {
+      // Log all non-ephemeral events for diagnostics
+      if (!ev.ephemeral) {
+        localState.log?.('Copilot SDK [event]: ' + ev.type);
+      }
+      if (!localState.stdoutFile) { return; }
+      if (ev.type === 'assistant.turn_start') {
+        localState.deltasSeen = false;
+      } else if (ev.type === 'assistant.message_delta') {
+        const chunk = ev.data?.['deltaContent'] as string | undefined;
+        if (chunk) {
+          localState.deltasSeen = true;
+          try { fs.appendFileSync(localState.stdoutFile, chunk, 'utf8'); } catch { /* ignore */ }
+        }
+      } else if (ev.type === 'assistant.message' && !localState.deltasSeen) {
+        // No streaming deltas — write full message content
+        const content = ev.data?.['content'] as string | undefined;
+        if (content) {
+          try { fs.appendFileSync(localState.stdoutFile, content + '\n', 'utf8'); } catch { /* ignore */ }
+        }
+      }
+    });
+  }
+
+  // Detach any leftover idle handler from a previous task
+  state.offIdle?.();
+  state.offIdle    = null;
+  state.deltasSeen = false;
+
+  state.stdoutFile = stdoutFile;
+  state.exitFile   = exitFile;
+  state.log        = log;
+
+  // Completion helper — safe to call multiple times (no-ops after first call)
+  let completionFired = false;
+  let offIdleHandle: (() => void) | null = null;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  const _complete = (reason: string) => {
+    if (completionFired) { return; }
+    completionFired = true;
+    offIdleHandle?.();
+    offIdleHandle = null;
+    if (timeoutHandle !== null) { clearTimeout(timeoutHandle); timeoutHandle = null; }
+    log('Copilot SDK: task complete (' + reason + ')');
+    const ef = state!.exitFile;
+    state!.exitFile   = null;
+    state!.stdoutFile = null;
+    state!.log        = null;
+    _busyRoots.delete(root);
+    if (ef) { try { fs.writeFileSync(ef, '0\n', 'utf8'); } catch { /* ignore */ } }
+  };
+
+  // 10-minute hard timeout
+  timeoutHandle = setTimeout(() => {
+    log('Copilot SDK: timeout (10min) — marking task failed');
+    completionFired = true;
+    offIdleHandle?.();
+    offIdleHandle = null;
+    _busyRoots.delete(root);
+    const ef = state!.exitFile;
+    state!.exitFile = null; state!.stdoutFile = null; state!.log = null;
+    if (ef) { try { fs.writeFileSync(ef, '1\n', 'utf8'); } catch { /* ignore */ } }
+  }, 10 * 60 * 1000);
+
+  // session.idle fires when the agent finishes a turn (before send() resolves)
+  offIdleHandle = state.session.on('session.idle', () => {
+    log('Copilot SDK: session.idle fired');
+    _complete('session.idle');
+  });
+  state.offIdle = () => { completionFired = true; offIdleHandle?.(); offIdleHandle = null; };
+
+  log('Copilot SDK: sending prompt (' + promptText.length + ' chars)');
+  await state.session.send({ prompt: promptText });
+  log('Copilot SDK: send() resolved');
+  // Fallback: complete if session.idle somehow didn't fire before send() resolved
+  _complete('send() resolved');
+}
+
+// ---------------------------------------------------------------------------
+// Close helpers
+// ---------------------------------------------------------------------------
+
+export function closeCopilotTuiSession(root: string, log: (msg: string) => void): void {
+  const s = _sessions.get(root);
+  if (s) {
+    log('Copilot SDK: disposing session');
+    s.offIdle?.();
+    try { s.session.dispose(); } catch { /* ignore */ }
+    _sessions.delete(root);
+    _busyRoots.delete(root);
+  }
+}
+
+export function closeAllCopilotTuiSessions(): void {
+  for (const [root, s] of _sessions) {
+    s.offIdle?.();
+    try { s.session.dispose(); } catch { /* ignore */ }
+    _sessions.delete(root);
+  }
+  _busyRoots.clear();
+}

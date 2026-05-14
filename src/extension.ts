@@ -6,6 +6,7 @@ import { openSettingsFile, loadSettings } from './settings';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
 import { closeClaudeTuiClient, closeAllClaudeTuiClients } from './providers/claudeTuiProvider';
+import { closeCopilotTuiSession, closeAllCopilotTuiSessions } from './providers/copilotTuiProvider';
 import { closeOpencodeSdkClient, closeAllOpencodeSdkClients } from './providers/opencodeSdkProvider';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
 import { ConfigManager } from './configManager';
@@ -116,6 +117,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (term) { term.sendText('\x03', false); }
       const loopRoot2 = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
       if (sidebar.selectedProvider === 'claude-tui') { closeClaudeTuiClient(loopRoot2, log); }
+      if (sidebar.selectedProvider === 'copilot-tui') { closeCopilotTuiSession(loopRoot2, log); }
       if (sidebar.selectedProvider === 'opencode-sdk') { closeOpencodeSdkClient(loopRoot2, log); }
       taskLoopRunner.stop();
       vscode.window.showInformationMessage('AutoDev: Task loop stopping');
@@ -156,6 +158,7 @@ export function deactivate(): void {
   // as orphaned processes after VS Code restarts or the extension reloads.
   closeAllOpencodeSdkClients();
   closeAllClaudeTuiClients();
+  closeAllCopilotTuiSessions();
 }
 
 // ---------------------------------------------------------------------------

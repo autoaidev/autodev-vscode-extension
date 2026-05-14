@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.212",
+  "version": "1.0.220",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
@@ -106,7 +106,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && esbuild ./out/extension.js --bundle --platform=node --target=node20 --external:vscode --outfile=./out/extension.bundle.js --format=cjs --minify --conditions=import",
+    "compile": "tsc -p ./ && esbuild ./out/extension.js --bundle --platform=node --target=node20 --external:vscode --external:node-pty --outfile=./out/extension.bundle.js --format=cjs --minify --conditions=import",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts"
   },
@@ -114,7 +114,8 @@
     "@opencode-ai/sdk": "^1.14.41",
     "@raylin01/claude-client": "^0.3.3",
     "imapflow": "^1.0.171",
-    "mailparser": "^3.7.1"
+    "mailparser": "^3.7.1",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.4",

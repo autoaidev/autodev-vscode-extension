@@ -15,6 +15,7 @@ import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/open
 import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedCleanly } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
+import { sendCopilotTuiPrompt, isCopilotTuiBusy, getLatestCopilotTuiSessionId, readCopilotTuiOutputSince, closeCopilotTuiSession, closeAllCopilotTuiSessions } from './providers/copilotTuiProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
@@ -713,6 +714,9 @@ export class TaskLoopRunner {
         if (provider === 'claude-tui') {
           return isClaudeTuiBusy(this._workspaceRoot);
         }
+        if (provider === 'copilot-tui') {
+          return isCopilotTuiBusy(this._workspaceRoot);
+        }
         if (provider === 'opencode-sdk') {
           return isOpencodeSdkBusy(this._workspaceRoot);
         }
@@ -899,6 +903,15 @@ export class TaskLoopRunner {
           if (isClaudeTuiBusy(this._workspaceRoot)) {
             this._cb?.log('⚠ Claude TUI turn did not complete within 10 minutes — moving on');
           }
+        } else if (this._workspaceRoot && activeProvider === 'copilot-tui') {
+          const tuiDeadline = Date.now() + 10 * 60_000;
+          while (isCopilotTuiBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
+            if (this._state !== 'running') { break; }
+            await this._sleepAbortable(500);
+          }
+          if (isCopilotTuiBusy(this._workspaceRoot)) {
+            this._cb?.log('⚠ Copilot TUI turn did not complete within 10 minutes — moving on');
+          }
         } else if (this._workspaceRoot && activeProvider === 'opencode-sdk') {
           // opencode-sdk: same pattern as claude-tui — wait for the in-flight
           // fire-and-forget async to fully complete (session.idle received).
@@ -972,6 +985,9 @@ export class TaskLoopRunner {
           } else if (activeProvider === 'claude-tui') {
             const sid = getClaudeTuiLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'claude-tui', sid); }
+          } else if (activeProvider === 'copilot-tui') {
+            const sid = getLatestCopilotTuiSessionId(this._workspaceRoot);
+            if (sid) { saveSessionId(this._workspaceRoot, 'copilot-tui', sid); }
           } else if (activeProvider === 'opencode-sdk') {
             const sid = getOpencodeSdkLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'opencode-sdk', sid); }
@@ -1004,6 +1020,11 @@ export class TaskLoopRunner {
           // For claude-tui this replaces the noisy partial-chunk Discord stream with
           // one clean summary sent at task completion.
           taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
+        } else if (this._workspaceRoot && activeProvider === 'copilot-tui') {
+          // copilot-tui: read from the per-message stdoutFile (absolute path stored
+          // at pointer file location in the .autodev directory).
+          const outFile = stdoutFilePath(this._workspaceRoot, 'copilot-tui');
+          taskOutput = readCopilotTuiOutputSince(outFile, 0);
         }
         if (!taskOutput && this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           // Fallback: raw stdout file — take only the last 4 KB to avoid huge payloads.
@@ -1072,6 +1093,8 @@ export class TaskLoopRunner {
               } else {
                 this._cb?.log('⚠️ Auto-compact: no Claude TUI session ID found — skipping');
               }
+            } else if (acProvider === 'copilot-tui') {
+              this._cb?.log('ℹ️ Auto-compact not supported for copilot-tui — skipping');
             } else if (acProvider === 'opencode-cli') {
               let sid = getSessionId(this._workspaceRoot!, 'opencode-cli');
               if (!sid) { sid = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg)); }
@@ -1364,6 +1387,7 @@ export class TaskLoopRunner {
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
     const isClaudeTui = this._cb?.getActiveProvider() === 'claude-tui';
+    const isCopilotTuiProvider = this._cb?.getActiveProvider() === 'copilot-tui';
     const isOpenCodeCli = this._cb?.getActiveProvider() === 'opencode-cli';
     const isOpencodeSdk = this._cb?.getActiveProvider() === 'opencode-sdk';
     return new Promise<void>((resolve, reject) => {
@@ -1459,7 +1483,7 @@ export class TaskLoopRunner {
 
       // Check stdout file: forward any new content to Discord/webhook, detect rate limit / context errors
       const checkStdout = () => {
-        if (!isClaudeCli && !isClaudeTui && !isOpenCodeCli) { return; } // only CLI providers tee stdout
+        if (!isClaudeCli && !isClaudeTui && !isCopilotTuiProvider && !isOpenCodeCli) { return; } // only CLI providers tee stdout
         const content = readStdoutFile();
 
         // Forward new output lines to Discord / webhook.

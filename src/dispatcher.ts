@@ -9,6 +9,7 @@ import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } fr
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
+import { sendCopilotTuiPrompt } from './providers/copilotTuiProvider';
 import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
 import { getManualHookCmd } from './hooksManager';
 
@@ -155,6 +156,14 @@ export async function sendPromptToAi(
       const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       sendClaudeTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
       log(`Claude TUI: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
+      return;
+    }
+
+    // --- copilot-tui: persistent PTY session ---
+    if (providerId === 'copilot-tui') {
+      const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      sendCopilotTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
+      log(`Copilot TUI: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
       return;
     }
 
