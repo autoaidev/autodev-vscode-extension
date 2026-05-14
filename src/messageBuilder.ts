@@ -45,15 +45,31 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
       // AGENTS.md: keep it minimal — just forward to CLAUDE.md.
       // Avoids duplicating all refs; any agent reading AGENTS.md will load CLAUDE.md
       // which carries the full profile reference block.
-      block = `${AGENT_REF_BEGIN}\n@CLAUDE.md\n<think>\nIMPORTANT: Read and follow all instructions in CLAUDE.md before proceeding.\n</think>\n${AGENT_REF_END}`;
+      const claudeAbsPath = path.join(root, 'CLAUDE.md').replace(/\\/g, '/');
+      block = [
+        AGENT_REF_BEGIN,
+        // @-syntax (Claude Code, Codex)
+        `@CLAUDE.md`,
+        // file:// absolute path for LLMs that don't understand @-refs
+        `file://${claudeAbsPath}`,
+        `<think>`,
+        `IMPORTANT: Read and follow all instructions in CLAUDE.md before proceeding.`,
+        `Full path if needed: file://${claudeAbsPath}`,
+        `</think>`,
+        AGENT_REF_END,
+      ].join('\n');
     } else {
       // CLAUDE.md (or AGENTS.md when no CLAUDE.md exists): full reference block.
       const atLines = allPaths.map(p => `@${p}`).join('\n');
+      // file:// absolute paths for LLMs that don't understand @-refs
+      const fileLines = allPaths
+        .map(p => `file://${path.join(root, p).replace(/\\/g, '/')}`)
+        .join('\n');
       const readInstructions = allPaths
-        .map(p => `- Read and follow the instructions in the file: ${p}`)
+        .map(p => `- Read and follow the instructions in the file: ${p}  (file://${path.join(root, p).replace(/\\/g, '/')})`)
         .join('\n');
       const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
-      block = `${AGENT_REF_BEGIN}\n${atLines}\n${thinkBlock}\n${AGENT_REF_END}`;
+      block = `${AGENT_REF_BEGIN}\n${atLines}\n${fileLines}\n${thinkBlock}\n${AGENT_REF_END}`;
     }
 
     let content = '';
