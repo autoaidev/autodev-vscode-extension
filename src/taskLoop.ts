@@ -998,9 +998,11 @@ export class TaskLoopRunner {
         // Read the AI's output — prefer clean JSONL assistant text (no tool noise),
         // fall back to the tail of the raw stdout file.
         let taskOutput = '';
-        if (this._workspaceRoot && activeProvider === 'claude-cli') {
+        if (this._workspaceRoot && (activeProvider === 'claude-cli' || activeProvider === 'claude-tui')) {
           // Primary: clean assistant-only text extracted from the JSONL session file.
-          // This gives just the final summary paragraphs without tool call noise or ANSI codes.
+          // Works for both claude-cli and claude-tui — both write the same JSONL format.
+          // For claude-tui this replaces the noisy partial-chunk Discord stream with
+          // one clean summary sent at task completion.
           taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
         }
         if (!taskOutput && this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
@@ -1460,8 +1462,12 @@ export class TaskLoopRunner {
         if (!isClaudeCli && !isClaudeTui && !isOpenCodeCli) { return; } // only CLI providers tee stdout
         const content = readStdoutFile();
 
-        // Forward new output lines to Discord / webhook (Claude only — OpenCode output is very verbose)
-        if ((isClaudeCli || isClaudeTui) && content.length > lastStdoutLen) {
+        // Forward new output lines to Discord / webhook.
+        // claude-cli: stream partial chunks so the operator can see live progress.
+        // claude-tui: do NOT stream — the TUI writes noisy partial chunks; we
+        //   send one clean summary from the JSONL session file at task completion
+        //   (same approach as opencode).
+        if (isClaudeCli && content.length > lastStdoutLen) {
           const newText = content.slice(lastStdoutLen).trim();
           lastStdoutLen = content.length;
           if (newText) {
@@ -1476,7 +1482,7 @@ export class TaskLoopRunner {
             });
           }
         } else {
-          lastStdoutLen = content.length; // keep cursor up to date for non-Claude providers
+          lastStdoutLen = content.length; // keep cursor up to date
         }
 
         // Rate limit detection (Claude CLI + TUI)
