@@ -39,27 +39,22 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
   for (const filename of ['CLAUDE.md', 'AGENTS.md']) {
     const filePath = path.join(root, filename);
 
-    // When writing AGENTS.md, also reference CLAUDE.md if it exists so agents
-    // that only read AGENTS.md still pick up the CLAUDE.md instructions.
-    const extraPaths: string[] = [];
+    let block: string;
+
     if (filename === 'AGENTS.md' && fs.existsSync(path.join(root, 'CLAUDE.md'))) {
-      extraPaths.push('CLAUDE.md');
+      // AGENTS.md: keep it minimal — just forward to CLAUDE.md.
+      // Avoids duplicating all refs; any agent reading AGENTS.md will load CLAUDE.md
+      // which carries the full profile reference block.
+      block = `${AGENT_REF_BEGIN}\n@CLAUDE.md\n<think>\nIMPORTANT: Read and follow all instructions in CLAUDE.md before proceeding.\n</think>\n${AGENT_REF_END}`;
+    } else {
+      // CLAUDE.md (or AGENTS.md when no CLAUDE.md exists): full reference block.
+      const atLines = allPaths.map(p => `@${p}`).join('\n');
+      const readInstructions = allPaths
+        .map(p => `- Read and follow the instructions in the file: ${p}`)
+        .join('\n');
+      const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
+      block = `${AGENT_REF_BEGIN}\n${atLines}\n${thinkBlock}\n${AGENT_REF_END}`;
     }
-
-    const allRefPaths = [...allPaths, ...extraPaths];
-
-    // @-reference lines (understood by Claude Code / Codex agents)
-    const atLines = allRefPaths.map(p => `@${p}`).join('\n');
-
-    // Explicit read instructions for LLMs that don't follow @-references.
-    // Wrapped in <think> so reasoning models process them silently; non-reasoning
-    // models treat them as plain instructions (both approaches work).
-    const readInstructions = allRefPaths
-      .map(p => `- Read and follow the instructions in the file: ${p}`)
-      .join('\n');
-    const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
-
-    const block = `${AGENT_REF_BEGIN}\n${atLines}\n${thinkBlock}\n${AGENT_REF_END}`;
 
     let content = '';
     if (fs.existsSync(filePath)) {
@@ -86,8 +81,12 @@ const COPILOT_END   = '<!-- autodev:profile:end -->';
  * written inline, wrapped in idempotent autodev marker tags.
  * The file is created (including the `.github/` directory) if absent.
  */
-function syncCopilotInstructions(root: string, profileBody: string): void {
-  const block = `${COPILOT_BEGIN}\n${profileBody.trim()}\n${COPILOT_END}`;
+function syncCopilotInstructions(root: string, _profileBody: string): void {
+  // GitHub Copilot cannot follow @-import references, but the full profile is
+  // already maintained in CLAUDE.md. Keep copilot-instructions.md as a slim
+  // one-liner so there is no duplication to maintain.
+  const refLine = 'See `CLAUDE.md` in the project root for full agent instructions.';
+  const block = `${COPILOT_BEGIN}\n${refLine}\n${COPILOT_END}`;
   const markerRe = /<!-- autodev:profile:begin -->[\s\S]*?<!-- autodev:profile:end -->/;
 
   const githubDir = path.join(root, '.github');
