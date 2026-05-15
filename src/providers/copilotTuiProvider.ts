@@ -358,9 +358,11 @@ async function _sendAsync(
 
   log('Copilot SDK: sending prompt (' + promptText.length + ' chars)');
   await state.session.send({ prompt: promptText });
-  log('Copilot SDK: send() resolved');
-  // Fallback: complete if session.idle somehow didn't fire before send() resolved
-  _complete('send() resolved');
+  // send() resolves when the prompt is submitted, not when the agent finishes.
+  // Do NOT call _complete here — the session is still executing. Wait for
+  // session.idle (or the 3-minute timeout) so the loop doesn't proceed while
+  // the agent is still making tool calls and editing TODO.md.
+  log('Copilot SDK: send() resolved — waiting for session.idle');
 }
 
 // ---------------------------------------------------------------------------

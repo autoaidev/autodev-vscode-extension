@@ -69,9 +69,20 @@ function normalizeCopilotSdk(
   const d = (raw['data'] as Record<string, unknown> | undefined) ?? {};
   const toolName = (d['toolName'] ?? d['name']) as string | undefined;
 
+  // Safe-serialise the raw data payload so pixel-office has all available fields.
+  const rawData = safeObj(d) as Record<string, unknown> | null;
+
+  // Base event: include safe raw data so nothing is lost, then let mapped
+  // fields below override / supplement.
+  const base: Record<string, unknown> = {
+    sdk_type: type,
+    data:     rawData,
+  };
+
   switch (type) {
     case 'tool.execution_start':
       return {
+        ...base,
         hook_event_name: 'PreToolUse',
         provider,
         tool_name:  toolName ?? 'unknown',
@@ -87,6 +98,7 @@ function normalizeCopilotSdk(
         ? (err?.['message'])
         : (result?.['content'] ?? result?.['detailedContent']);
       return {
+        ...base,
         hook_event_name: success === false ? 'PostToolUseFailure' : 'PostToolUse',
         provider,
         tool_name:   toolName ?? 'unknown',
@@ -98,6 +110,7 @@ function normalizeCopilotSdk(
 
     case 'subagent.started':
       return {
+        ...base,
         hook_event_name: 'SubagentStart',
         provider,
         message:    safeStr(d['agentDisplayName'] ?? d['agentName']),
@@ -112,6 +125,7 @@ function normalizeCopilotSdk(
         ? content.slice(0, 200)
         : `[${(tools ?? []).length} tool call(s)]`;
       return {
+        ...base,
         hook_event_name: 'AgentMessage',
         provider,
         message:    summary,
@@ -121,6 +135,7 @@ function normalizeCopilotSdk(
 
     case 'session.task_complete':
       return {
+        ...base,
         hook_event_name: 'Stop',
         provider,
         message: safeStr(d['summary']),
@@ -128,6 +143,7 @@ function normalizeCopilotSdk(
 
     case 'user.message':
       return {
+        ...base,
         hook_event_name: 'UserPromptSubmit',
         provider,
         message:    safeStr(d['content']),
@@ -135,13 +151,14 @@ function normalizeCopilotSdk(
       };
 
     case 'assistant.turn_start':
-      return { hook_event_name: 'TurnStart', provider };
+      return { ...base, hook_event_name: 'TurnStart', provider };
 
     case 'assistant.turn_end':
-      return { hook_event_name: 'TurnEnd', provider };
+      return { ...base, hook_event_name: 'TurnEnd', provider };
 
     case 'permission.requested':
       return {
+        ...base,
         hook_event_name: 'PermissionRequest',
         provider,
         message:    safeStr(d['permissionRequest']),
