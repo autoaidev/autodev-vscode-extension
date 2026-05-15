@@ -171,6 +171,14 @@ export interface AutodevSettings {
    * Useful to keep long-running agents on protocol even in resumed sessions.
    */
   profileEveryNTasks: number;
+  /**
+   * GitHub personal access token used by the Copilot TUI (SDK) provider.
+   * Overrides the GITHUB_TOKEN / GH_TOKEN env vars and keytar lookup.
+   * Required on Linux/headless machines where `copilot auth login` credentials
+   * are not available in the system keyring.
+   * The token needs the `copilot` scope (or a classic token with `read:user` + `copilot`).
+   */
+  copilotGithubToken: string;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -229,6 +237,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   skillEveryNTasks: 0,
   memoryEveryNTasks: 0,
   summaryEveryNTasks: 0,
+  copilotGithubToken: '',
 };
 
 /**

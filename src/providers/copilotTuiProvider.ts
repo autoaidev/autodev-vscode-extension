@@ -84,8 +84,15 @@ async function _fetchCopilotUser(token: string): Promise<unknown> {
   return res.json();
 }
 
+// Settings-derived token set by the extension before each send.
+let _settingsToken: string | undefined;
+export function setCopilotSettingsToken(token: string | undefined): void {
+  _settingsToken = token || undefined;
+}
+
 async function _loadAuth(): Promise<AuthInfo | undefined> {
   const envToken =
+    _settingsToken ||
     process.env['COPILOT_GITHUB_TOKEN'] ||
     process.env['GITHUB_COPILOT_GITHUB_TOKEN'] ||
     process.env['GH_TOKEN'] ||

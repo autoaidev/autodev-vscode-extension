@@ -70,6 +70,8 @@ export const settingsPanelHtml = `
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
   <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
   <div class="cfg-section" style="margin-top:10px">Copilot TUI</div>
+  <div class="cfg-field"><label class="cfg-label">GitHub Token</label><input class="cfg-input" id="cfg_copilotGithubToken" type="password" placeholder="ghp_… (required on Linux/headless)"></div>
+  <div style="font-size:10px;opacity:.6;margin:-4px 0 6px 0">Used by Copilot TUI on machines without keyring auth. Needs <code>copilot</code> scope.</div>
   <button class="cfg-json" id="rebuildCopilotNativeBtn" title="Run npm rebuild inside @github/copilot to compile pty.node for this machine (needed on Linux)">Rebuild native modules (pty.node)</button>
   <div id="rebuildCopilotNativeNote" style="font-size:10px;opacity:.6;margin-top:3px">Compiles the native pty module for the current OS/arch. Requires node-gyp build tools (python3, make, g++).</div>
 </div>
@@ -77,7 +79,7 @@ export const settingsPanelHtml = `
 
 export const settingsPanelScript = `
 function populateSettings(s){
-  ['wsUrl','discordToken','discordChannelId','discordOwners','todoPath'].forEach(function(k){
+  ['wsUrl','discordToken','discordChannelId','discordOwners','todoPath','copilotGithubToken'].forEach(function(k){
     var el=document.getElementById('cfg_'+k);
     if(el){ el.value=s[k]||''; }
   });
@@ -201,6 +203,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     opencodeModel:(state.settings&&state.settings.opencodeModel)||'',
     opencodeCacheEnabled:!!(state.settings&&state.settings.opencodeCacheEnabled),
     todoPath:document.getElementById('cfg_todoPath').value,
+    copilotGithubToken:document.getElementById('cfg_copilotGithubToken').value,
   };
   vscode.postMessage({command:'saveSettings',settings:s});
   document.getElementById('tabTasks').click();

@@ -9,7 +9,7 @@ import { buildClaudeCliCommand, findLatestClaudeSession, probeClaudeSession } fr
 import { buildCopilotCliCommand, probeCopilotSession } from './providers/copilotCliProvider';
 import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers/opencodeCliProvider';
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
-import { sendCopilotTuiPrompt, getLatestCopilotTuiSessionId } from './providers/copilotTuiProvider';
+import { sendCopilotTuiPrompt, getLatestCopilotTuiSessionId, setCopilotSettingsToken } from './providers/copilotTuiProvider';
 import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
 import { getManualHookCmd } from './hooksManager';
 
@@ -161,6 +161,9 @@ export async function sendPromptToAi(
 
     // --- copilot-tui: persistent SDK session ---
     if (providerId === 'copilot-tui') {
+      // Sync the settings-stored token so _loadAuth() picks it up even on
+      // headless Linux where env vars and keytar are unavailable.
+      setCopilotSettingsToken(settings.copilotGithubToken || undefined);
       const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       const existingSid = getLatestCopilotTuiSessionId(root);
       sendCopilotTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
