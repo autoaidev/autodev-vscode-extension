@@ -63,6 +63,9 @@ function textOut(v: unknown, maxLen = 400): { text: string } | null {
 // tool.execution_complete so we can resolve the tool name even when the SDK
 // doesn't repeat it in the completion payload.  Auto-pruned after 500 entries.
 const _toolCallNames = new Map<string, string>();
+// toolCallId → intentionSummary: populated by assistant.message (toolRequests),
+// consumed by tool.execution_start so PreToolUse carries the agent's stated reasoning.
+const _toolCallIntentions = new Map<string, string>();
 // ---------------------------------------------------------------------------
 function normalizeCopilotSdk(
   raw: Record<string, unknown>,
@@ -91,6 +94,9 @@ function normalizeCopilotSdk(
         if (_toolCallNames.size > 500) { _toolCallNames.clear(); }
         _toolCallNames.set(callId, toolName);
       }
+      // Look up reasoning from the preceding assistant.message toolRequests
+      const reasoning = callId ? (_toolCallIntentions.get(callId) ?? null) : null;
+      if (callId) { _toolCallIntentions.delete(callId); }
       return {
         ...base,
         hook_event_name: 'PreToolUse',
@@ -98,6 +104,7 @@ function normalizeCopilotSdk(
         tool_name:  toolName ?? 'unknown',
         tool_input: safeObj(d['arguments']),
         session_id: callId,
+        reasoning,
       };
     }
 
@@ -118,14 +125,38 @@ function normalizeCopilotSdk(
         ?? safeStr(telProps?.['command'])
         ?? 'unknown';
       if (callId2) { _toolCallNames.delete(callId2); } // clean up
+
+      // Parse file paths (JSON string in restrictedProperties.filePaths)
+      const telRestricted = telemetry?.['restrictedProperties'] as Record<string, unknown> | undefined;
+      const fpRaw = telRestricted?.['filePaths'];
+      let filePaths: string[] | null = null;
+      if (typeof fpRaw === 'string') {
+        try {
+          const parsed = JSON.parse(fpRaw);
+          if (Array.isArray(parsed)) { filePaths = parsed.filter((x): x is string => typeof x === 'string'); }
+        } catch { /* ignore */ }
+      } else if (Array.isArray(fpRaw)) {
+        filePaths = fpRaw.filter((x): x is string => typeof x === 'string');
+      }
+
+      // Lines added/removed from telemetry metrics
+      const telMetrics = telemetry?.['metrics'] as Record<string, unknown> | undefined;
+      const linesAdded   = typeof telMetrics?.['linesAdded']   === 'number' ? (telMetrics['linesAdded']   as number) : null;
+      const linesRemoved = typeof telMetrics?.['linesRemoved'] === 'number' ? (telMetrics['linesRemoved'] as number) : null;
+
       return {
         ...base,
-        hook_event_name: success === false ? 'PostToolUseFailure' : 'PostToolUse',
+        hook_event_name:  success === false ? 'PostToolUseFailure' : 'PostToolUse',
         provider,
-        tool_name:   resolvedToolName,
-        tool_output: textOut(outRaw),
-        success:     success ?? true,
-        session_id:  safeStr(d['toolCallId']),
+        tool_name:        resolvedToolName,
+        tool_output:      textOut(outRaw),
+        success:          success ?? true,
+        session_id:       safeStr(d['toolCallId']),
+        model:            safeStr(d['model']),
+        interaction_id:   safeStr(d['interactionId']),
+        file_paths:       filePaths,
+        lines_added:      linesAdded,
+        lines_removed:    linesRemoved,
       };
     }
 
@@ -139,18 +170,46 @@ function normalizeCopilotSdk(
       };
 
     case 'assistant.message': {
-      const content = d['content'] as string | undefined;
-      const tools   = d['toolRequests'] as unknown[] | undefined;
+      const content      = d['content'] as string | undefined;
+      const tools        = d['toolRequests'] as Array<Record<string, unknown>> | undefined;
+      const outputTokens = typeof d['outputTokens'] === 'number' ? (d['outputTokens'] as number) : null;
+      const interactionId = safeStr(d['interactionId']);
       if ((!content || content.length === 0) && (!tools || tools.length === 0)) { return null; }
-      const summary = content && content.length > 0
-        ? content.slice(0, 200)
-        : `[${(tools ?? []).length} tool call(s)]`;
+
+      // Store intentionSummary per toolCallId so PreToolUse can carry reasoning
+      if (tools && tools.length > 0) {
+        for (const t of tools) {
+          const cid = safeStr(t['toolCallId']);
+          const intention = safeStr(t['intentionSummary']);
+          if (cid && intention) {
+            if (_toolCallIntentions.size > 500) { _toolCallIntentions.clear(); }
+            _toolCallIntentions.set(cid, intention);
+          }
+        }
+      }
+
+      // Build message: prefer content text; fall back to intention summaries; then count
+      let summary: string;
+      if (content && content.length > 0) {
+        summary = content.slice(0, 400);
+      } else if (tools && tools.length > 0) {
+        const intentions = tools
+          .map(t => safeStr(t['intentionSummary']))
+          .filter((s): s is string => s !== null && s.length > 0)
+          .join(' | ');
+        summary = intentions || `[${tools.length} tool call(s)]`;
+      } else {
+        summary = '[empty message]';
+      }
+
       return {
         ...base,
         hook_event_name: 'AgentMessage',
         provider,
-        message:    summary,
-        session_id: safeStr(d['messageId'] ?? d['interactionId']),
+        message:        summary,
+        session_id:     safeStr(d['messageId'] ?? d['interactionId']),
+        interaction_id: interactionId,
+        output_tokens:  outputTokens,
       };
     }
 
@@ -172,7 +231,7 @@ function normalizeCopilotSdk(
       };
 
     case 'assistant.turn_start':
-      return { ...base, hook_event_name: 'TurnStart', provider };
+      return { ...base, hook_event_name: 'TurnStart', provider, interaction_id: safeStr(d['interactionId']) };
 
     case 'assistant.turn_end':
       return { ...base, hook_event_name: 'TurnEnd', provider };
