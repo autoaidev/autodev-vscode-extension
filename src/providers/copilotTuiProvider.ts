@@ -132,6 +132,16 @@ export function clearCopilotAuthCache(): void {
   _authLoadingPromise = null;
 }
 
+/** Expose the npm root path so callers can run `npm rebuild` there. */
+export function copilotNpmRoot(): string {
+  return _copilotNpmRoot();
+}
+
+/** Clear the cached SDK dynamic import so the next call to _getSdk() re-imports it. */
+export function clearCopilotSdkCache(): void {
+  _sdkPromise = null;
+}
+
 // ---------------------------------------------------------------------------
 // SDK module loading (cached after first import)
 // ---------------------------------------------------------------------------

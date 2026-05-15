@@ -25,6 +25,7 @@ import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
 import { PROFILE_SECTIONS } from './profileBuilder';
 import { PERIODIC_ACTIONS } from './periodicActions';
 import { rebuildProfile } from './messageBuilder';
+import { copilotNpmRoot, clearCopilotSdkCache } from './providers/copilotTuiProvider';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider â€” sidebar webview that shows TODO.md tasks + loop controls
@@ -261,6 +262,16 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
             term.sendText(cmd);
             setTimeout(() => { invalidateMcpInstallCache(); this._refreshMcpInstall(); }, 6000);
           });
+          break;
+        }
+        case 'rebuildCopilotNative': {
+          const npmRoot = copilotNpmRoot();
+          const term = vscode.window.createTerminal('Rebuild: Copilot native');
+          term.show(true);
+          term.sendText(`cd ${JSON.stringify(npmRoot)} && npm rebuild`);
+          // Clear the cached SDK import so the next prompt re-loads the freshly built binary
+          setTimeout(() => { clearCopilotSdkCache(); }, 30000);
+          vscode.window.showInformationMessage(`AutoDev: Running npm rebuild in ${npmRoot} — check the terminal for output.`);
           break;
         }
         case 'testMcpEmail': {

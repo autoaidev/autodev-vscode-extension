@@ -69,6 +69,9 @@ export const settingsPanelHtml = `
   <div class="cfg-field"><label class="cfg-label">TODO.md Path</label><input class="cfg-input" id="cfg_todoPath" placeholder="(workspace root)"></div>
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
   <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
+  <div class="cfg-section" style="margin-top:10px">Copilot TUI</div>
+  <button class="cfg-json" id="rebuildCopilotNativeBtn" title="Run npm rebuild inside @github/copilot to compile pty.node for this machine (needed on Linux)">Rebuild native modules (pty.node)</button>
+  <div id="rebuildCopilotNativeNote" style="font-size:10px;opacity:.6;margin-top:3px">Compiles the native pty module for the current OS/arch. Requires node-gyp build tools (python3, make, g++).</div>
 </div>
 `;
 
@@ -206,4 +209,14 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
 document.getElementById('editJsonBtn').addEventListener('click',function(){
   vscode.postMessage({command:'openSettings'});
 });
+
+var rebuildNativeBtn=document.getElementById('rebuildCopilotNativeBtn');
+if(rebuildNativeBtn){
+  rebuildNativeBtn.addEventListener('click',function(){
+    rebuildNativeBtn.textContent='Rebuilding…';
+    rebuildNativeBtn.disabled=true;
+    vscode.postMessage({command:'rebuildCopilotNative'});
+    setTimeout(function(){rebuildNativeBtn.textContent='Rebuild native modules (pty.node)';rebuildNativeBtn.disabled=false;},35000);
+  });
+}
 `;
