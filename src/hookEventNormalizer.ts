@@ -67,7 +67,7 @@ function normalizeCopilotSdk(
   if (!type) { return null; }
 
   const d = (raw['data'] as Record<string, unknown> | undefined) ?? {};
-  const toolName = (d['toolName'] ?? d['name']) as string | undefined;
+  const toolName = (d['toolName'] ?? d['name'] ?? d['toolId']) as string | undefined;
 
   // Safe-serialise the raw data payload so pixel-office has all available fields.
   const rawData = safeObj(d) as Record<string, unknown> | null;
@@ -97,11 +97,15 @@ function normalizeCopilotSdk(
       const outRaw  = success === false
         ? (err?.['message'])
         : (result?.['content'] ?? result?.['detailedContent']);
+      // tool name: prefer explicit field, fall back to telemetry properties.command
+      const telemetry = d['toolTelemetry'] as Record<string, unknown> | undefined;
+      const telProps  = telemetry?.['properties'] as Record<string, unknown> | undefined;
+      const resolvedToolName = toolName ?? safeStr(telProps?.['command']) ?? 'unknown';
       return {
         ...base,
         hook_event_name: success === false ? 'PostToolUseFailure' : 'PostToolUse',
         provider,
-        tool_name:   toolName ?? 'unknown',
+        tool_name:   resolvedToolName,
         tool_output: textOut(outRaw),
         success:     success ?? true,
         session_id:  safeStr(d['toolCallId']),

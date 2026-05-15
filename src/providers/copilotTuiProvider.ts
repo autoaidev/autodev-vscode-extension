@@ -258,7 +258,7 @@ async function _sendAsync(
     session.on('*', (ev: SdkSessionEvent) => {
       // Auto-approve all permission requests (yolo / allow-all mode)
       if (ev.type === 'permission.requested' && ev.data?.['requestId']) {
-        try { session.respondToPermission(ev.data['requestId'] as string, { kind: 'allow' }); } catch { /* ignore */ }
+        try { session.respondToPermission(ev.data['requestId'] as string, { kind: 'approved' }); } catch { /* ignore */ }
       }
       // Auto-respond to user_input requests
       if (ev.type === 'user_input.requested' && ev.data?.['requestId']) {
