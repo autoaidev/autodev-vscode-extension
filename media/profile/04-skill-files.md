@@ -1,18 +1,18 @@
 ## 0.4 Automatic Skill Development — Live Project Skills
 
-As the agent learns about the project it **automatically creates and live-updates three agent instruction files** — one for each AI tool used in this project — so that every future session (regardless of which tool is used) starts with full project context already baked in.
+As the agent learns about the project it **automatically creates and live-updates agent instruction files** so that every future session (regardless of which tool is used) starts with full project context already baked in.
 
-### The Three Skill Files
+### The Instruction Files
 
-| File | Tool that reads it | Format requirement |
-|---|---|---|
-| `.github/copilot-instructions.md` | GitHub Copilot | YAML frontmatter `applyTo: '**'` |
-| `CLAUDE.md` | Claude Code CLI | Plain markdown, no frontmatter |
-| `AGENTS.md` | OpenCode | Plain markdown, no frontmatter |
+| File | Tool that reads it | Format requirement | Role |
+|---|---|---|---|
+| `AGENTS.md` | All tools (Claude, OpenCode, Copilot, etc.) | Plain markdown, no frontmatter | **Primary — all project knowledge lives here** |
+| `CLAUDE.md` | Claude Code CLI | Plain markdown, no frontmatter | Thin redirect → points to `AGENTS.md` |
+| `.github/copilot-instructions.md` | GitHub Copilot | YAML frontmatter `applyTo: '**'` | Full copy (Copilot requires its own file) |
 
-**All three files contain the same project knowledge.** They are kept in sync — when one is updated, all three are updated in the same operation.
+**`AGENTS.md` is the single source of truth.** All project knowledge is written there. `CLAUDE.md` contains only a short header that tells Claude to read `AGENTS.md` instead. Copilot needs its own standalone file so `.github/copilot-instructions.md` is a full copy.
 
-### What Goes In All Three Files
+### What Goes In AGENTS.md
 
 A curated, agent-readable distillation of confirmed project knowledge. Not a dump — only actionable, reusable facts:
 
@@ -29,7 +29,7 @@ A curated, agent-readable distillation of confirmed project knowledge. Not a dum
 
 ### Update Triggers
 
-Update all three files whenever:
+Update `AGENTS.md` (and sync Copilot's file) whenever:
 - A new architectural pattern or module boundary is confirmed.
 - A naming or style convention is discovered or enforced.
 - A domain term is clarified.
@@ -39,7 +39,48 @@ Update all three files whenever:
 
 ### Skeletons
 
-**`.github/copilot-instructions.md`** (Copilot — requires frontmatter):
+**`AGENTS.md`** (primary — all tools):
+```markdown
+# <Project Name> — Agent Instructions
+
+## Project Identity
+- 
+
+## Architecture Rules
+- 
+
+## Naming Conventions
+- 
+
+## Build & Run
+
+## Code Style
+- 
+
+## Domain Vocabulary
+- 
+
+## Do NOT Do
+- 
+
+## Key Files
+- 
+
+## Project Skills
+<!-- Skills created from hard problems solved in this project. -->
+<!-- Format: `- .claude/skills/<slug>/` — one-line description -->
+- 
+```
+
+**`CLAUDE.md`** (Claude Code — redirect only, do NOT duplicate content here):
+```markdown
+# <Project Name> — Claude Instructions
+
+> All project instructions are in **`AGENTS.md`** in the project root.
+> Read `AGENTS.md` in full before doing anything else.
+```
+
+**`.github/copilot-instructions.md`** (Copilot — full copy of AGENTS.md content, requires frontmatter):
 ```markdown
 ---
 applyTo: '**'
@@ -71,80 +112,16 @@ applyTo: '**'
 
 ## Project Skills
 <!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
-- 
-```
-
-**`CLAUDE.md`** (Claude Code — no frontmatter):
-```markdown
-# <Project Name> — Claude Instructions
-
-## Project Identity
-- 
-
-## Architecture Rules
-- 
-
-## Naming Conventions
-- 
-
-## Build & Run
-
-## Code Style
-- 
-
-## Domain Vocabulary
-- 
-
-## Do NOT Do
-- 
-
-## Key Files
-- 
-
-## Project Skills
-<!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
-- 
-```
-
-**`AGENTS.md`** (OpenCode — no frontmatter):
-```markdown
-# <Project Name> — Agent Instructions
-
-## Project Identity
-- 
-
-## Architecture Rules
-- 
-
-## Naming Conventions
-- 
-
-## Build & Run
-
-## Code Style
-- 
-
-## Domain Vocabulary
-- 
-
-## Do NOT Do
-- 
-
-## Key Files
-- 
-
-## Project Skills
-<!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
+<!-- Format: `- .claude/skills/<slug>/` — one-line description -->
 - 
 ```
 
 ### Rules
 
-- **Create all three on first session** if they do not exist, using the skeletons above.
-- **Always update all three together** — never update one without the others.
+- **Create `AGENTS.md` and `CLAUDE.md` on first session** if they do not exist, using the skeletons above.
+- **`CLAUDE.md` is a redirect only** — never put project knowledge in `CLAUDE.md` directly; it always points to `AGENTS.md`.
+- **All project knowledge goes in `AGENTS.md`** — this is the file every agent should read.
+- **Keep Copilot's file in sync with `AGENTS.md`** — update both together whenever `AGENTS.md` changes.
 - **Never truncate** — append and refine, never delete confirmed knowledge.
 - **Verify before writing** — only write conventions confirmed by reading actual code, not assumptions.
 - After updating, add a one-line note to `SUMMARY.md` under `## Key Files`.

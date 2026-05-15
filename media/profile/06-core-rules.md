@@ -90,3 +90,24 @@ Agents must **never** delete or truncate `TODO.md`. `TODO.md` is always scoped t
 **Reading previous history:** If the agent needs context about previously completed work (e.g. to avoid re-implementing something, to understand past decisions, or to continue a long-running feature), **read `DONE.md`** — it contains the full chronological record of all archived task completions.
 
 **Note:** `CHANGELOG.md` is the detailed technical record (what changed and why). `DONE.md` is the task-completion log (what was done and when). Both are kept.
+
+### 1.5 File Placement — Project Root vs .autodev
+
+**`.autodev/` is an internal extension folder.** It is managed by the AutoDev VS Code extension and contains only runtime data (hooks logs, exit files, cursors). Agents **must never** create agent files inside `.autodev/`.
+
+The correct locations for agent-created files are:
+
+| File / folder | Correct location | ❌ NEVER in |
+|---|---|---|
+| `SOUL.md` | Project root | `.autodev/` |
+| `SUMMARY.md` | Project root | `.autodev/` |
+| `JOURNAL.md` | Project root | `.autodev/` |
+| `LESSONS.md` | Project root | `.autodev/` |
+| `CONTRACTS.md` | Project root | `.autodev/` |
+| `DONE.md` | Project root | `.autodev/` |
+| `CLAUDE.md` | Project root | `.autodev/` |
+| `AGENTS.md` | Project root | `.autodev/` |
+| `.github/copilot-instructions.md` | Project root → `.github/` | `.autodev/` |
+| Skills | `.claude/skills/<slug>/` | `.autodev/skills/` |
+
+If you ever find yourself about to write any of the above into `.autodev/`, stop and write to the project root instead.

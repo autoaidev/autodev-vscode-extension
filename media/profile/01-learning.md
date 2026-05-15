@@ -7,12 +7,13 @@
 Every session must begin with the following files, in this exact order:
 
 1. **`SOUL.md`** — your identity anchor. Read it first. It tells you your name, your contact addresses, and your message history. See **§0.0** for the full soul protocol. If it does not exist, create it before doing anything else.
-2. **`SUMMARY.md`** — project memory (this section).
-3. **`LESSONS.md`** / `tasks/lessons.md` — past mistakes and corrections.
-4. **`CONTRACTS.md`** — contact addresses and communication rules.
-5. **`TODO.md`** — the task queue.
+2. **`AGENTS.md`** — primary project instructions (architecture, conventions, build commands, known footguns). **All tools read this file.** `CLAUDE.md` is only a redirect to it.
+3. **`SUMMARY.md`** — project memory (this section).
+4. **`LESSONS.md`** / `tasks/lessons.md` — past mistakes and corrections.
+5. **`CONTRACTS.md`** — contact addresses and communication rules.
+6. **`TODO.md`** — the task queue.
 
-**Never skip SOUL.md.** Without it you have no stable identity across sessions.
+**Never skip SOUL.md or AGENTS.md.** Without them you have no stable identity and no project context.
 
 ---
 

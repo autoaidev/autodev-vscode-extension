@@ -41,25 +41,24 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
 
     let block: string;
 
-    if (filename === 'AGENTS.md' && fs.existsSync(path.join(root, 'CLAUDE.md'))) {
-      // AGENTS.md: keep it minimal — just forward to CLAUDE.md.
-      // Avoids duplicating all refs; any agent reading AGENTS.md will load CLAUDE.md
-      // which carries the full profile reference block.
-      const claudeAbsPath = path.join(root, 'CLAUDE.md').replace(/\\/g, '/');
+    if (filename === 'CLAUDE.md' && fs.existsSync(path.join(root, 'AGENTS.md'))) {
+      // CLAUDE.md: thin redirect → points to AGENTS.md which is the primary file.
+      // Claude reads AGENTS.md first; all real profile refs live there.
+      const agentsAbsPath = path.join(root, 'AGENTS.md').replace(/\\/g, '/');
       block = [
         AGENT_REF_BEGIN,
         // @-syntax (Claude Code, Codex)
-        `@CLAUDE.md`,
+        `@AGENTS.md`,
         // file:// absolute path for LLMs that don't understand @-refs
-        `file://${claudeAbsPath}`,
+        `file://${agentsAbsPath}`,
         `<think>`,
-        `IMPORTANT: Read and follow all instructions in CLAUDE.md before proceeding.`,
-        `Full path if needed: file://${claudeAbsPath}`,
+        `IMPORTANT: AGENTS.md is the primary instruction file. Read and follow all instructions in AGENTS.md before proceeding.`,
+        `Full path if needed: file://${agentsAbsPath}`,
         `</think>`,
         AGENT_REF_END,
       ].join('\n');
     } else {
-      // CLAUDE.md (or AGENTS.md when no CLAUDE.md exists): full reference block.
+      // AGENTS.md (primary) — or CLAUDE.md when no AGENTS.md exists: full reference block.
       const atLines = allPaths.map(p => `@${p}`).join('\n');
       // file:// absolute paths for LLMs that don't understand @-refs
       const fileLines = allPaths
@@ -101,7 +100,7 @@ function syncCopilotInstructions(root: string, _profileBody: string): void {
   // GitHub Copilot cannot follow @-import references, but the full profile is
   // already maintained in CLAUDE.md. Keep copilot-instructions.md as a slim
   // one-liner so there is no duplication to maintain.
-  const refLine = 'See `CLAUDE.md` in the project root for full agent instructions.';
+  const refLine = 'See `AGENTS.md` in the project root for full agent instructions (AGENTS.md is the primary file; CLAUDE.md redirects to it).';
   const block = `${COPILOT_BEGIN}\n${refLine}\n${COPILOT_END}`;
   const markerRe = /<!-- autodev:profile:begin -->[\s\S]*?<!-- autodev:profile:end -->/;
 
@@ -352,7 +351,7 @@ export function buildMessage(
   fs.writeFileSync(profileFilePath, finalProfileBody, 'utf8');
   injectAgentProfileRef(root, sectionPaths);
   syncCopilotInstructions(root, finalProfileBody);
-  // Build the task trigger message — profile is loaded by agents via CLAUDE.md → @.autodev/AGENT_PROFILE.md
+  // Build the task trigger message — profile is loaded by agents via AGENTS.md → @.autodev/AGENT_PROFILE.md
   const todoPath = path.join(todoDir, 'TODO.md');
   const taskMessage = buildTaskInstruction(task, todoPath, root, meta.noCommit);
 

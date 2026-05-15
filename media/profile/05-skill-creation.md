@@ -17,7 +17,7 @@ Do NOT create a skill for routine tasks, standard patterns, or anything obvious 
 
 ### Skill Location & Structure
 
-Each skill lives in its own folder under `.claude/skills/`:
+Each skill lives in its own folder under `.claude/skills/` **in the project root** — never inside `.autodev/`:
 
 ```
 .claude/skills/<slug>/
@@ -26,6 +26,8 @@ Each skill lives in its own folder under `.claude/skills/`:
 ├── references/       (optional — docs/specs loaded into context as needed)
 └── assets/           (optional — templates, fixtures, example files)
 ```
+
+> **IMPORTANT:** `.autodev/` is an internal AutoDev extension folder — never create skill files there. Skills always go in `.claude/skills/<slug>/` at the project root.
 
 ### Official SKILL.md Format
 
@@ -83,7 +85,7 @@ Files, modules, or subsystems where this pattern matters.
 
 ### After Creating a Skill
 
-1. Add the skill folder path and one-line summary to all three instruction files (`.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`) under `## Project Skills`.
+1. Add the skill folder path and one-line summary to `AGENTS.md` under `## Project Skills` (and sync to `.github/copilot-instructions.md`).
 2. Add a `SKILL CREATED: .claude/skills/<slug>/` note to `SUMMARY.md` for this session.
 3. Reference the skill folder in the relevant `TODO.md` task as a note.
 

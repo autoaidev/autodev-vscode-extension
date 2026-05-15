@@ -10,7 +10,7 @@ import { buildMessage } from './messageBuilder';
  *   .autodev/AGENT_PROFILE.md                  — profile instructions (rebuilt fresh)
  *   .autodev/messages/MESSAGE_<timestamp>.md    — task trigger message
  *
- * The agent profile is loaded automatically by the agent via CLAUDE.md → @.autodev/AGENT_PROFILE.md.
+ * The agent profile is loaded automatically by the agent via AGENTS.md → @.autodev/AGENT_PROFILE.md.
  */
 export function buildPrompt(
   task: Task,
