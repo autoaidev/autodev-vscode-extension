@@ -58,6 +58,11 @@ function textOut(v: unknown, maxLen = 400): { text: string } | null {
 //
 // Raw event shape: { type: string; data?: Record<string, unknown>; ephemeral?: boolean }
 // Caller should only pass non-ephemeral events.
+
+// toolCallId → toolName: populated by tool.execution_start, consumed by
+// tool.execution_complete so we can resolve the tool name even when the SDK
+// doesn't repeat it in the completion payload.  Auto-pruned after 500 entries.
+const _toolCallNames = new Map<string, string>();
 // ---------------------------------------------------------------------------
 function normalizeCopilotSdk(
   raw: Record<string, unknown>,
@@ -80,15 +85,21 @@ function normalizeCopilotSdk(
   };
 
   switch (type) {
-    case 'tool.execution_start':
+    case 'tool.execution_start': {
+      const callId = safeStr(d['toolCallId']);
+      if (callId && toolName) {
+        if (_toolCallNames.size > 500) { _toolCallNames.clear(); }
+        _toolCallNames.set(callId, toolName);
+      }
       return {
         ...base,
         hook_event_name: 'PreToolUse',
         provider,
         tool_name:  toolName ?? 'unknown',
         tool_input: safeObj(d['arguments']),
-        session_id: safeStr(d['toolCallId']),
+        session_id: callId,
       };
+    }
 
     case 'tool.execution_complete': {
       const success = d['success'] as boolean | undefined;
@@ -97,10 +108,16 @@ function normalizeCopilotSdk(
       const outRaw  = success === false
         ? (err?.['message'])
         : (result?.['content'] ?? result?.['detailedContent']);
-      // tool name: prefer explicit field, fall back to telemetry properties.command
+      // tool name: prefer explicit field, then the start-event cache by toolCallId,
+      // then telemetry properties.command (present on failures), else 'unknown'.
+      const callId2  = safeStr(d['toolCallId']);
       const telemetry = d['toolTelemetry'] as Record<string, unknown> | undefined;
       const telProps  = telemetry?.['properties'] as Record<string, unknown> | undefined;
-      const resolvedToolName = toolName ?? safeStr(telProps?.['command']) ?? 'unknown';
+      const resolvedToolName = toolName
+        ?? (callId2 ? _toolCallNames.get(callId2) : undefined)
+        ?? safeStr(telProps?.['command'])
+        ?? 'unknown';
+      if (callId2) { _toolCallNames.delete(callId2); } // clean up
       return {
         ...base,
         hook_event_name: success === false ? 'PostToolUseFailure' : 'PostToolUse',
