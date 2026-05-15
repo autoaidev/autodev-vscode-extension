@@ -70,16 +70,44 @@ export const settingsPanelHtml = `
   <button class="cfg-save" id="saveSettingsBtn">Save Settings</button>
   <button class="cfg-json" id="editJsonBtn">Edit raw JSON</button>
   <div class="cfg-section" style="margin-top:10px">Copilot TUI</div>
-  <div class="cfg-field"><label class="cfg-label">GitHub Token</label><input class="cfg-input" id="cfg_copilotGithubToken" type="password" placeholder="ghp_… (required on Linux/headless)"></div>
-  <div style="font-size:10px;opacity:.6;margin:-4px 0 6px 0">Used by Copilot TUI on machines without keyring auth. Needs <code>copilot</code> scope.</div>
+  <div style="font-size:11px;line-height:1.6;margin-bottom:6px">
+    Requires an <strong>OAuth token</strong> (<code>gho_*</code>) with the <code>copilot</code> scope — classic PATs (<code>ghp_*</code>) are rejected.
+    Set it as the <code>GH_TOKEN</code> environment variable on the agent machine, or add <code>copilotGithubToken</code> to <code>.autodev/settings.json</code>.
+    <button id="copilotTokenHelpBtn" style="display:inline;background:none;border:none;color:var(--vscode-textLink-foreground,#4daafc);cursor:pointer;font-size:11px;padding:0;margin-left:4px;text-decoration:underline">Learn more &#8594;</button>
+  </div>
   <button class="cfg-json" id="rebuildCopilotNativeBtn" title="Run npm rebuild inside @github/copilot to compile pty.node for this machine (needed on Linux)">Rebuild native modules (pty.node)</button>
   <div id="rebuildCopilotNativeNote" style="font-size:10px;opacity:.6;margin-top:3px">Compiles the native pty module for the current OS/arch. Requires node-gyp build tools (python3, make, g++).</div>
+</div>
+
+<!-- Copilot token help modal -->
+<div id="copilotTokenModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);overflow-y:auto">
+  <div style="margin:10% auto;max-width:480px;background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border,#444);border-radius:6px;padding:20px;font-size:12px;line-height:1.7">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <strong style="font-size:13px">Getting a Copilot OAuth token</strong>
+      <button id="copilotTokenModalClose" style="background:none;border:none;cursor:pointer;font-size:16px;opacity:.7;color:var(--vscode-foreground)">&times;</button>
+    </div>
+    <p style="margin:0 0 10px">The Copilot TUI SDK requires an <strong>OAuth token</strong> (<code>gho_*</code>) with the <code>copilot</code> scope. Classic Personal Access Tokens (<code>ghp_*</code>) are <em>not</em> accepted by GitHub&#8217;s internal Copilot endpoint.</p>
+    <p style="margin:0 0 6px"><strong>Step 1 &mdash; Clear any PAT from the environment</strong></p>
+    <pre style="margin:0 0 10px;background:var(--vscode-textCodeBlock-background,#1e1e1e);padding:8px;border-radius:4px;font-size:11px;overflow-x:auto">unset GH_TOKEN</pre>
+    <p style="margin:0 0 6px"><strong>Step 2 &mdash; Run the device-flow auth (opens a URL to authorise in your browser)</strong></p>
+    <pre style="margin:0 0 10px;background:var(--vscode-textCodeBlock-background,#1e1e1e);padding:8px;border-radius:4px;font-size:11px;overflow-x:auto">gh auth refresh -h github.com --scopes copilot</pre>
+    <p style="margin:0 0 6px"><strong>Step 3 &mdash; Copy the new OAuth token</strong></p>
+    <pre style="margin:0 0 10px;background:var(--vscode-textCodeBlock-background,#1e1e1e);padding:8px;border-radius:4px;font-size:11px;overflow-x:auto">gh auth token -h github.com</pre>
+    <p style="margin:0 0 6px"><strong>Step 4 &mdash; Provide the token to AutoDev (pick one)</strong></p>
+    <ul style="margin:0 0 10px;padding-left:18px">
+      <li>Set it as an environment variable on the agent machine:<br><code>export GH_TOKEN=gho_&#8230;</code></li>
+      <li>Or add it to <code>.autodev/settings.json</code> in the workspace:<br><code>{ &quot;copilotGithubToken&quot;: &quot;gho_&#8230;&quot; }</code></li>
+    </ul>
+    <p style="margin:0 0 6px"><strong>Verify with the diagnostic script</strong></p>
+    <pre style="margin:0 0 10px;background:var(--vscode-textCodeBlock-background,#1e1e1e);padding:8px;border-radius:4px;font-size:11px;overflow-x:auto">node /path/to/autodev/scripts/copilot-diag.js</pre>
+    <p style="margin:0;opacity:.6;font-size:11px">All 7 steps should pass. Step 7 sends a live probe prompt; a response of <code>ok</code> confirms the token works.</p>
+  </div>
 </div>
 `;
 
 export const settingsPanelScript = `
 function populateSettings(s){
-  ['wsUrl','discordToken','discordChannelId','discordOwners','todoPath','copilotGithubToken'].forEach(function(k){
+  ['wsUrl','discordToken','discordChannelId','discordOwners','todoPath'].forEach(function(k){
     var el=document.getElementById('cfg_'+k);
     if(el){ el.value=s[k]||''; }
   });
@@ -203,7 +231,7 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     opencodeModel:(state.settings&&state.settings.opencodeModel)||'',
     opencodeCacheEnabled:!!(state.settings&&state.settings.opencodeCacheEnabled),
     todoPath:document.getElementById('cfg_todoPath').value,
-    copilotGithubToken:document.getElementById('cfg_copilotGithubToken').value,
+    copilotGithubToken:(state.settings&&state.settings.copilotGithubToken)||'',
   };
   vscode.postMessage({command:'saveSettings',settings:s});
   document.getElementById('tabTasks').click();
@@ -221,5 +249,13 @@ if(rebuildNativeBtn){
     vscode.postMessage({command:'rebuildCopilotNative'});
     setTimeout(function(){rebuildNativeBtn.textContent='Rebuild native modules (pty.node)';rebuildNativeBtn.disabled=false;},35000);
   });
+}
+var copilotHelpBtn=document.getElementById('copilotTokenHelpBtn');
+var copilotModal=document.getElementById('copilotTokenModal');
+var copilotModalClose=document.getElementById('copilotTokenModalClose');
+if(copilotHelpBtn&&copilotModal){
+  copilotHelpBtn.addEventListener('click',function(){ copilotModal.style.display='block'; });
+  if(copilotModalClose){ copilotModalClose.addEventListener('click',function(){ copilotModal.style.display='none'; }); }
+  copilotModal.addEventListener('click',function(e){ if(e.target===copilotModal){ copilotModal.style.display='none'; } });
 }
 `;
