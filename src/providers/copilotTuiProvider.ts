@@ -29,8 +29,14 @@ interface SdkLocalSession {
   respondToPermission(requestId: string, response: { kind: string }): void;
   respondToUserInput(requestId: string, response: { kind: string; text?: string }): void;
 }
+interface SdkCoreServices {
+  featureFlagService?: unknown;
+  autoModeManager?: unknown;
+  telemetryService?: unknown;
+}
 interface SdkModule {
-  LocalSession: new (options: unknown) => SdkLocalSession;
+  LocalSession: new (coreServices: SdkCoreServices, options: unknown) => SdkLocalSession;
+  createCoreServices: (opts: SdkCoreServices) => SdkCoreServices;
 }
 interface KeytarModule {
   findCredentials(service: string): Promise<Array<{ account: string; password: string }>>;
@@ -178,6 +184,8 @@ interface CopilotSdkState {
   log:        ((msg: string) => void) | null;
   offIdle:    (() => void) | null;
   deltasSeen: boolean;
+  /** Set when session.error fires — next idle should dispose & fail the task */
+  sessionErrored: boolean;
 }
 
 const _sessions  = new Map<string, CopilotSdkState>();
@@ -257,14 +265,18 @@ async function _sendAsync(
   let state = _sessions.get(root);
   if (!state) {
     log('Copilot SDK: creating LocalSession for ' + path.basename(root));
-    const session = new sdk.LocalSession({
+    // SDK v1.0.48+ constructor is (coreServices, options) — two args.
+    // Passing everything as one arg puts authInfo in the coreServices slot
+    // where it is ignored, so this.authInfo is never set → session.error.
+    const coreServices = sdk.createCoreServices ? sdk.createCoreServices({}) : {};
+    const session = new sdk.LocalSession(coreServices, {
       authInfo,
       workingDirectory: root,
       runningInInteractiveMode: false,
       askUserDisabled: true,
     });
 
-    state = { session, stdoutFile: null, exitFile: null, log: null, offIdle: null, deltasSeen: false };
+    state = { session, stdoutFile: null, exitFile: null, log: null, offIdle: null, deltasSeen: false, sessionErrored: false };
     _sessions.set(root, state);
 
     // Wire up output streaming to stdoutFile (registered once per session)
@@ -288,6 +300,11 @@ async function _sendAsync(
           ? ' [' + (toolName ?? '?') + ']'
           : '';
         localState.log?.('Copilot SDK [event]: ' + ev.type + extra);
+        // Track session errors so the next idle disposes the broken session
+        if (ev.type === 'session.error') {
+          localState.sessionErrored = true;
+          localState.log?.('Copilot SDK: session.error — will dispose session on next idle');
+        }
         appendHookEvent(
           hooksJsonlPath, 'copilot-sdk',
           ev as unknown as Record<string, unknown>,
@@ -317,6 +334,9 @@ async function _sendAsync(
   state.offIdle?.();
   state.offIdle    = null;
   state.deltasSeen = false;
+
+  // Reset per-task error flag
+  state.sessionErrored = false;
 
   state.stdoutFile = stdoutFile;
   state.exitFile   = exitFile;
@@ -363,8 +383,19 @@ async function _sendAsync(
 
   // session.idle fires when the agent finishes a turn
   offIdleHandle = state.session.on('session.idle', () => {
-    log('Copilot SDK: session.idle fired');
-    _complete('session.idle');
+    if (state!.sessionErrored) {
+      log('Copilot SDK: session.idle after error — disposing broken session');
+      // Dispose so the next task creates a fresh session
+      const s = _sessions.get(root);
+      if (s) {
+        try { s.session.dispose(); } catch { /* ignore */ }
+        _sessions.delete(root);
+      }
+      _complete('session.error', 1);
+    } else {
+      log('Copilot SDK: session.idle fired');
+      _complete('session.idle');
+    }
   });
   // session.task_complete is an additional completion signal
   offTaskComplete = state.session.on('session.task_complete', () => {
