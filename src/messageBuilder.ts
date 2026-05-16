@@ -253,8 +253,8 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
     ? `**Attachments:** ${task.attachments.map(p => `\`${p}\``).join(', ')}\n`
     : '';
 
-  return `> ⚠️ **NEXT TASK — BEGIN IMMEDIATELY, DO NOT HALT**
-
+  return `> **NEXT TASK TO BEGIN, DO NOT STOP WORK**
+  
 ## Current task
 
 **Task ID:** \`${taskId.trim() || '(no id)'}\`

@@ -106,7 +106,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && esbuild ./out/extension.js --bundle --platform=node --target=node20 --external:vscode --external:node-pty --outfile=./out/extension.bundle.js --format=cjs --minify --conditions=import",
+    "compile": "tsc -p ./ && esbuild ./out/extension.js --bundle --platform=node --target=node20 --external:vscode --external:node-pty --external:@opencode-ai/sdk --outfile=./out/extension.bundle.js --format=cjs --minify --conditions=import",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts"
   },

@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as net from 'net';
+import { pathToFileURL } from 'url';
 import { normalizeEvent } from '../hookEventNormalizer';
 
 // ---------------------------------------------------------------------------
@@ -87,11 +88,37 @@ export function getOpencodeSdkLatestSessionId(root: string): string | undefined 
 
 let _sdkCache: SdkModule | null = null;
 
+// Walk up from __dirname to find @opencode-ai/sdk/dist/index.js.
+// We import by absolute path to bypass the exports map resolution entirely —
+// bare specifier import('@opencode-ai/sdk') uses CJS resolution in a CJS bundle
+// and fails because the package only defines an "import" condition (no "require").
+function _findSdkEntryPath(): string {
+  let dir = __dirname;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const candidate = path.join(dir, 'node_modules', '@opencode-ai', 'sdk', 'dist', 'index.js');
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      throw new Error('@opencode-ai/sdk not found in any node_modules above ' + __dirname);
+    }
+    dir = parent;
+  }
+}
+
+// Use new Function() to prevent esbuild from transforming import(path) to require(path).
+// require() cannot load ESM files; a native ESM import() is required.
+const _dynamicImport = new Function('p', 'return import(p)') as (p: string) => Promise<unknown>;
+
 async function _getSdk(): Promise<SdkModule> {
   if (!_sdkCache) {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error — ESM-only package; esbuild resolves it via "import" condition at bundle time
-    _sdkCache = (await import('@opencode-ai/sdk')) as unknown as SdkModule;
+    const sdkPath = _findSdkEntryPath();
+    // pathToFileURL handles Windows drive-letter paths (e.g. H:\...) which
+    // Node's ESM loader rejects as unknown URL schemes unless converted to file://
+    const sdkUrl = pathToFileURL(sdkPath).href;
+    _sdkCache = (await _dynamicImport(sdkUrl)) as unknown as SdkModule;
   }
   return _sdkCache;
 }
