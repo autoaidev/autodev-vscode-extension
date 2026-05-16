@@ -312,7 +312,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   setLoopState(state: LoopState, task?: string): void {
     this._loopState = state;
     this._loopTask = task;
-    this._push();
+    // Re-read TODO.md from disk so the sidebar always reflects the latest file
+    // state (e.g. a task the loop just marked done). _refreshTasks() calls _push().
+    this._refreshTasks();
   }
 
   setClaudeActivity(activity: string | undefined): void {
