@@ -36,7 +36,7 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
   const allPaths = [AGENT_PROFILE_FILE, ...sectionPaths];
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
-  for (const filename of ['CLAUDE.md', 'AGENTS.md']) {
+  for (const filename of ['AGENTS.md', 'CLAUDE.md']) {
     const filePath = path.join(root, filename);
 
     let block: string;

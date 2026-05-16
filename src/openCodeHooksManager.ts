@@ -372,7 +372,7 @@ export function isOpenCodeCliActive(workspaceRoot: string, windowMs = 90_000, se
         // If reading global file, filter to the requested session
         if (!perFile && sessionId && ev.session_id && ev.session_id !== sessionId) { continue; }
         const name: string = ev.hook_event_name ?? '';
-        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return false; }
+        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd' || name === 'server.instance.disposed') { return false; }
         return true;
       } catch { continue; }
     }
@@ -398,7 +398,7 @@ export function openCodeExitedCleanly(workspaceRoot: string, sessionId?: string)
         if (ev.provider !== 'opencode') { continue; }
         if (!perFile && sessionId && ev.session_id && ev.session_id !== sessionId) { continue; }
         const name: string = ev.hook_event_name ?? '';
-        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd') { return true; }
+        if (name === 'Stop' || name === 'StopFailure' || name === 'SessionEnd' || name === 'server.instance.disposed') { return true; }
         return false;
       } catch { continue; }
     }
