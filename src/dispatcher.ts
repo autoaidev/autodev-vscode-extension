@@ -92,6 +92,20 @@ function writeCombinedFile(root: string, agentProfileFile: string, messageFile: 
 }
 
 // ---------------------------------------------------------------------------
+// opencode-cli process-start cooldown
+// ---------------------------------------------------------------------------
+
+/** Epoch-ms timestamp of the last opencode-cli process launch. */
+let _lastOpenCodeCliStart = 0;
+
+/** Minimum milliseconds between consecutive opencode-cli process starts. */
+const OPENCODE_CLI_COOLDOWN_MS = 30_000;
+
+function _sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
@@ -200,6 +214,19 @@ export async function sendPromptToAi(
     }
 
     cmd = withExitFile(cmd, exitFile);
+
+    // Enforce a minimum cooldown between consecutive opencode-cli process starts
+    // to avoid the race condition where the previous opencode server is still
+    // disposing when the new process connects, causing an immediate STOP.
+    if (providerId === 'opencode-cli') {
+      const elapsed = Date.now() - _lastOpenCodeCliStart;
+      if (elapsed < OPENCODE_CLI_COOLDOWN_MS && _lastOpenCodeCliStart > 0) {
+        const wait = OPENCODE_CLI_COOLDOWN_MS - elapsed;
+        log(`⏳ opencode-cli cooldown: waiting ${Math.round(wait / 1000)}s before next start…`);
+        await _sleep(wait);
+      }
+      _lastOpenCodeCliStart = Date.now();
+    }
 
     const termName = `AutoDev: ${providerCfg.label}`;
     launcher.launch(cmd, termName, root);

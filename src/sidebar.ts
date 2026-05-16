@@ -639,7 +639,7 @@ function buildHtml(webview: vscode.Webview): string {
   <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
 </div>
 <button class="periodic-toggle" id="periodicToggleBtn" style="display:none" onclick="togglePeriodic()">
-  <em class="periodic-toggle-arrow" id="periodicArrow">&#9654;</em> Periodic &amp; schedule
+  <em class="periodic-toggle-arrow" id="periodicArrow">&#9660;</em> Periodic &amp; schedule
 </button>
 <div id="periodicSection" style="display:none">
 <div class="model-row" id="resetSessionRow" style="display:none">
@@ -726,13 +726,16 @@ function showTab(tab) {
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+// Persistent open/closed state for the periodic section.
+// Starts OPEN so settings are immediately visible; user can collapse with the header button.
+var _periodicOpen = true;
+
 function togglePeriodic(){
+  _periodicOpen = !_periodicOpen;
   var section=document.getElementById('periodicSection');
   var arrow=document.getElementById('periodicArrow');
-  if(!section){return;}
-  var isOpen=section.style.display!=='none';
-  section.style.display=isOpen?'none':'';
-  if(arrow){arrow.innerHTML=isOpen?'&#9654;':'&#9660;';}
+  if(section){section.style.display=_periodicOpen?'':'none';}
+  if(arrow){arrow.innerHTML=_periodicOpen?'&#9660;':'&#9654;';}
 }
 
 function statusIcon(s){
@@ -860,7 +863,15 @@ function renderProviders(){
   // Show periodic toggle button when this provider supports CLI actions
   var periodicToggleBtn=document.getElementById('periodicToggleBtn');
   if(periodicToggleBtn){periodicToggleBtn.style.display=isCli?'':'none';}
-  if(!isCli){var ps=document.getElementById('periodicSection');if(ps){ps.style.display='none';var pa=document.getElementById('periodicArrow');if(pa){pa.innerHTML='&#9654;';}}}
+  var periodicSection=document.getElementById('periodicSection');
+  var periodicArrow=document.getElementById('periodicArrow');
+  if(isCli){
+    if(periodicSection){periodicSection.style.display=_periodicOpen?'':'none';}
+    if(periodicArrow){periodicArrow.innerHTML=_periodicOpen?'&#9660;':'&#9654;';}
+  } else {
+    if(periodicSection){periodicSection.style.display='none';}
+    if(periodicArrow){periodicArrow.innerHTML='&#9654;';}
+  }
   var sidRow=document.getElementById('sessionIdRow');
   var sidVal=document.getElementById('sessionIdVal');
   var hasSession=isCli&&resumeOn&&state.sessionId;
