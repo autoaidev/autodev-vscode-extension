@@ -1686,18 +1686,18 @@ export class TaskLoopRunner {
         const currentLine  = currentTasks.find(t => t.line === task.line || t.text === task.text);
         const currentMarker = currentLine?.status === 'in-progress' ? '~' : ' ';
         const reminder = [
-          `STOP. Your process has finished but your current task is NOT marked done.`,
-          ``,
+          `⚠️ ACTION REQUIRED: Your process has finished but your current task is NOT marked done in TODO.md.`,
+          `Do NOT stop. Do NOT wait. Update TODO.md right now, then continue to the next task.`,
           `Read TODO.md now: cat ${todoPath}`,
           ``,
           `Find line ${task.line} (task: ${task.text}):`,
           `  - [${currentMarker}] ${task.text}`,
           ``,
           `You MUST change it to one of:`,
-          `  [x] â€” done:        - [x] ${date}  ${task.text}`,
-          `  [~] â€” in progress: - [~] ${task.text}`,
+          `  [x] – done:        - [x] ${date}  ${task.text}`,
+          `  [~] – in progress: - [~] ${task.text}`,
           ``,
-          `Do NOT exit without updating that line. Save the file after editing.`,
+          `After saving the file, immediately continue to the next [ ] task. Do not exit or wait for instructions.`,
         ].join('\n');
         this._cb?.log(`âš ï¸ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
         try {
