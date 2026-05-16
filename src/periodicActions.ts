@@ -55,13 +55,14 @@ export const PERIODIC_ACTIONS: PeriodicActionDef[] = [
     label: 'Make skill',
     settingKey: 'skillEveryNTasks',
     icon: '📚',
-    prompt: `Before continuing to the next task, update the three project skill files that are kept in sync:
-- \`.github/copilot-instructions.md\` (with YAML frontmatter \`applyTo: '**'\`)
-- \`CLAUDE.md\`
-- \`AGENTS.md\`
+    prompt: `Before continuing to the next task, update your skills based on recent learnings. 
+    If you discovered a new best practice, anti-pattern, or gotcha worth formalizing into a skill, create or update a markdown file in .claude/skills/ named after the pattern (e.g. .claude/skills/error-handling.md). The file should contain a concise description of the pattern, when to apply it, and an example. If the pattern is a gotcha or anti-pattern, clearly explain the potential pitfall and how to avoid it. 
+    Your skills are your personal best practices distilled from experience in this codebase — use them to level up your performance on future tasks. 
+    Update AGENTS.md with a one-paragraph summary of the new skill and why it matters. Then continue — pick up any new tasks .
 
-Add any reusable patterns, commands, naming conventions, build commands, architecture rules, and domain knowledge discovered during recent tasks. All three files must contain the same knowledge — when one is updated, update all three. Group entries under: Project Identity, Architecture Rules, Naming Conventions, Build & Run, Code Style, What NOT to do, Key Files. If a file does not exist yet, create it from the standard skeleton. Then stop — do not pick up any new tasks yet.`,
-  },
+    `,
+
+    },
 
   // ─── Memory / SUMMARY.md ──────────────────────────────────────────────────
   // Protocol ref: media/profile/01-learning.md
@@ -74,7 +75,7 @@ Add any reusable patterns, commands, naming conventions, build commands, archite
 
 Also update LESSONS.md (or tasks/lessons.md if it already exists) if any corrections, preventable mistakes, or repeat failures occurred in recent tasks.
 
-Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP key name only. Then stop — do not pick up any new tasks yet.`,
+Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP key name only. Then continue — pick up any new tasks .`,
   },
 
   // ─── Full project summary ─────────────────────────────────────────────────
@@ -84,7 +85,7 @@ Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP
     label: 'Write summary',
     settingKey: 'summaryEveryNTasks',
     icon: '📋',
-    prompt: `Before continuing to the next task, write a comprehensive up-to-date project state summary to SUMMARY.md in the project root. Cover: current architecture overview, module map, naming conventions, key files (entry points, config, router, DB schema), exact build & run commands (dev and prod), known gotchas, recent decisions, and non-obvious dependencies. If the file already exists, update it — preserve all valid existing content and add new learnings. Keep every entry concise — one bullet per fact. Then stop — do not pick up any new tasks yet.`,
+    prompt: `Before continuing to the next task, write a comprehensive up-to-date project state summary to SUMMARY.md in the project root. Cover: current architecture overview, module map, naming conventions, key files (entry points, config, router, DB schema), exact build & run commands (dev and prod), known gotchas, recent decisions, and non-obvious dependencies. If the file already exists, update it — preserve all valid existing content and add new learnings. Keep every entry concise — one bullet per fact. Then continue — pick up any new tasks .`,
   },
   // ─── Prune TODO.md ──────────────────────────────────────────────────────
   // Moves completed [x] lines out of TODO.md into TODO_ARCHIVE.md.

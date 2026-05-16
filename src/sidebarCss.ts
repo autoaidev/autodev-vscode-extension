@@ -13,12 +13,12 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .fallback-row input[type=checkbox]{cursor:pointer;flex-shrink:0}
 .fallback-row .provider-select{opacity:.6}
 .fallback-row .provider-select:not(:disabled){opacity:1}
-.model-row{display:flex;align-items:center;gap:6px;margin:-6px 0 10px}
+.model-row{display:flex;align-items:center;gap:6px;margin:0 0 5px}
 .model-select{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none;cursor:pointer}
 .model-select:focus{border-color:var(--vscode-focusBorder)}
 .model-search{flex:1;padding:4px 6px;font-family:var(--vscode-font-family);font-size:12px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:3px;outline:none}
 .model-search:focus{border-color:var(--vscode-focusBorder)}
-.resume-row{display:flex;align-items:center;gap:5px;margin:-4px 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
+.resume-row{display:flex;align-items:center;gap:5px;margin:0 0 4px;font-size:11px;color:var(--vscode-descriptionForeground)}
 .resume-row input{cursor:pointer}
 .new-session-btn{margin-left:auto;padding:1px 5px;border-radius:3px;cursor:pointer;border:1px solid var(--vscode-panel-border);background:transparent;color:var(--vscode-descriptionForeground);font-size:12px;line-height:1.4;opacity:.7}
 .new-session-btn:hover{opacity:1;background:var(--vscode-list-hoverBackground)}
@@ -78,4 +78,7 @@ body{font-family:var(--vscode-font-family);font-size:var(--vscode-font-size);col
 .profile-section-row.checked{border-color:var(--vscode-button-background);background:color-mix(in srgb,var(--vscode-button-background) 10%,transparent)}
 .profile-section-row input[type=checkbox]{flex-shrink:0;cursor:pointer;accent-color:var(--vscode-button-background);width:14px;height:14px}
 .profile-section-label{flex:1;line-height:1.3;color:var(--vscode-foreground)}
+.periodic-toggle{display:flex;align-items:center;gap:5px;width:100%;padding:3px 0 3px;background:none;border:none;border-top:1px solid var(--vscode-panel-border);color:var(--vscode-descriptionForeground);font-size:10px;font-family:var(--vscode-font-family);cursor:pointer;text-align:left;margin:4px 0 5px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.periodic-toggle:hover{color:var(--vscode-foreground)}
+.periodic-toggle-arrow{opacity:.7;font-style:normal;font-size:9px}
 `;

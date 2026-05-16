@@ -626,17 +626,19 @@ function buildHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
 </div>
 <div class="model-row" id="opencodeTimeoutRow" style="display:none">
   <span class="provider-label">Timeout (ms):</span>
-  <input type="number" id="opencodeTimeoutInput" min="0" step="60000" style="width:110px" placeholder="300000">
-</div>
-<div class="model-row" id="opencodeChunkTimeoutRow" style="display:none">
-  <span class="provider-label">Chunk timeout (ms):</span>
-  <input type="number" id="opencodeChunkTimeoutInput" min="0" step="10000" style="width:110px" placeholder="60000">
+  <input type="number" id="opencodeTimeoutInput" min="0" step="60000" style="flex:1;min-width:55px;max-width:90px" placeholder="300000">
+  <span class="provider-label" style="margin-left:2px">Chunk (ms):</span>
+  <input type="number" id="opencodeChunkTimeoutInput" min="0" step="10000" style="flex:1;min-width:55px;max-width:90px" placeholder="60000">
 </div>
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
   <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
 </div>
+<button class="periodic-toggle" id="periodicToggleBtn" style="display:none" onclick="togglePeriodic()">
+  <em class="periodic-toggle-arrow" id="periodicArrow">&#9654;</em> Periodic &amp; schedule
+</button>
+<div id="periodicSection" style="display:none">
 <div class="model-row" id="resetSessionRow" style="display:none">
   <span class="provider-label">Reset session:</span>
   <select id="resetSessionSelect" style="flex:1;min-width:0">
@@ -671,6 +673,7 @@ ${PERIODIC_ACTIONS.map(a => `
   </select>
   <input type="number" id="periodicCustom-${a.id}" min="1" max="999" style="width:55px;display:none" placeholder="N">
 </div>`).join('')}
+</div>
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
   <span style="flex-shrink:0">Session:</span>
@@ -719,6 +722,15 @@ function showTab(tab) {
 }
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function togglePeriodic(){
+  var section=document.getElementById('periodicSection');
+  var arrow=document.getElementById('periodicArrow');
+  if(!section){return;}
+  var isOpen=section.style.display!=='none';
+  section.style.display=isOpen?'none':'';
+  if(arrow){arrow.innerHTML=isOpen?'&#9654;':'&#9660;';}
+}
 
 function statusIcon(s){
   if(s==='done') return '<span style="color:var(--vscode-testing-iconPassed,#388a34)">&#10003;</span>';
@@ -842,6 +854,10 @@ function renderProviders(){
       };
     }
   })();`).join('\n  ')}
+  // Show periodic toggle button when this provider supports CLI actions
+  var periodicToggleBtn=document.getElementById('periodicToggleBtn');
+  if(periodicToggleBtn){periodicToggleBtn.style.display=isCli?'':'none';}
+  if(!isCli){var ps=document.getElementById('periodicSection');if(ps){ps.style.display='none';var pa=document.getElementById('periodicArrow');if(pa){pa.innerHTML='&#9654;';}}}
   var sidRow=document.getElementById('sessionIdRow');
   var sidVal=document.getElementById('sessionIdVal');
   var hasSession=isCli&&resumeOn&&state.sessionId;
@@ -908,10 +924,8 @@ function renderProviders(){
 
   var ocTimeoutRow=document.getElementById('opencodeTimeoutRow');
   var ocTimeoutInp=document.getElementById('opencodeTimeoutInput');
-  var ocChunkRow=document.getElementById('opencodeChunkTimeoutRow');
   var ocChunkInp=document.getElementById('opencodeChunkTimeoutInput');
   if(ocTimeoutRow){ocTimeoutRow.style.display=isOpenCode?'flex':'none';}
-  if(ocChunkRow){ocChunkRow.style.display=isOpenCode?'flex':'none';}
   if(isOpenCode&&ocTimeoutInp&&ocChunkInp){
     var curTimeout=(state.settings&&state.settings.opencodeTimeout)||0;
     var curChunk=(state.settings&&state.settings.opencodeChunkTimeout)||0;
