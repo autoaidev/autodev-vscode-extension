@@ -21,11 +21,19 @@ export const tasksPanelScript = `
 function renderLoop(){
   var statusEl=document.getElementById('loopStatus');
   var btnEl=document.getElementById('loopBtn');
-  if(state.loopState==='running'){
+  if(state.loopState==='running' && state.loopTask){
     statusEl.className='loop-status running';
-    var taskLabel=state.loopTask?'&#9654; '+esc(state.loopTask):'&#9654; Running\u2026';
+    var taskLabel='&#9654; '+esc(state.loopTask);
     var activityLabel=state.claudeActivity?'<div style="font-size:10px;font-weight:400;opacity:.75;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(state.claudeActivity)+'</div>':'';
     statusEl.innerHTML=taskLabel+activityLabel;
+    btnEl.className='loop-btn stop';
+    btnEl.innerHTML='&#9632; Stop';
+    btnEl.disabled=false;
+    btnEl.onclick=function(){vscode.postMessage({command:'stopLoop'});};
+  }else if(state.loopState==='running'){
+    // Loop is active but polling (no current task)
+    statusEl.className='loop-status idle-polling';
+    statusEl.innerHTML='&#9711; Idle &mdash; polling&hellip;';
     btnEl.className='loop-btn stop';
     btnEl.innerHTML='&#9632; Stop';
     btnEl.disabled=false;
