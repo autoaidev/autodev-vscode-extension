@@ -33,6 +33,7 @@ export class WebSocketPoller {
   private _gitEnabled = false;
   private _onConnect: (() => void) | null = null;
   private _onTaskAppend: (() => void) | null = null;
+  private _onCommand: ((cmd: string) => void) | null = null;
   private _pendingFrames: unknown[] = [];
   private _seenTaskIds = new Set<string>();
 
@@ -56,6 +57,9 @@ export class WebSocketPoller {
 
   /** Called whenever a task is successfully appended to TODO.md via a WS push. */
   setOnTaskAppend(cb: () => void): void { this._onTaskAppend = cb; }
+
+  /** Called when a slash command (e.g. /restart) is received via WS push. */
+  setOnCommand(cb: (cmd: string) => void): void { this._onCommand = cb; }
 
   /** Start the WebSocket connection (call once). */
   start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
@@ -544,6 +548,13 @@ export class WebSocketPoller {
         : taskText;
 
       this._log(`WS task received: "${taskText}"${attRefs.length > 0 ? ` (+${attRefs.length} attachment(s))` : ''}`);
+
+      // Handle slash commands — don't append as tasks
+      if (fullText.startsWith('/')) {
+        this._onCommand?.(fullText);
+        return;
+      }
+
       if (!this._todoPath) { this._log('WS failed to append task to TODO.md: todoPath is empty'); return; }
       todoWriter.append(this._todoPath, fullText, wsTaskId)
         .then(() => { this._onTaskAppend?.(); })

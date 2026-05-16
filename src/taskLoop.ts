@@ -339,6 +339,10 @@ export class TaskLoopRunner {
       this._webhookPoller.setGitEnabled(settings.gitEnabled ?? false);
       // Wake the idle no-task sleep instantly when a WS-pushed task arrives.
       this._webhookPoller.setOnTaskAppend(() => this._wakeIdleSleep());
+      this._webhookPoller.setOnCommand((cmd) => this._handleCommand(cmd));
+    }
+    if (this._discordPoller) {
+      this._discordPoller.setOnCommand((cmd) => this._handleCommand(cmd));
     }
     if (this._webhookPoller && settings.rdpEnabled) {
       this._webhookPoller.setRdpSettings({
@@ -482,7 +486,34 @@ export class TaskLoopRunner {
     this._taskCompletionAbort = null;
     // Send discord goodbye right now (don't wait for cleanup path)
     this._notifyDiscord('â›” AutoDev loop stopped');
-    this._cb?.log('Task loop stop requestedâ€¦');
+    this._cb?.log('Task loop stop requested…');
+  }
+
+  /**
+   * Stop the loop and, once it reaches idle, start it again with the same
+   * callbacks. Useful for picking up new MCP server configs etc.
+   */
+  async restart(): Promise<void> {
+    const savedCb = this._cb;
+    if (!savedCb) { return; }
+    if (this._state !== 'idle') {
+      this.stop();
+      const deadline = Date.now() + 15_000;
+      while ((this._state as LoopState) !== 'idle' && Date.now() < deadline) {
+        await new Promise<void>(r => setTimeout(r, 100));
+      }
+    }
+    await this.start(savedCb);
+  }
+
+  /** Dispatch a slash command received from any inbound channel. */
+  private _handleCommand(cmd: string): void {
+    const c = cmd.trim().toLowerCase();
+    if (c === '/restart') {
+      this._cb?.log('🔄 /restart received — restarting loop…');
+      this._notifyDiscord('🔄 Restarting loop (/restart received)');
+      void this.restart();
+    }
   }
 
   // -------------------------------------------------------------------------

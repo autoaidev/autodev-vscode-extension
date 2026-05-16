@@ -129,6 +129,11 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage('AutoDev: Resuming after rate limit');
     }),
 
+    vscode.commands.registerCommand('autodev.restartTaskLoop', () => {
+      vscode.window.showInformationMessage('AutoDev: Restarting task loop…');
+      void taskLoopRunner.restart();
+    }),
+
     vscode.commands.registerCommand('autodev.openSettings', () => openSettingsFile()),
   );
 

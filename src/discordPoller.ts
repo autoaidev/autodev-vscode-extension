@@ -37,6 +37,9 @@ export class DiscordPoller {
   private lastMessageId: string | null = null;
   private queue: QueuedTask[] = [];
   private readonly owners: string[];
+  private _onCommand: ((cmd: string) => void) | null = null;
+
+  setOnCommand(cb: (cmd: string) => void): void { this._onCommand = cb; }
 
   /**
    * @param botToken       Discord bot token
@@ -128,6 +131,14 @@ export class DiscordPoller {
         if (parts.length === 0) { continue; }
 
         const taskText = parts.join('\n');
+
+        // Handle slash commands — don't queue as tasks
+        if (taskText.trim().startsWith('/')) {
+          reactToMessage(this.botToken, this.channelId, msg.id, '✅').catch(() => {});
+          this._onCommand?.(taskText.trim());
+          continue;
+        }
+
         this.queue.push({ taskText, messageId: msg.id, taskId });
 
         // React ✅ to the message so the sender knows it was accepted

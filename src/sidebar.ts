@@ -357,6 +357,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
   private _addTask(text: string): void {
     if (!text.trim()) { return; }
+    if (text.trim().toLowerCase() === '/restart') {
+      void vscode.commands.executeCommand('autodev.restartTaskLoop');
+      return;
+    }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
     const settings = loadSettings();

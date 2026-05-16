@@ -134,6 +134,14 @@ export class WebhookPoller {
     }
   }
 
+  setOnCommand(cb: (cmd: string) => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnCommand(cb);
+    } else {
+      (this._impl as HttpWebhookPoller).setOnCommand(cb);
+    }
+  }
+
   /** True when backed by a WebSocket connection (vs HTTP polling). */
   get isWebSocket(): boolean {
     return this._impl instanceof WebSocketPoller;
@@ -149,7 +157,10 @@ class HttpWebhookPoller {
   private _etag: string | undefined;
   private _polling = false;
   private _lastPollTime = 0;
+  private _onCommand: ((cmd: string) => void) | null = null;
   private static readonly MIN_INTERVAL_MS = 3_000;
+
+  setOnCommand(cb: (cmd: string) => void): void { this._onCommand = cb; }
 
   constructor(
     private readonly baseUrl: string,
@@ -238,6 +249,13 @@ class HttpWebhookPoller {
       if (!taskText) { return false; }
       // Collapse newlines so the entire message becomes a single TODO.md line
       taskText = taskText.replace(/\r\n|\r|\n/g, ' ').trim();
+
+      // Handle slash commands — don't append as tasks
+      if (taskText.startsWith('/')) {
+        this._onCommand?.(taskText);
+        return false;
+      }
+
       const fullText = attRefs.length > 0
         ? taskText + ' ' + attRefs.map(p => `[attachment: ${p}]`).join(' ')
         : taskText;
