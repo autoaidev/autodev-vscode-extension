@@ -478,6 +478,21 @@ select:focus,
 }
 .profile-section-label { flex: 1; line-height: 1.3; color: var(--vscode-foreground); }
 
+/* ── Sidebar loading bar ─────────────────────────────────────────────────── */
+.sidebar-loader {
+  height: 2px;
+  width: 100%;
+  background: linear-gradient(90deg,
+    transparent 0%, var(--vscode-progressBar-background, #0e70c0) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sidebarLoaderShimmer 1.2s ease-in-out infinite;
+  margin-bottom: 6px;
+}
+@keyframes sidebarLoaderShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* ── Periodic & schedule toggle ──────────────────────────────────────────── */
 .periodic-toggle {
   display: flex;

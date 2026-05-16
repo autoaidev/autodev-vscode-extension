@@ -605,6 +605,7 @@ function buildHtml(webview: vscode.Webview): string {
 <style nonce="${nonce}">${sidebarCss}${mcpConfigCss}</style>
 </head>
 <body>
+<div id="sidebarLoader" class="sidebar-loader"></div>
 <div class="provider-row">
   <span class="provider-label">Provider:</span>
   <select class="provider-select" id="providerSelect"></select>
@@ -1003,6 +1004,7 @@ window.addEventListener('message',function(e){
       if(state.settings&&state.settings.resumeSession===pr){_pendingResume=null;}
       else{if(state.settings){state.settings.resumeSession=pr;}}
     }
+    var loader=document.getElementById('sidebarLoader');if(loader){loader.style.display='none';}
     renderProviders();renderLoop();renderTasks();showTab(activeTab);
     document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';
     document.getElementById('hooksStatusBadge').style.display=msg.hooksInstalled?'':'none';
