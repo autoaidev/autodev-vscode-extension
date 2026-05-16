@@ -18,6 +18,7 @@ import { Task, parseTodo } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId, saveSessionName, getSessionName } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
+import { sidebarCss } from './sidebarCss';
 import { tasksPanelHtml, tasksPanelScript } from './sidebarTasksPanel';
 import { profilePanelHtml, profilePanelScript } from './sidebarProfilePanel';
 import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
@@ -74,7 +75,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   ): void {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true, localResourceRoots: [this._extensionUri] };
-    webviewView.webview.html = buildHtml(webviewView.webview, this._extensionUri);
+    webviewView.webview.html = buildHtml(webviewView.webview);
 
     webviewView.webview.onDidReceiveMessage((msg) => {
       switch (msg.command) {
@@ -587,9 +588,8 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 // HTML for the sidebar webview â€” assembled from composable panel modules
 // ---------------------------------------------------------------------------
 
-function buildHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+function buildHtml(webview: vscode.Webview): string {
   const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-  const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'sidebar.css'));
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -598,8 +598,7 @@ function buildHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   content="default-src 'none'; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AutoDev</title>
-<link rel="stylesheet" href="${cssUri}">
-<style nonce="${nonce}">${mcpConfigCss}</style>
+<style nonce="${nonce}">${sidebarCss}${mcpConfigCss}</style>
 </head>
 <body>
 <div class="provider-row">
