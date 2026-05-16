@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
@@ -15,7 +15,7 @@ import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/open
 import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedCleanly } from './openCodeHooksManager';
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
-import { sendCopilotTuiPrompt, isCopilotTuiBusy, getLatestCopilotTuiSessionId, readCopilotTuiOutputSince, closeCopilotTuiSession, closeAllCopilotTuiSessions } from './providers/copilotTuiProvider';
+import { sendCopilotSdkPrompt, isCopilotSdkBusy, getLatestCopilotSdkSessionId, readCopilotSdkOutputSince, closeCopilotSdkSession, closeAllCopilotSdkSessions } from './providers/copilotSdkProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
@@ -28,7 +28,7 @@ import { EmailTaskPoller } from './emailPoller';
 import { loadProjectUserMcp } from './core/projectMcp';
 
 // ---------------------------------------------------------------------------
-// TaskLoopRunner — mirrors PHP Loop.php
+// TaskLoopRunner â€” mirrors PHP Loop.php
 // ---------------------------------------------------------------------------
 
 export type LoopState = 'idle' | 'running' | 'stopping' | 'paused';
@@ -48,7 +48,7 @@ class ContextLengthError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// RetryScheduler — single clearable timer for rate-limit resume
+// RetryScheduler â€” single clearable timer for rate-limit resume
 // ---------------------------------------------------------------------------
 
 class RetryScheduler {
@@ -90,9 +90,9 @@ function sleep(ms: number): Promise<void> {
 /**
  * Read a CLI stdout file and return its content as a UTF-8 string.
  * Handles all BOM variants that PowerShell may write:
- *   \xFF\xFE → UTF-16 LE (Tee-Object default on PS5)
- *   \xEF\xBB\xBF → UTF-8 with BOM (Out-File -Encoding UTF8 on PS5)
- *   no BOM → plain UTF-8 (PS7)
+ *   \xFF\xFE â†’ UTF-16 LE (Tee-Object default on PS5)
+ *   \xEF\xBB\xBF â†’ UTF-8 with BOM (Out-File -Encoding UTF8 on PS5)
+ *   no BOM â†’ plain UTF-8 (PS7)
  */
 function readOutputFile(filePath: string): string {
   const raw = fs.readFileSync(filePath);
@@ -108,7 +108,7 @@ function readOutputFile(filePath: string): string {
   return raw.toString('utf8').trim();
 }
 
-/** First line of task text, capped at 200 chars — safe to post to Discord. */
+/** First line of task text, capped at 200 chars â€” safe to post to Discord. */
 function discordLabel(taskText: string): string {
   const first = taskText.split('\n')[0].trim();
   return first.length > 200 ? first.slice(0, 197) + '\u2026' : first;
@@ -138,13 +138,13 @@ export class TaskLoopRunner {
   private _discordGateway: DiscordGateway | null = null;
   private _webhookPoller: WebhookPoller | null = null;
   private _emailPoller: EmailTaskPoller | null = null;
-  /** True after we last told the server "all_tasks_done" — cleared on task_start.
+  /** True after we last told the server "all_tasks_done" â€” cleared on task_start.
    *  Used to re-assert idle state on WS reconnect, otherwise agent_online flips
    *  the server-side status back to 'active' even though we have no work. */
   private _idleNotified = false;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _hooksFileOffset = 0;
-  /** Recently-forwarded hook-line hashes → first-seen timestamp (ms).
+  /** Recently-forwarded hook-line hashes â†’ first-seen timestamp (ms).
    *  Used to suppress byte-identical hook events that get appended multiple
    *  times to the shared JSONL (Copilot CLI fires the same hook from every
    *  parallel session in the same workspace, all writing to one homedir
@@ -165,7 +165,7 @@ export class TaskLoopRunner {
   private _completedCount = 0;
   private _failedCount = 0;
   private _loopStartTime = 0;
-  /** Task lines that have already had /compact run — prevents infinite compact loops. */
+  /** Task lines that have already had /compact run â€” prevents infinite compact loops. */
   private _compactedTaskLines = new Set<number>();
   /** Dispatch attempt counter per task key (id or text). After 3 failed attempts the
    *  loop force-marks the task done so it doesn't block the queue indefinitely. */
@@ -186,31 +186,31 @@ export class TaskLoopRunner {
   /** Manually trigger a /compact on the current session for the given provider/root. */
   async compact(root: string, provider: ProviderId): Promise<void> {
     const log = (m: string) => this._cb?.log(m);
-    log(`🗜 Manual compact triggered (provider: ${provider})`);
+    log(`ðŸ—œ Manual compact triggered (provider: ${provider})`);
     try {
       if (provider === 'claude-cli') {
         let sid = getSessionId(root, 'claude-cli');
         if (!sid) { sid = findLatestClaudeSession(root); }
-        if (sid) { await runClaudeCompact(sid, root, log); log('🗜 Compact complete'); }
-        else { log('⚠️ Compact: no Claude session ID found'); }
+        if (sid) { await runClaudeCompact(sid, root, log); log('ðŸ—œ Compact complete'); }
+        else { log('âš ï¸ Compact: no Claude session ID found'); }
       } else if (provider === 'claude-tui') {
         let sid = getSessionId(root, 'claude-tui');
         if (!sid) { sid = getClaudeTuiLatestSessionId(root); }
-        if (sid) { await runClaudeTuiCompact(root, sid, log); log('🗜 Compact complete'); }
-        else { log('⚠️ Compact: no Claude TUI session ID found'); }
+        if (sid) { await runClaudeTuiCompact(root, sid, log); log('ðŸ—œ Compact complete'); }
+        else { log('âš ï¸ Compact: no Claude TUI session ID found'); }
       } else if (provider === 'opencode-cli') {
         let sid = getSessionId(root, 'opencode-cli');
         if (!sid) { sid = await getLatestOpenCodeSessionId(root, log); }
-        if (sid) { await runOpenCodeCompact(sid, root, log); log('🗜 Compact complete'); }
-        else { log('⚠️ Compact: no OpenCode session ID found'); }
+        if (sid) { await runOpenCodeCompact(sid, root, log); log('ðŸ—œ Compact complete'); }
+        else { log('âš ï¸ Compact: no OpenCode session ID found'); }
       } else if (provider === 'opencode-sdk') {
         await runOpencodeSdkCompact(root, log);
-        log('🗜 Compact complete (opencode-sdk)');
+        log('ðŸ—œ Compact complete (opencode-sdk)');
       } else {
-        log(`⚠️ Compact not supported for provider: ${provider}`);
+        log(`âš ï¸ Compact not supported for provider: ${provider}`);
       }
     } catch (e) {
-      log(`⚠️ Compact failed: ${e instanceof Error ? e.message : String(e)}`);
+      log(`âš ï¸ Compact failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -283,7 +283,7 @@ export class TaskLoopRunner {
       ? new WebhookPoller(settings.serverBaseUrl, settings.serverApiKey, settings.webhookSlug)
       : null;
 
-    // Email task ingestion — pulls IMAP creds from the Email MCP entry's env
+    // Email task ingestion â€” pulls IMAP creds from the Email MCP entry's env
     // block. Disabled unless AUTODEV_EMAIL_RECEIVE_TASKS is "true".
     this._emailPoller = this._buildEmailPoller(settings);
 
@@ -318,7 +318,7 @@ export class TaskLoopRunner {
             gitBranch: this._gitBranch,
           });
         }
-        // Re-sync idle state if we previously drained the queue — otherwise the
+        // Re-sync idle state if we previously drained the queue â€” otherwise the
         // server-side `agent_online` handler flips status back to 'active' and
         // the agent looks busy when it isn't.
         if (!this._currentTask && this._idleNotified) {
@@ -361,7 +361,7 @@ export class TaskLoopRunner {
     if (this._emailPoller) {
       try {
         await this._emailPoller.initialize();
-        callbacks.log('📧 Email task poller started — checking inbox every 10s');
+        callbacks.log('ðŸ“§ Email task poller started â€” checking inbox every 10s');
       }
       catch (e) { callbacks.log(`Email poller init failed: ${e instanceof Error ? e.message : String(e)}`); }
     } else {
@@ -377,7 +377,7 @@ export class TaskLoopRunner {
         if (!(env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS)) reasons.push('IMAP user/email missing');
         if (!env.MCP_EMAIL_SERVER_PASSWORD) reasons.push('IMAP password missing');
       }
-      if (reasons.length) callbacks.log(`📧 Email task poller NOT started: ${reasons.join('; ')}`);
+      if (reasons.length) callbacks.log(`ðŸ“§ Email task poller NOT started: ${reasons.join('; ')}`);
     }
 
     // Connect to Discord Gateway so the bot appears online
@@ -388,10 +388,10 @@ export class TaskLoopRunner {
       this._webhookPoller.start(todoPath, (msg) => callbacks.log(msg), root);
     }
 
-    // Start independent background polling loops — run even while AI is processing a task
+    // Start independent background polling loops â€” run even while AI is processing a task
     this._startPollers(todoPath);
 
-    callbacks.log(`Task loop starting — TODO: ${todoPath}`);
+    callbacks.log(`Task loop starting â€” TODO: ${todoPath}`);
     this._notifyWebhook('loop_start', {
       provider:  settings.provider,
       workDir:   root,
@@ -412,10 +412,10 @@ export class TaskLoopRunner {
       fileBrowserEnabled: settings.enableFileBrowser ?? false,
       gitEnabled:         settings.gitEnabled ?? false,
     });
-    this._notifyDiscord('🚀 AutoDev task loop started');
+    this._notifyDiscord('ðŸš€ AutoDev task loop started');
 
     // Auto-run `cozempic init` for Claude CLI projects so the guard daemon and
-    // pruning hooks are wired automatically — the user only needs cozempic on
+    // pruning hooks are wired automatically â€” the user only needs cozempic on
     // their PATH; no per-project manual step required.
     if (settings.provider === 'claude-cli') {
       this._runCozempicInit(root, callbacks.log.bind(callbacks));
@@ -447,7 +447,7 @@ export class TaskLoopRunner {
       gitRepo:   this._gitRepo,
       gitBranch: this._gitBranch,
     });
-    this._notifyDiscord('👋 AutoDev loop ended');
+    this._notifyDiscord('ðŸ‘‹ AutoDev loop ended');
     this._stopPollers();
     this._currentTask = undefined;
     this._webhook = null;
@@ -481,8 +481,8 @@ export class TaskLoopRunner {
     this._taskCompletionAbort?.();
     this._taskCompletionAbort = null;
     // Send discord goodbye right now (don't wait for cleanup path)
-    this._notifyDiscord('⛔ AutoDev loop stopped');
-    this._cb?.log('Task loop stop requested…');
+    this._notifyDiscord('â›” AutoDev loop stopped');
+    this._cb?.log('Task loop stop requestedâ€¦');
   }
 
   // -------------------------------------------------------------------------
@@ -512,7 +512,7 @@ export class TaskLoopRunner {
 
   /**
    * Start Discord and webhook server pollers as independent setInterval loops.
-   * They run continuously in the background — even while the AI is processing a task.
+   * They run continuously in the background â€” even while the AI is processing a task.
    */
   private _startPollers(todoPath: string): void {
     const POLL_MS = 3_000;
@@ -540,7 +540,7 @@ export class TaskLoopRunner {
     }
 
     if (this._emailPoller) {
-      // IMAP servers throttle aggressive polling — every 10s is plenty.
+      // IMAP servers throttle aggressive polling â€” every 10s is plenty.
       const emailInterval = setInterval(async () => {
         if (this._state !== 'running') { return; }
         try {
@@ -554,7 +554,7 @@ export class TaskLoopRunner {
     // Poll <workspace>/.autodev/hooks-events.jsonl every 10s and forward new
     // lines via WS. Per-workspace, NOT homedir: two VS Code instances on the
     // same machine would otherwise both poll one shared file and each ship
-    // every line under their own slug — making hooks from `tester-1` show
+    // every line under their own slug â€” making hooks from `tester-1` show
     // up as `A1` (and vice-versa) in pixel-office.
     if (this._webhookPoller?.isWebSocket && this._workspaceRoot) {
       const hooksJsonl = path.join(this._workspaceRoot, '.autodev', 'hooks-events.jsonl');
@@ -594,7 +594,7 @@ export class TaskLoopRunner {
             const hash = crypto.createHash('sha1').update(line).digest('hex');
             const seenAt = this._hookLineSeen.get(hash);
             if (seenAt !== undefined && now - seenAt <= HOOKS_DEDUPE_WINDOW_MS) {
-              // Byte-identical hook within the window — drop silently. Distinct
+              // Byte-identical hook within the window â€” drop silently. Distinct
               // tool invocations have at least one differing byte (timestamp,
               // tool input args, runId) and survive this check.
               continue;
@@ -630,7 +630,7 @@ export class TaskLoopRunner {
       if (fs.existsSync(localSettingsPath)) {
         const content = fs.readFileSync(localSettingsPath, 'utf8');
         if (content.includes('cozempic')) {
-          // Already initialised — skip silently.
+          // Already initialised â€” skip silently.
           return;
         }
       }
@@ -649,22 +649,22 @@ export class TaskLoopRunner {
           execSync(`${shell} -lc "cozempic --version"`, { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
         }
         cozempicAvailable = true;
-      } catch { /* not installed — skip */ }
+      } catch { /* not installed â€” skip */ }
 
       if (!cozempicAvailable) { return; }
 
-      log('🧹 Running cozempic init for this project…');
+      log('ðŸ§¹ Running cozempic init for this projectâ€¦');
       if (isWin) {
         execSync('cozempic init', { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
       } else {
         const shell = process.env.SHELL || 'bash';
         execSync(`${shell} -lc "cozempic init"`, { stdio: 'pipe', cwd: workspaceRoot, env: cozempicEnv });
       }
-      log('🧹 cozempic init complete — guard daemon and pruning hooks wired');
+      log('ðŸ§¹ cozempic init complete â€” guard daemon and pruning hooks wired');
     } catch (err) {
-      // Non-fatal — cozempic is optional.
+      // Non-fatal â€” cozempic is optional.
       const msg = err instanceof Error ? err.message : String(err);
-      log(`⚠️ cozempic init failed (non-fatal): ${msg}`);
+      log(`âš ï¸ cozempic init failed (non-fatal): ${msg}`);
     }
   }
 
@@ -692,8 +692,8 @@ export class TaskLoopRunner {
         this._mainProviderBeforeFallback = null;
         this._mainProviderResumeAt = undefined;
         this._resumeAt = undefined;
-        this._cb?.log(`↩ Rate limit period ended — switching back to ${main}`);
-        this._notifyDiscord(`↩ Rate limit period ended — switching back to **${main}**`);
+        this._cb?.log(`â†© Rate limit period ended â€” switching back to ${main}`);
+        this._notifyDiscord(`â†© Rate limit period ended â€” switching back to **${main}**`);
         this._cb?.setActiveProvider?.(main);
       }
 
@@ -714,8 +714,8 @@ export class TaskLoopRunner {
         if (provider === 'claude-tui') {
           return isClaudeTuiBusy(this._workspaceRoot);
         }
-        if (provider === 'copilot-tui') {
-          return isCopilotTuiBusy(this._workspaceRoot);
+        if (provider === 'copilot-sdk') {
+          return isCopilotSdkBusy(this._workspaceRoot);
         }
         if (provider === 'opencode-sdk') {
           return isOpencodeSdkBusy(this._workspaceRoot);
@@ -723,7 +723,7 @@ export class TaskLoopRunner {
         // opencode-cli may run on a remote machine (not launched by this extension).
         // The JSONL hooks file is the authoritative source of truth: if the last
         // event is a terminal Stop/StopFailure/SessionEnd (or the file is stale),
-        // treat the process as NOT running — regardless of the exit file.
+        // treat the process as NOT running â€” regardless of the exit file.
         // This prevents the exit-file `catch { return true }` fallback from
         // incorrectly reporting "still running" when the file simply doesn't exist
         // (remote session never wrote one), causing [~] tasks to be stuck forever.
@@ -738,14 +738,14 @@ export class TaskLoopRunner {
       })();
 
       // If no [ ] task but CLI is still running and there's a [~] task in flight,
-      // treat that [~] task as the current one and wait — don't interrupt the process.
+      // treat that [~] task as the current one and wait â€” don't interrupt the process.
       let watchingInProgress = false;
       if (!task && cliIsRunning) {
         const inProgress = tasks.find(t => t.status === 'in-progress');
         if (inProgress) {
           task = inProgress;
           watchingInProgress = true;
-          this._cb?.log(`⏳ CLI running, watching in-progress: ${discordLabel(task.text)}`);
+          this._cb?.log(`â³ CLI running, watching in-progress: ${discordLabel(task.text)}`);
         }
       }
 
@@ -755,23 +755,23 @@ export class TaskLoopRunner {
           if (!allTasksDoneNotified) {
             allTasksDoneNotified = true;
             this._idleNotified = true;
-            this._cb?.log('All tasks completed ✓ — polling for new tasks…');
+            this._cb?.log('All tasks completed âœ“ â€” polling for new tasksâ€¦');
             this._notifyWebhook('all_tasks_done', {
               workDir:   this._workspaceRoot,
               gitRepo:   this._gitRepo,
               gitBranch: this._gitBranch,
             });
-            // Explicit idle state — server flips badge to 'idle' on this signal.
+            // Explicit idle state â€” server flips badge to 'idle' on this signal.
             this._notifyWebhook('agent_idle', {
               workDir:   this._workspaceRoot,
               gitRepo:   this._gitRepo,
               gitBranch: this._gitBranch,
             });
-            this._notifyDiscord('✅ All tasks done — waiting for more…');
+            this._notifyDiscord('âœ… All tasks done â€” waiting for moreâ€¦');
           }
         } else {
           // There are uncompleted tasks but none are pending (e.g. all [~] in-progress).
-          // If the CLI isn't running, those [~] tasks are stranded — the AI
+          // If the CLI isn't running, those [~] tasks are stranded â€” the AI
           // marked them in-progress but never came back to finish them. Reset
           // them to [ ] so the next iteration picks them up instead of idling
           // forever.
@@ -779,14 +779,14 @@ export class TaskLoopRunner {
           // Exception: if opencode-cli exited cleanly (Stop event present), the
           // [~] task was intentionally left in-progress while waiting for an
           // external response (e.g. waiting for an email from another agent).
-          // In that case we must NOT reset — just wait; the email/webhook
+          // In that case we must NOT reset â€” just wait; the email/webhook
           // pollers will add new [ ] tasks when the response arrives, which
           // will trigger a fresh opencode dispatch that also resolves the [~].
           if (!cliIsRunning) {
             const cleanExit = provider === 'opencode-cli' &&
               openCodeExitedCleanly(this._workspaceRoot ?? '', getSessionId(this._workspaceRoot ?? '', 'opencode-cli'));
             if (cleanExit) {
-              this._cb?.log(`⏳ opencode-cli exited cleanly with [~] task — waiting for external response…`);
+              this._cb?.log(`â³ opencode-cli exited cleanly with [~] task â€” waiting for external responseâ€¦`);
             } else {
               const stranded = tasks.filter(t => t.status === 'in-progress');
               for (const t of stranded) {
@@ -794,29 +794,29 @@ export class TaskLoopRunner {
                 // Resetting to [ ] causes an infinite loop: the agent picks it
                 // up, marks [~] again, exits, and we end up here forever.
                 // If the CLI exited leaving a [~] task it means the agent
-                // already worked on it — treat it as done.
+                // already worked on it â€” treat it as done.
                 await todoWriter.markDone(todoPath, t).catch(() => {});
               }
               if (stranded.length > 0) {
-                this._cb?.log(`✅ Auto-marked ${stranded.length} stranded [~] task(s) as done — CLI exited without completing them`);
+                this._cb?.log(`âœ… Auto-marked ${stranded.length} stranded [~] task(s) as done â€” CLI exited without completing them`);
                 continue; // re-pick immediately
               }
             }
           }
-          this._cb?.log(`No pending tasks — waiting ${settings.loopInterval}s…`);
+          this._cb?.log(`No pending tasks â€” waiting ${settings.loopInterval}sâ€¦`);
         }
         // Clear any stale current-task label and refresh the sidebar so the
         // counter reflects the just-finalised TODO.md (otherwise it can sit on
         // the pre-final-cycle "N left" until something else triggers a push).
         this._currentTask = undefined;
         this._setState('running');
-        // Keep polling forever — never stop automatically.
+        // Keep polling forever â€” never stop automatically.
         // _sleepOrWake() resolves early if a poller appends a task mid-sleep.
         await this._sleepOrWake(settings.loopInterval * 1000);
         continue;
       }
 
-      // A task is available — reset the all-done flag
+      // A task is available â€” reset the all-done flag
       allTasksDoneNotified = false;
 
       if (!watchingInProgress) {
@@ -830,14 +830,14 @@ export class TaskLoopRunner {
         const maxAttempts = settings.maxTaskAttempts ?? 3;
         if (attempts > maxAttempts) {
           this._taskAttempts.delete(taskKey);
-          this._cb?.log(`⚠️ Task not marked done after ${maxAttempts} attempt(s) — force-marking complete: ${task.text}`);
-          this._notifyDiscord(`⚠️ Task force-marked done after ${maxAttempts} failed attempt(s):\n${task.text}`);
+          this._cb?.log(`âš ï¸ Task not marked done after ${maxAttempts} attempt(s) â€” force-marking complete: ${task.text}`);
+          this._notifyDiscord(`âš ï¸ Task force-marked done after ${maxAttempts} failed attempt(s):\n${task.text}`);
           await todoWriter.markDone(todoPath, task).catch(() => {});
           this._completedCount++;
           continue;
         }
         if (attempts > 1) {
-          this._cb?.log(`🔁 Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
+          this._cb?.log(`ðŸ” Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
         }
       }
       this._currentTask = task.text;
@@ -856,7 +856,7 @@ export class TaskLoopRunner {
       const remaining = countRemaining(parseTodo(todoPath));
 
       if (!watchingInProgress) {
-        this._cb?.log(`▶ Task [${this._iterations}]: ${task.text}`);
+        this._cb?.log(`â–¶ Task [${this._iterations}]: ${task.text}`);
         this._idleNotified = false;
         this._notifyWebhook('task_start', {
           iteration: this._iterations,
@@ -866,18 +866,18 @@ export class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
+        this._notifyDiscord(`â–¶ï¸ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
       }
 
       const taskStartTime = Date.now();
-      // Snapshot the JSONL cursor before sending — we only read bytes written after this
+      // Snapshot the JSONL cursor before sending â€” we only read bytes written after this
       const claudeCursor = getClaudeSessionCursor(this._workspaceRoot!);
 
       try {
         if (cliIsRunning || watchingInProgress) {
-          this._cb?.log(`⏳ CLI still running — skipping send, waiting for task completion…`);
+          this._cb?.log(`â³ CLI still running â€” skipping send, waiting for task completionâ€¦`);
         } else {
-          // Send to AI — resolves as soon as the prompt is pasted, not when Claude finishes
+          // Send to AI â€” resolves as soon as the prompt is pasted, not when Claude finishes
           await this._cb!.sendToAi(prompt, task.text, includeProfile, messageFile);
         }
 
@@ -892,8 +892,8 @@ export class TaskLoopRunner {
           // claude-tui: _waitForTaskCompletion resolves as soon as the task is
           // marked [x] in TODO.md, but the persistent async turn may still be
           // running (Claude executing further tool calls, marking other tasks [~],
-          // etc.).  Wait for the busy flag to clear — written at the very end of
-          // the fire-and-forget async after 'result' fires — so we don't
+          // etc.).  Wait for the busy flag to clear â€” written at the very end of
+          // the fire-and-forget async after 'result' fires â€” so we don't
           // prematurely proceed while the client is still mid-turn.
           const tuiDeadline = Date.now() + 10 * 60_000; // 10-minute safety cap
           while (isClaudeTuiBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
@@ -901,19 +901,19 @@ export class TaskLoopRunner {
             await this._sleepAbortable(500);
           }
           if (isClaudeTuiBusy(this._workspaceRoot)) {
-            this._cb?.log('⚠ Claude TUI turn did not complete within 10 minutes — moving on');
+            this._cb?.log('âš  Claude TUI turn did not complete within 10 minutes â€” moving on');
           }
-        } else if (this._workspaceRoot && activeProvider === 'copilot-tui') {
+        } else if (this._workspaceRoot && activeProvider === 'copilot-sdk') {
           const tuiDeadline = Date.now() + 10 * 60_000;
-          while (isCopilotTuiBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
+          while (isCopilotSdkBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
             if (this._state !== 'running') { break; }
             await this._sleepAbortable(500);
           }
-          if (isCopilotTuiBusy(this._workspaceRoot)) {
-            this._cb?.log('⚠ Copilot TUI turn did not complete within 10 minutes — moving on');
+          if (isCopilotSdkBusy(this._workspaceRoot)) {
+            this._cb?.log('âš  Copilot TUI turn did not complete within 10 minutes â€” moving on');
           }
         } else if (this._workspaceRoot && activeProvider === 'opencode-sdk') {
-          // opencode-sdk: same pattern as claude-tui — wait for the in-flight
+          // opencode-sdk: same pattern as claude-tui â€” wait for the in-flight
           // fire-and-forget async to fully complete (session.idle received).
           const sdkDeadline = Date.now() + 30 * 60_000; // 30-minute safety cap
           let lastActivity: string | undefined;
@@ -929,7 +929,7 @@ export class TaskLoopRunner {
           }
           if (lastActivity !== undefined) { this._cb?.onActivityChange?.(undefined); }
           if (isOpencodeSdkBusy(this._workspaceRoot)) {
-            this._cb?.log('⚠ OpenCode SDK turn did not complete within 30 minutes — moving on');
+            this._cb?.log('âš  OpenCode SDK turn did not complete within 30 minutes â€” moving on');
           }
         } else if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
@@ -938,7 +938,7 @@ export class TaskLoopRunner {
           // is the one the CLI just wrote. Clearing it would leave it empty
           // forever (no CLI is running to re-write it) and the NEXT iteration's
           // cliIsRunning probe would then incorrectly conclude "CLI still
-          // running" — pinning the loop on a task that was never dispatched.
+          // running" â€” pinning the loop on a task that was never dispatched.
           const isReady = (): boolean => {
             try { return fs.readFileSync(exitFile, 'utf8').trim().length > 0; }
             catch { return false; }
@@ -955,10 +955,10 @@ export class TaskLoopRunner {
             // iteration's cliIsRunning probe doesn't read an empty file and
             // wrongly conclude "CLI still running". The shell may have failed
             // to run the trailing `echo $? > exitFile` (terminal killed,
-            // bundle aborted, etc.) — but the task is done and we're moving on.
+            // bundle aborted, etc.) â€” but the task is done and we're moving on.
             if (!isReady()) {
               try { fs.writeFileSync(exitFile, 'unknown\n', 'utf8'); } catch { /* ignore */ }
-              this._cb?.log('⚠ CLI exit file never written — wrote sentinel to unblock next cycle');
+              this._cb?.log('âš  CLI exit file never written â€” wrote sentinel to unblock next cycle');
             }
           }
         } else {
@@ -985,9 +985,9 @@ export class TaskLoopRunner {
           } else if (activeProvider === 'claude-tui') {
             const sid = getClaudeTuiLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'claude-tui', sid); }
-          } else if (activeProvider === 'copilot-tui') {
-            const sid = getLatestCopilotTuiSessionId(this._workspaceRoot);
-            if (sid) { saveSessionId(this._workspaceRoot, 'copilot-tui', sid); }
+          } else if (activeProvider === 'copilot-sdk') {
+            const sid = getLatestCopilotSdkSessionId(this._workspaceRoot);
+            if (sid) { saveSessionId(this._workspaceRoot, 'copilot-sdk', sid); }
           } else if (activeProvider === 'opencode-sdk') {
             const sid = getOpencodeSdkLatestSessionId(this._workspaceRoot);
             if (sid) { saveSessionId(this._workspaceRoot, 'opencode-sdk', sid); }
@@ -1006,35 +1006,35 @@ export class TaskLoopRunner {
         this._resetSessionCounter++;
         this._periodicMgr.increment(this._iterations, this._workspaceRoot);
         this._compactedTaskLines.delete(task.line); // allow compact again if task re-appears
-        this._taskAttempts.delete(task.id ?? task.text); // task done — reset attempt counter
+        this._taskAttempts.delete(task.id ?? task.text); // task done â€” reset attempt counter
         const afterTasks = parseTodo(todoPath);
         const afterRemaining = countRemaining(afterTasks);
         const totalKnown = this._iterations + afterRemaining;
 
-        // Read the AI's output — prefer clean JSONL assistant text (no tool noise),
+        // Read the AI's output â€” prefer clean JSONL assistant text (no tool noise),
         // fall back to the tail of the raw stdout file.
         let taskOutput = '';
         if (this._workspaceRoot && (activeProvider === 'claude-cli' || activeProvider === 'claude-tui')) {
           // Primary: clean assistant-only text extracted from the JSONL session file.
-          // Works for both claude-cli and claude-tui — both write the same JSONL format.
+          // Works for both claude-cli and claude-tui â€” both write the same JSONL format.
           // For claude-tui this replaces the noisy partial-chunk Discord stream with
           // one clean summary sent at task completion.
           taskOutput = readClaudeOutputSince(this._workspaceRoot, claudeCursor);
-        } else if (this._workspaceRoot && activeProvider === 'copilot-tui') {
-          // copilot-tui: read from the per-message stdoutFile (absolute path stored
+        } else if (this._workspaceRoot && activeProvider === 'copilot-sdk') {
+          // copilot-sdk: read from the per-message stdoutFile (absolute path stored
           // at pointer file location in the .autodev directory).
-          const outFile = stdoutFilePath(this._workspaceRoot, 'copilot-tui');
-          taskOutput = readCopilotTuiOutputSince(outFile, 0);
+          const outFile = stdoutFilePath(this._workspaceRoot, 'copilot-sdk');
+          taskOutput = readCopilotSdkOutputSince(outFile, 0);
         }
         if (!taskOutput && this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
-          // Fallback: raw stdout file — take only the last 4 KB to avoid huge payloads.
+          // Fallback: raw stdout file â€” take only the last 4 KB to avoid huge payloads.
           const outFile = stdoutFilePath(this._workspaceRoot, activeProvider);
           try {
             if (fs.existsSync(outFile)) {
               const raw = readOutputFile(outFile);
               // Strip ANSI escape codes and take the tail (the meaningful summary is at the end)
               const clean = raw.replace(/\x1B\[[0-9;]*[mGKHF]/g, '').replace(/\r/g, '');
-              taskOutput = clean.length > 4000 ? '…' + clean.slice(-4000) : clean;
+              taskOutput = clean.length > 4000 ? 'â€¦' + clean.slice(-4000) : clean;
             }
           } catch { /* ignore */ }
         }
@@ -1066,51 +1066,51 @@ export class TaskLoopRunner {
         }
 
         // --- Auto-compact: run /compact every N completed tasks -----------
-        // Skip the legacy autoCompact mechanism when compactEveryNTasks is set —
+        // Skip the legacy autoCompact mechanism when compactEveryNTasks is set â€”
         // the new periodic-action system handles it and they must not both fire.
         const compactInterval = settings.autoCompactInterval ?? 5;
         if (settings.autoCompact && !(settings.compactEveryNTasks > 0) && this._autoCompactCounter >= compactInterval) {
           this._autoCompactCounter = 0;
           const acProvider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`🗜 Auto-compact triggered after ${compactInterval} tasks (provider: ${acProvider})`);
-          this._notifyDiscord(`🗜 Auto-compact triggered after ${compactInterval} tasks`);
+          this._cb?.log(`ðŸ—œ Auto-compact triggered after ${compactInterval} tasks (provider: ${acProvider})`);
+          this._notifyDiscord(`ðŸ—œ Auto-compact triggered after ${compactInterval} tasks`);
           try {
             if (acProvider === 'claude-cli') {
               let sid = getSessionId(this._workspaceRoot!, 'claude-cli');
               if (!sid) { sid = findLatestClaudeSession(this._workspaceRoot!); }
               if (sid) {
                 await runClaudeCompact(sid, this._workspaceRoot!, msg => this._cb?.log(msg));
-                this._cb?.log('🗜 Auto-compact complete');
+                this._cb?.log('ðŸ—œ Auto-compact complete');
               } else {
-                this._cb?.log('⚠️ Auto-compact: no Claude session ID found — skipping');
+                this._cb?.log('âš ï¸ Auto-compact: no Claude session ID found â€” skipping');
               }
             } else if (acProvider === 'claude-tui') {
               let sid = getSessionId(this._workspaceRoot!, 'claude-tui');
               if (!sid) { sid = getClaudeTuiLatestSessionId(this._workspaceRoot!); }
               if (sid) {
                 await runClaudeTuiCompact(this._workspaceRoot!, sid, msg => this._cb?.log(msg));
-                this._cb?.log('🗜 Auto-compact complete');
+                this._cb?.log('ðŸ—œ Auto-compact complete');
               } else {
-                this._cb?.log('⚠️ Auto-compact: no Claude TUI session ID found — skipping');
+                this._cb?.log('âš ï¸ Auto-compact: no Claude TUI session ID found â€” skipping');
               }
-            } else if (acProvider === 'copilot-tui') {
-              this._cb?.log('ℹ️ Auto-compact not supported for copilot-tui — skipping');
+            } else if (acProvider === 'copilot-sdk') {
+              this._cb?.log('â„¹ï¸ Auto-compact not supported for copilot-sdk â€” skipping');
             } else if (acProvider === 'opencode-cli') {
               let sid = getSessionId(this._workspaceRoot!, 'opencode-cli');
               if (!sid) { sid = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg)); }
               if (sid) {
                 await runOpenCodeCompact(sid, this._workspaceRoot!, msg => this._cb?.log(msg));
-                this._cb?.log('🗜 Auto-compact complete');
+                this._cb?.log('ðŸ—œ Auto-compact complete');
               } else {
-                this._cb?.log('⚠️ Auto-compact: no OpenCode session ID found — skipping');
+                this._cb?.log('âš ï¸ Auto-compact: no OpenCode session ID found â€” skipping');
               }
             } else if (acProvider === 'opencode-sdk') {
               await runOpencodeSdkCompact(this._workspaceRoot!, msg => this._cb?.log(msg));
-              this._cb?.log('🗜 Auto-compact complete (opencode-sdk)');
+              this._cb?.log('ðŸ—œ Auto-compact complete (opencode-sdk)');
             }
           } catch (compactErr) {
             const cm = compactErr instanceof Error ? compactErr.message : String(compactErr);
-            this._cb?.log(`⚠️ Auto-compact failed (non-fatal): ${cm}`);
+            this._cb?.log(`âš ï¸ Auto-compact failed (non-fatal): ${cm}`);
           }
         }
 
@@ -1119,21 +1119,21 @@ export class TaskLoopRunner {
         if (settings.resumeSession && resetInterval > 0 && this._resetSessionCounter >= resetInterval) {
           this._resetSessionCounter = 0;
           const rsProvider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`🔄 Session reset triggered after ${resetInterval} tasks (provider: ${rsProvider})`);
-          this._notifyDiscord(`🔄 Session reset after ${resetInterval} tasks — summarising and starting fresh`);
+          this._cb?.log(`ðŸ”„ Session reset triggered after ${resetInterval} tasks (provider: ${rsProvider})`);
+          this._notifyDiscord(`ðŸ”„ Session reset after ${resetInterval} tasks â€” summarising and starting fresh`);
           // Ask the agent to write a summary before the session is cleared
           try {
-            const summaryMsg = `Before this session ends, please summarise everything accomplished so far into a file called SUMMARY.md in the project root. Include: tasks completed, key decisions made, any issues found, and current project state. Write comprehensively so the next session can continue without context loss. Then stop — do not pick up any new tasks.`;
+            const summaryMsg = `Before this session ends, please summarise everything accomplished so far into a file called SUMMARY.md in the project root. Include: tasks completed, key decisions made, any issues found, and current project state. Write comprehensively so the next session can continue without context loss. Then stop â€” do not pick up any new tasks.`;
             const summaryFile = writeMessageFile(this._workspaceRoot!, summaryMsg);
             await this._cb!.sendToAi(summaryMsg, 'session-summary', false, summaryFile);
           } catch (rsErr) {
             const rm = rsErr instanceof Error ? rsErr.message : String(rsErr);
-            this._cb?.log(`⚠️ Session reset summary failed (non-fatal): ${rm}`);
+            this._cb?.log(`âš ï¸ Session reset summary failed (non-fatal): ${rm}`);
           }
           // Clear the session ID so the next dispatch starts a fresh session
           if (this._workspaceRoot && rsProvider) {
             clearSessionId(this._workspaceRoot, rsProvider as import('./providers').ProviderId);
-            this._cb?.log(`🔄 Session ID cleared — next task will start a new session`);
+            this._cb?.log(`ðŸ”„ Session ID cleared â€” next task will start a new session`);
           }
         }
 
@@ -1148,16 +1148,16 @@ export class TaskLoopRunner {
               if (acProvider && this._workspaceRoot) {
                 await this.compact(this._workspaceRoot, acProvider as ProviderId);
               } else {
-                this._cb?.log(`⚠️ Periodic compact: no active provider`);
+                this._cb?.log(`âš ï¸ Periodic compact: no active provider`);
               }
             } else if (action.type === 'pruneTodo') {
               if (this._workspaceRoot) {
                 const pruned = pruneTodoToArchive(todoPath, this._workspaceRoot);
                 if (pruned > 0) {
-                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
-                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
+                  this._cb?.log(`ðŸ§¹ Pruned ${pruned} completed task(s) from TODO.md â†’ TODO_ARCHIVE.md`);
+                  this._notifyDiscord(`ðŸ§¹ Pruned ${pruned} completed task(s) from TODO.md â†’ TODO_ARCHIVE.md`);
                 } else {
-                  this._cb?.log(`🧹 Prune TODO: no completed tasks to move`);
+                  this._cb?.log(`ðŸ§¹ Prune TODO: no completed tasks to move`);
                 }
               }
             } else {
@@ -1166,18 +1166,18 @@ export class TaskLoopRunner {
             }
           } catch (paErr) {
             const pm = paErr instanceof Error ? paErr.message : String(paErr);
-            this._cb?.log(`⚠️ Periodic action '${action.id}' failed (non-fatal): ${pm}`);
+            this._cb?.log(`âš ï¸ Periodic action '${action.id}' failed (non-fatal): ${pm}`);
           }
         }
       } catch (err) {
         // --- Rate limit: pause loop, schedule auto-resume -----------------
         if (err instanceof RateLimitError) {
           // Two flavours:
-          //   1. Daily usage limit — message includes "resets 9pm (Europe/Sofia)"
-          //      → resume 15 min after the parsed reset time.
-          //   2. Transient server throttle — "API Error: Server is temporarily
-          //      limiting requests (not your usage limit) · Rate limited"
-          //      → no reset time given, retry in 5 minutes by default.
+          //   1. Daily usage limit â€” message includes "resets 9pm (Europe/Sofia)"
+          //      â†’ resume 15 min after the parsed reset time.
+          //   2. Transient server throttle â€” "API Error: Server is temporarily
+          //      limiting requests (not your usage limit) Â· Rate limited"
+          //      â†’ no reset time given, retry in 5 minutes by default.
           const DEFAULT_RETRY_MS = 5 * 60_000;
           const resetAt   = err.resetAt;
           const resumeMs  = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : DEFAULT_RETRY_MS;
@@ -1187,7 +1187,7 @@ export class TaskLoopRunner {
           const rawMsg    = err.rawMessage;
           const currentProvider = this._cb?.getActiveProvider() ?? 'unknown';
 
-          // Fresh settings — check fallback config (user may have changed it after loop start)
+          // Fresh settings â€” check fallback config (user may have changed it after loop start)
           const freshSettings = this._workspaceRoot ? loadSettingsForRoot(this._workspaceRoot) : this._settings;
           const fallbackEnabled  = freshSettings?.fallbackProviderEnabled ?? false;
           const fallbackId       = (freshSettings?.fallbackProvider ?? '') as ProviderId;
@@ -1197,8 +1197,8 @@ export class TaskLoopRunner {
             this._mainProviderBeforeFallback = currentProvider as ProviderId;
             this._mainProviderResumeAt = resumeAt;
             this._resumeAt = resumeAt;
-            this._cb?.log(`⏩ Rate limit on ${currentProvider} — switching to ${fallbackId} until ${resumeStr} (${suffix})`);
-            this._notifyDiscord(`⏩ **Rate limit on ${currentProvider}** — switching to **${fallbackId}** until ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
+            this._cb?.log(`â© Rate limit on ${currentProvider} â€” switching to ${fallbackId} until ${resumeStr} (${suffix})`);
+            this._notifyDiscord(`â© **Rate limit on ${currentProvider}** â€” switching to **${fallbackId}** until ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
             this._notifyWebhook('rate_limit', {
               iteration:       this._iterations,
               task:            { text: task.text },
@@ -1216,9 +1216,9 @@ export class TaskLoopRunner {
             continue; // continue loop immediately with fallback provider
           }
 
-          // No usable fallback — standard pause
-          this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
-          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
+          // No usable fallback â€” standard pause
+          this._cb?.log(`â¸ Rate limit hit â€” ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
+          this._notifyDiscord(`â¸ **Rate limit hit** â€” resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
             iteration:   this._iterations,
             task:        { text: task.text },
@@ -1243,25 +1243,25 @@ export class TaskLoopRunner {
           this._compactedTaskLines.add(task.line);
           const rawMsg = err.rawMessage.slice(0, 300);
           const provider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`🗜 Context length exceeded (${provider}) — running /compact: ${rawMsg}`);
-          this._notifyDiscord(`🗜 **Context length exceeded** (${provider}) — running \`/compact\`…\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._cb?.log(`ðŸ—œ Context length exceeded (${provider}) â€” running /compact: ${rawMsg}`);
+          this._notifyDiscord(`ðŸ—œ **Context length exceeded** (${provider}) â€” running \`/compact\`â€¦\n\`\`\`\n${rawMsg}\n\`\`\``);
 
           if (provider === 'claude-cli') {
-            // Resolve a Claude session ID — prefer the saved one, else scan
+            // Resolve a Claude session ID â€” prefer the saved one, else scan
             // the .claude/projects jsonl folder for the most recent.
             let sessionId = getSessionId(this._workspaceRoot!, 'claude-cli');
             if (!sessionId) { sessionId = findLatestClaudeSession(this._workspaceRoot!); }
             if (sessionId) {
               try {
                 await runClaudeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
-                this._cb?.log('🗜 Claude compact complete — retrying task');
-                this._notifyDiscord('🗜 Claude compact complete — retrying task');
+                this._cb?.log('ðŸ—œ Claude compact complete â€” retrying task');
+                this._notifyDiscord('ðŸ—œ Claude compact complete â€” retrying task');
               } catch (compactErr) {
                 const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
-                this._cb?.log(`⚠️ Claude compact failed: ${compactMsg} — retrying anyway`);
+                this._cb?.log(`âš ï¸ Claude compact failed: ${compactMsg} â€” retrying anyway`);
               }
             } else {
-              this._cb?.log('⚠️ No Claude session ID found for compact — retrying task without compact');
+              this._cb?.log('âš ï¸ No Claude session ID found for compact â€” retrying task without compact');
             }
           } else {
             // OpenCode (existing behaviour)
@@ -1272,14 +1272,14 @@ export class TaskLoopRunner {
             if (sessionId) {
               try {
                 await runOpenCodeCompact(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
-                this._cb?.log('🗜 Compact complete — retrying task');
-                this._notifyDiscord('🗜 Compact complete — retrying task');
+                this._cb?.log('ðŸ—œ Compact complete â€” retrying task');
+                this._notifyDiscord('ðŸ—œ Compact complete â€” retrying task');
               } catch (compactErr) {
                 const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
-                this._cb?.log(`⚠️ Compact failed: ${compactMsg} — retrying anyway`);
+                this._cb?.log(`âš ï¸ Compact failed: ${compactMsg} â€” retrying anyway`);
               }
             } else {
-              this._cb?.log('⚠️ No OpenCode session ID found for compact — retrying task without compact');
+              this._cb?.log('âš ï¸ No OpenCode session ID found for compact â€” retrying task without compact');
             }
           }
           await todoWriter.resetToTodo(todoPath, task).catch(() => {});
@@ -1289,8 +1289,8 @@ export class TaskLoopRunner {
         if (err instanceof ContextLengthError) {
           const rawMsg = err.rawMessage.slice(0, 300);
           const provider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`⏸ Context length exceeded (${provider}) and already compacted — pausing. Click Retry to resume.\n${rawMsg}`);
-          this._notifyDiscord(`⏸ **Context length exceeded** (${provider}) — already compacted or plan limit hit. Pausing…\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._cb?.log(`â¸ Context length exceeded (${provider}) and already compacted â€” pausing. Click Retry to resume.\n${rawMsg}`);
+          this._notifyDiscord(`â¸ **Context length exceeded** (${provider}) â€” already compacted or plan limit hit. Pausingâ€¦\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
             iteration:   this._iterations,
             task:        { text: task.text },
@@ -1302,7 +1302,7 @@ export class TaskLoopRunner {
             gitBranch:   this._gitBranch,
           });
           await todoWriter.resetToTodo(todoPath, task).catch(() => {});
-          // No auto-resume time — user must click Retry manually
+          // No auto-resume time â€” user must click Retry manually
           this._resumeAt = undefined;
           await this._pauseLoop(); // pause indefinitely
           if (this._state !== 'running') { break; }
@@ -1312,7 +1312,7 @@ export class TaskLoopRunner {
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._failedCount++;
         const msg = err instanceof Error ? err.message : String(err);
-        this._cb?.log(`❌ Task failed: ${task.text} — ${msg}`);
+        this._cb?.log(`âŒ Task failed: ${task.text} â€” ${msg}`);
         this._notifyWebhook('task_fail', {
           iteration: this._iterations,
           task:      { text: task.text },
@@ -1322,7 +1322,7 @@ export class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`❌ **Task failed:**\n${discordLabel(task.text)}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
+        this._notifyDiscord(`âŒ **Task failed:**\n${discordLabel(task.text)}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
         if (afterRemainingFail > 0) {
           const totalKnownFail = this._iterations + afterRemainingFail;
           this._notifyDiscord(`\ud83d\udcca Progress: ${this._iterations}/${totalKnownFail}`);
@@ -1352,14 +1352,14 @@ export class TaskLoopRunner {
       this._resumeResolve = resolve;
       if (resumeAfterMs !== undefined && resumeAfterMs > 0) {
         this._retryScheduler.schedule(resumeAfterMs, () => {
-          this._cb?.log('Rate limit timer expired — resuming loop automatically');
+          this._cb?.log('Rate limit timer expired â€” resuming loop automatically');
           this.retry();
         });
       }
     });
   }
 
-  /** Interrupt the idle no-task sleep — called by pollers when they append a task. */
+  /** Interrupt the idle no-task sleep â€” called by pollers when they append a task. */
   private _wakeIdleSleep(): void {
     const w = this._idleSleepWake;
     this._idleSleepWake = null;
@@ -1387,7 +1387,7 @@ export class TaskLoopRunner {
   private _waitForTaskCompletion(todoPath: string, task: Task, claudeCursor = 0): Promise<void> {
     const isClaudeCli = this._cb?.getActiveProvider() === 'claude-cli';
     const isClaudeTui = this._cb?.getActiveProvider() === 'claude-tui';
-    const isCopilotTuiProvider = this._cb?.getActiveProvider() === 'copilot-tui';
+    const iscopilotSdkProvider = this._cb?.getActiveProvider() === 'copilot-sdk';
     const isOpenCodeCli = this._cb?.getActiveProvider() === 'opencode-cli';
     const isOpencodeSdk = this._cb?.getActiveProvider() === 'opencode-sdk';
     return new Promise<void>((resolve, reject) => {
@@ -1401,13 +1401,13 @@ export class TaskLoopRunner {
       // Every time TODO.md changes (any [~]/[x] write by the AI) this resets.
       // Only fires if TODO.md has been untouched for the full timeout duration.
       let lastTodoChangeTime = Date.now();
-      // Shared with the JSONL inactivity poller — reset here so TODO.md changes
+      // Shared with the JSONL inactivity poller â€” reset here so TODO.md changes
       // prevent the "Still working" reminder from firing unnecessarily.
       let lastActivityTime   = Date.now();
 
       const found = () => {
         const updated = parseTodo(todoPath);
-        // 1. Prefer task ID (globally unique — set by appendTask on every new task).
+        // 1. Prefer task ID (globally unique â€” set by appendTask on every new task).
         // 2. Line number with text verification (fast; guards against line-shift from
         //    new tasks inserted above this one pointing to the wrong entry).
         // 3. Text-only fallback when there is no ID and the line has shifted.
@@ -1416,7 +1416,7 @@ export class TaskLoopRunner {
         const byLineVerified = (byLine && byLine.text === task.text) ? byLine : undefined;
         const byText         = updated.find(t => t.text === task.text);
         const match          = byId ?? byLineVerified ?? byText;
-        if (!match) { return true; }   // task genuinely gone — treat as done
+        if (!match) { return true; }   // task genuinely gone â€” treat as done
         return match.status === 'done';
       };
 
@@ -1449,7 +1449,7 @@ export class TaskLoopRunner {
       const check = () => {
         if (this._state !== 'running') { cleanup(); resolve(); return; }
         lastTodoChangeTime = Date.now(); // reset inactivity clock on every TODO.md change
-        lastActivityTime = Date.now();  // also reset JSONL inactivity — TODO change = AI is active
+        lastActivityTime = Date.now();  // also reset JSONL inactivity â€” TODO change = AI is active
         if (found()) { cleanup(); resolve(); }
       };
 
@@ -1458,7 +1458,7 @@ export class TaskLoopRunner {
 
       // Per-provider stdout capture file (only used for CLI providers)
       const activeProvider = this._cb?.getActiveProvider() ?? 'unknown';
-      // Re-computed dynamically — sendToAi() (reminder path) rotates to a fresh
+      // Re-computed dynamically â€” sendToAi() (reminder path) rotates to a fresh
       // per-message file and updates the .latest pointer.  Using a let + refresh
       // in the interval ensures checkStdout() always reads the current file.
       let resolvedStdoutFile = this._workspaceRoot
@@ -1483,19 +1483,19 @@ export class TaskLoopRunner {
 
       // Check stdout file: forward any new content to Discord/webhook, detect rate limit / context errors
       const checkStdout = () => {
-        if (!isClaudeCli && !isClaudeTui && !isCopilotTuiProvider && !isOpenCodeCli) { return; } // only CLI providers tee stdout
+        if (!isClaudeCli && !isClaudeTui && !iscopilotSdkProvider && !isOpenCodeCli) { return; } // only CLI providers tee stdout
         const content = readStdoutFile();
 
         // Forward new output lines to Discord / webhook.
         // claude-cli: stream partial chunks so the operator can see live progress.
-        // claude-tui: do NOT stream — the TUI writes noisy partial chunks; we
+        // claude-tui: do NOT stream â€” the TUI writes noisy partial chunks; we
         //   send one clean summary from the JSONL session file at task completion
         //   (same approach as opencode).
         if (isClaudeCli && content.length > lastStdoutLen) {
           const newText = content.slice(lastStdoutLen).trim();
           lastStdoutLen = content.length;
           if (newText) {
-            this._notifyDiscord(`🖥 **Claude output:**\n\`\`\`\n${newText}\n\`\`\``);
+            this._notifyDiscord(`ðŸ–¥ **Claude output:**\n\`\`\`\n${newText}\n\`\`\``);
             this._notifyWebhook('claude_output', {
               iteration: this._iterations,
               task:      { text: task.text },
@@ -1571,7 +1571,7 @@ export class TaskLoopRunner {
       };
       attachStdoutWatcher(resolvedStdoutFile);
 
-      // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
+      // Watch the exit file â€” written by withExitFile() in dispatcher.ts when the CLI
       // process finishes. CliExitHandler owns the decision tree of what to do.
       const exitHandler = this._workspaceRoot
         ? new CliExitHandler(this._workspaceRoot, todoPath, task, taskStartTime, found)
@@ -1611,7 +1611,7 @@ export class TaskLoopRunner {
         if (decision.kind === 'done') { return; }
 
         if (decision.kind === 'deferred') {
-          this._cb?.log(`↪︎ CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
+          this._cb?.log(`â†ªï¸Ž CLI exited with task [~] deferred â€” moving to next pending task: ${discordLabel(task.text)}`);
           cleanup();
           resolve();
           return;
@@ -1624,7 +1624,7 @@ export class TaskLoopRunner {
         }
 
         if (decision.kind === 'give_up') {
-          this._cb?.log(`↪︎ CLI exited again without marking task done — auto-marking [x] and moving on: ${discordLabel(task.text)}`);
+          this._cb?.log(`â†ªï¸Ž CLI exited again without marking task done â€” auto-marking [x] and moving on: ${discordLabel(task.text)}`);
           // Auto-mark the task done so the loop doesn't re-pick the same
           // [ ] task on the next iteration, causing an infinite loop.
           await todoWriter.markDone(todoPath, task).catch(() => {});
@@ -1635,7 +1635,7 @@ export class TaskLoopRunner {
 
         // decision.kind === 'remind'
         const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
-        const msg = `⏳ CLI finished but task not yet marked done (${elapsedMin}m): ${discordLabel(task.text)}`;
+        const msg = `â³ CLI finished but task not yet marked done (${elapsedMin}m): ${discordLabel(task.text)}`;
         this._cb?.log(msg);
         this._notifyDiscord(msg);
         this._notifyWebhook('task_checkin', {
@@ -1663,12 +1663,12 @@ export class TaskLoopRunner {
           `  - [${currentMarker}] ${task.text}`,
           ``,
           `You MUST change it to one of:`,
-          `  [x] — done:        - [x] ${date}  ${task.text}`,
-          `  [~] — in progress: - [~] ${task.text}`,
+          `  [x] â€” done:        - [x] ${date}  ${task.text}`,
+          `  [~] â€” in progress: - [~] ${task.text}`,
           ``,
           `Do NOT exit without updating that line. Save the file after editing.`,
         ].join('\n');
-        this._cb?.log(`⚠️ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
+        this._cb?.log(`âš ï¸ CLI exited: reminding AI to mark TODO.md (${elapsedMin}m elapsed)`);
         try {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
           await this._cb!.sendToAi(reminder, task.text, false, reminderFile);
@@ -1691,7 +1691,7 @@ export class TaskLoopRunner {
           if (handledExitFile === filePath) { return; } // poller already handled
           try {
             const content = fs.readFileSync(filePath, 'utf8').trim();
-            if (content === '') { return; } // file cleared at task start — ignore
+            if (content === '') { return; } // file cleared at task start â€” ignore
           } catch { return; }
           handledExitFile = filePath;
           void onCliExit();
@@ -1699,7 +1699,7 @@ export class TaskLoopRunner {
       };
 
       // opencode-sdk: the persistent in-process SDK doesn't use the CLI exit-file
-      // reminder flow — doing so causes a re-prompt loop (the SDK writes '0' to the
+      // reminder flow â€” doing so causes a re-prompt loop (the SDK writes '0' to the
       // exit file when session.idle fires, the poller sees it, calls onCliExit(),
       // which re-sends the prompt, which loops).  Instead, the poller resolves this
       // promise directly when isOpencodeSdkBusy() becomes false (see below).
@@ -1720,7 +1720,7 @@ export class TaskLoopRunner {
 
       poller = setInterval(async () => {
         check();
-        checkStdout(); // also poll stdout every tick — file watcher can miss events on Linux
+        checkStdout(); // also poll stdout every tick â€” file watcher can miss events on Linux
 
         if (!this._workspaceRoot) { return; }
 
@@ -1730,7 +1730,7 @@ export class TaskLoopRunner {
         const latestStdout = this._workspaceRoot ? stdoutFilePath(this._workspaceRoot, activeProvider) : null;
         if (latestStdout && latestStdout !== resolvedStdoutFile) {
           resolvedStdoutFile = latestStdout;
-          lastStdoutLen = 0; // reset cursor — new file starts from byte 0
+          lastStdoutLen = 0; // reset cursor â€” new file starts from byte 0
           attachStdoutWatcher(resolvedStdoutFile);
         }
 
@@ -1757,17 +1757,17 @@ export class TaskLoopRunner {
               handledExitFile = latestExit;
               void onCliExit();
             }
-          } catch { /* file not yet written — ignore */ }
+          } catch { /* file not yet written â€” ignore */ }
         }
 
         // Parse rich JSONL state: end_turn, active tool, bash progress
         if (claudeCursor > 0) {
           const sessionState = parseClaudeStateSince(this._workspaceRoot, claudeCursor);
 
-          // end_turn detection — fast-path on Linux where inotify can lag
+          // end_turn detection â€” fast-path on Linux where inotify can lag
           if (!endTurnSeen && sessionState.hasEndTurn) {
             endTurnSeen = true;
-            this._cb?.log('end_turn detected in Claude JSONL — checking TODO.md');
+            this._cb?.log('end_turn detected in Claude JSONL â€” checking TODO.md');
             endTurnTimers.push(setTimeout(check, 800));
             endTurnTimers.push(setTimeout(check, 2_500));
           }
@@ -1781,7 +1781,7 @@ export class TaskLoopRunner {
             this._cb?.onActivityChange?.(activity);
           }
 
-          // Rate limit detection — reject immediately so _runLoop can pause
+          // Rate limit detection â€” reject immediately so _runLoop can pause
           if (sessionState.rateLimitMessage) {
             cleanup();
             reject(RateLimitDetector.toError(sessionState.rateLimitMessage));
@@ -1797,20 +1797,20 @@ export class TaskLoopRunner {
         if (currentSize !== lastJSONLSize) {
           lastJSONLSize = currentSize;
           lastActivityTime = Date.now();
-          reminderPending = true; // new activity — allow a fresh reminder after next silence
+          reminderPending = true; // new activity â€” allow a fresh reminder after next silence
           return;
         }
 
-        // No new bytes — check if we've been quiet long enough
+        // No new bytes â€” check if we've been quiet long enough
         if (!reminderPending) { return; }
         if (Date.now() - lastActivityTime < INACTIVITY_MS) { return; }
 
-        // 15+ minutes of JSONL silence — send one reminder
+        // 15+ minutes of JSONL silence â€” send one reminder
         reminderPending = false;
         if (this._state !== 'running') { return; }
 
         const elapsedMin = Math.round((Date.now() - taskStartTime) / 60_000);
-        const msg = `⏳ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
+        const msg = `â³ Still working... (${elapsedMin}m elapsed): ${discordLabel(task.text)}`;
         this._cb?.log(msg);
         this._notifyDiscord(msg);
         this._notifyWebhook('task_checkin', {
@@ -1839,13 +1839,13 @@ export class TaskLoopRunner {
           ``,
           `Save the file. Do NOT exit without updating that line.`,
         ].join('\n');
-        this._cb?.log(`⚠️ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
+        this._cb?.log(`âš ï¸ Check-in: reminding AI to mark TODO.md (${elapsedMin}m, JSONL quiet for 3m)`);
         try {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
           await this._cb!.sendToAi(reminder, task.text, false, reminderFile);
         } catch { /* ignore */ }
 
-        // TODO.md inactivity timeout — fires when TODO.md has not been touched
+        // TODO.md inactivity timeout â€” fires when TODO.md has not been touched
         // for the full timeout duration (resets on every TODO.md write).
         const idleMs = Date.now() - lastTodoChangeTime;
         if (idleMs >= timeoutMs) {
@@ -1853,7 +1853,7 @@ export class TaskLoopRunner {
           const minutes = settings.taskTimeoutMinutes ?? 30;
           if (settings.retryOnTimeout) {
             await todoWriter.resetToTodo(todoPath, task).catch(() => {});
-            const msg = `⏱ TODO.md idle for ${minutes}m — retrying: ${discordLabel(task.text)}`;
+            const msg = `â± TODO.md idle for ${minutes}m â€” retrying: ${discordLabel(task.text)}`;
             this._cb?.log(msg);
             this._notifyDiscord(msg);
             this._notifyWebhook('task_checkin', {
@@ -1899,5 +1899,5 @@ export class TaskLoopRunner {
   }
 }
 
-/** Singleton runner — one loop per workspace session. */
+/** Singleton runner â€” one loop per workspace session. */
 export const taskLoopRunner = new TaskLoopRunner();

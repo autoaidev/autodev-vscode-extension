@@ -24,7 +24,7 @@ import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
 import { PROFILE_SECTIONS } from './profileBuilder';
 import { PERIODIC_ACTIONS } from './periodicActions';
 import { rebuildProfile } from './messageBuilder';
-import { copilotNpmRoot, clearCopilotSdkCache } from './providers/copilotTuiProvider';
+import { copilotNpmRoot, clearCopilotSdkCache } from './providers/copilotSdkProvider';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider â€” sidebar webview that shows TODO.md tasks + loop controls

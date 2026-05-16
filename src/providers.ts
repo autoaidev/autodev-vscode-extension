@@ -2,7 +2,7 @@
 // AI provider definitions — CLI-only providers
 // ---------------------------------------------------------------------------
 
-export type ProviderId = 'claude-cli' | 'claude-tui' | 'copilot-cli' | 'copilot-tui' | 'opencode-cli' | 'opencode-sdk';
+export type ProviderId = 'claude-cli' | 'claude-tui' | 'copilot-cli' | 'copilot-sdk' | 'opencode-cli' | 'opencode-sdk';
 
 export interface ProviderConfig {
   label: string;
@@ -28,8 +28,8 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     extensionId: '',
     isCli: true,
   },
-  'copilot-tui': {
-    label: 'Copilot TUI',
+  'copilot-sdk': {
+    label: 'Copilot SDK',
     extensionId: '',
     isCli: true,
   },

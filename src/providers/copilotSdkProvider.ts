@@ -1,5 +1,5 @@
-// ---------------------------------------------------------------------------
-// copilotTuiProvider - GitHub Copilot in-process SDK integration.
+﻿// ---------------------------------------------------------------------------
+// copilotSdkProvider - GitHub Copilot in-process SDK integration.
 //
 // Uses @github/copilot sdk/index.js (LocalSession) directly - no subprocess,
 // no PTY, no hooks file watching.  Auth is read from the Windows Credential
@@ -164,7 +164,7 @@ function _getSdk(): Promise<SdkModule> {
   if (!_sdkPromise) {
     const p = _sdkPath();
     const url = p.startsWith('/') ? 'file://' + p : 'file:///' + p.replace(/\\/g, '/');
-    // Use Function() wrapper to prevent esbuild from transforming import() → require().
+    // Use Function() wrapper to prevent esbuild from transforming import() â†’ require().
     // require() does not support file:// URLs; real dynamic import() does.
     _sdkPromise = ((Function('u', 'return import(u)')(url)) as Promise<SdkModule>).catch(e => {
       _sdkPromise = null;
@@ -184,7 +184,7 @@ interface CopilotSdkState {
   log:        ((msg: string) => void) | null;
   offIdle:    (() => void) | null;
   deltasSeen: boolean;
-  /** Set when session.error fires — next idle should dispose & fail the task */
+  /** Set when session.error fires â€” next idle should dispose & fail the task */
   sessionErrored: boolean;
 }
 
@@ -195,15 +195,15 @@ const _busyRoots = new Set<string>();
 // Public interface (same shape as the old PTY-based provider)
 // ---------------------------------------------------------------------------
 
-export function isCopilotTuiBusy(root: string): boolean {
+export function isCopilotSdkBusy(root: string): boolean {
   return _busyRoots.has(root);
 }
 
-export function getLatestCopilotTuiSessionId(root: string): string | undefined {
+export function getLatestCopilotSdkSessionId(root: string): string | undefined {
   return _sessions.has(root) ? 'copilot-sdk:' + path.basename(root) : undefined;
 }
 
-export function readCopilotTuiOutputSince(stdoutFile: string, fromByte: number): string {
+export function readCopilotSdkOutputSince(stdoutFile: string, fromByte: number): string {
   try {
     const raw = fs.readFileSync(stdoutFile, 'utf8');
     return fromByte > 0 ? raw.slice(fromByte) : raw;
@@ -211,10 +211,10 @@ export function readCopilotTuiOutputSince(stdoutFile: string, fromByte: number):
 }
 
 // ---------------------------------------------------------------------------
-// sendCopilotTuiPrompt - fire-and-forget entry point
+// sendCopilotSdkPrompt - fire-and-forget entry point
 // ---------------------------------------------------------------------------
 
-export function sendCopilotTuiPrompt(
+export function sendCopilotSdkPrompt(
   root: string,
   promptFilePath: string,
   _resolvedSessionId: string | undefined,
@@ -265,9 +265,9 @@ async function _sendAsync(
   let state = _sessions.get(root);
   if (!state) {
     log('Copilot SDK: creating LocalSession for ' + path.basename(root));
-    // SDK v1.0.48+ constructor is (coreServices, options) — two args.
+    // SDK v1.0.48+ constructor is (coreServices, options) â€” two args.
     // Passing everything as one arg puts authInfo in the coreServices slot
-    // where it is ignored, so this.authInfo is never set → session.error.
+    // where it is ignored, so this.authInfo is never set â†’ session.error.
     const coreServices = sdk.createCoreServices ? sdk.createCoreServices({}) : {};
     // Pass permissionRequestHandler in the constructor options so it is stored as
     // this.permissionRequestHandler on the session.  The agent loop checks it BEFORE
@@ -289,7 +289,7 @@ async function _sendAsync(
     const localState = state;
     const hooksJsonlDir = path.join(root, '.autodev');
     const hooksJsonlPath = path.join(hooksJsonlDir, 'hooks-events.jsonl');
-    log('Copilot SDK: hooks-events.jsonl → ' + hooksJsonlPath);
+    log('Copilot SDK: hooks-events.jsonl â†’ ' + hooksJsonlPath);
     session.on('*', (ev: SdkSessionEvent) => {
       // Auto-approve all permission requests (yolo / allow-all mode)
       if (ev.type === 'permission.requested' && ev.data?.['requestId']) {
@@ -309,7 +309,7 @@ async function _sendAsync(
         // Track session errors so the next idle disposes the broken session
         if (ev.type === 'session.error') {
           localState.sessionErrored = true;
-          localState.log?.('Copilot SDK: session.error — will dispose session on next idle');
+          localState.log?.('Copilot SDK: session.error â€” will dispose session on next idle');
         }
         appendHookEvent(
           hooksJsonlPath, 'copilot-sdk',
@@ -348,7 +348,7 @@ async function _sendAsync(
   state.exitFile   = exitFile;
   state.log        = log;
 
-  // Completion helper — safe to call multiple times (no-ops after first call)
+  // Completion helper â€” safe to call multiple times (no-ops after first call)
   let completionFired = false;
   let offIdleHandle: (() => void) | null = null;
   let offTaskComplete: (() => void) | null = null;
@@ -371,11 +371,11 @@ async function _sendAsync(
 
   // 3-minute timeout: dispose the stuck session so the next task gets a fresh one
   timeoutHandle = setTimeout(() => {
-    log('Copilot SDK: timeout (3min) — disposing stuck session');
+    log('Copilot SDK: timeout (3min) â€” disposing stuck session');
     completionFired = true;
     offIdleHandle?.();   offIdleHandle = null;
     offTaskComplete?.(); offTaskComplete = null;
-    // Dispose the session (it's stuck on a tool execution — can't recover)
+    // Dispose the session (it's stuck on a tool execution â€” can't recover)
     const s = _sessions.get(root);
     if (s) {
       try { s.session.dispose(); } catch { /* ignore */ }
@@ -390,7 +390,7 @@ async function _sendAsync(
   // session.idle fires when the agent finishes a turn
   offIdleHandle = state.session.on('session.idle', () => {
     if (state!.sessionErrored) {
-      log('Copilot SDK: session.idle after error — disposing broken session');
+      log('Copilot SDK: session.idle after error â€” disposing broken session');
       // Dispose so the next task creates a fresh session
       const s = _sessions.get(root);
       if (s) {
@@ -413,17 +413,17 @@ async function _sendAsync(
   log('Copilot SDK: sending prompt (' + promptText.length + ' chars)');
   await state.session.send({ prompt: promptText });
   // send() resolves when the prompt is submitted, not when the agent finishes.
-  // Do NOT call _complete here — the session is still executing. Wait for
+  // Do NOT call _complete here â€” the session is still executing. Wait for
   // session.idle (or the 3-minute timeout) so the loop doesn't proceed while
   // the agent is still making tool calls and editing TODO.md.
-  log('Copilot SDK: send() resolved — waiting for session.idle');
+  log('Copilot SDK: send() resolved â€” waiting for session.idle');
 }
 
 // ---------------------------------------------------------------------------
 // Close helpers
 // ---------------------------------------------------------------------------
 
-export function closeCopilotTuiSession(root: string, log: (msg: string) => void): void {
+export function closeCopilotSdkSession(root: string, log: (msg: string) => void): void {
   const s = _sessions.get(root);
   if (s) {
     log('Copilot SDK: disposing session');
@@ -434,7 +434,7 @@ export function closeCopilotTuiSession(root: string, log: (msg: string) => void)
   }
 }
 
-export function closeAllCopilotTuiSessions(): void {
+export function closeAllCopilotSdkSessions(): void {
   for (const [root, s] of _sessions) {
     s.offIdle?.();
     try { s.session.dispose(); } catch { /* ignore */ }
