@@ -56,6 +56,7 @@ export const mcpConfigCss = `
 .mcp-card-actions{display:flex;justify-content:flex-end;margin-top:8px}
 .mcp-remove-btn{background:transparent;color:var(--vscode-testing-iconFailed,#c72e2e);border:1px solid var(--vscode-testing-iconFailed,#c72e2e);padding:4px 10px;border-radius:3px;font-size:11px;cursor:pointer}
 .mcp-remove-btn:hover{background:var(--vscode-testing-iconFailed,#c72e2e);color:#fff}
+.mcp-add-btn{display:block;width:100%;margin-top:6px;padding:7px;font-size:12px;background:transparent;color:var(--vscode-foreground);border:1px dashed var(--vscode-panel-border);border-radius:3px;cursor:pointer;text-align:center}.mcp-add-btn:hover{background:var(--vscode-list-hoverBackground)}
 .mcp-save-all{position:sticky;bottom:0;display:block;width:100%;margin-top:14px;padding:9px 12px;font-size:13px;font-weight:600;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:3px;cursor:pointer;box-shadow:0 -4px 8px -4px rgba(0,0,0,.25)}
 .mcp-save-all:hover{background:var(--vscode-button-hoverBackground)}
 `;
@@ -130,7 +131,7 @@ export const mcpConfigHtml = `
       <div class="cfg-field"><label class="cfg-label">Sent folder name <small style="opacity:.6">(optional — auto-detected)</small></label><input class="cfg-input" id="mcpEmail_sentFolder" placeholder="INBOX.Sent"></div>
       <div class="cfg-section" style="margin:10px 0 4px;padding-top:6px">Receive tasks from email</div>
       <div class="cfg-field cfg-check"><label><input type="checkbox" id="mcpEmail_receiveTasks"> Enable receiving tasks from email</label></div>
-      <div class="cfg-field"><label class="cfg-label">Allowed sender emails <small style="opacity:.6">(CSV — leave empty to allow all)</small></label><input class="cfg-input" id="mcpEmail_allowedSenders" placeholder="alice@example.com, bob@example.com"></div>
+      <div class="cfg-field"><label class="cfg-label">Allowed sender emails <small style="opacity:.6">(CSV, wildcards OK — leave empty to allow all)</small></label><input class="cfg-input" id="mcpEmail_allowedSenders" placeholder="alice@example.com, agent-*@company.com"></div>
       <div class="mcp-card-actions" style="justify-content:space-between;gap:6px">
         <button class="mcp-install-btn" id="mcpEmail_testBtn" style="padding:4px 10px;font-size:11px">Test connection</button>
         <button class="mcp-remove-btn" id="removeMcpEmailBtn">Remove</button>
@@ -139,7 +140,7 @@ export const mcpConfigHtml = `
     </div>
   </div>
 
-  <!-- ── Custom JSON (anything else) ─────────────────────────────────────── -->
+  <!-- ── Custom MCP servers ───────────────────────────────────────────────── -->
   <div id="mcpAcc_custom" class="mcp-acc">
     <div class="mcp-acc-head" data-acc="custom">
       <span style="width:16px;flex-shrink:0"></span>
@@ -147,11 +148,8 @@ export const mcpConfigHtml = `
       <span class="mcp-acc-chev">&#9656;</span>
     </div>
     <div class="mcp-acc-body">
-      <div class="mcp-help">
-        Paste an <code style="font-size:11px">mcpServers</code> JSON block. Add <code style="font-size:11px">"enabled": false</code> to any entry to keep config but skip syncing.<br>
-        <em style="opacity:.7">Jira / Email entries are managed by their own cards above.</em>
-      </div>
-      <textarea id="mcpJsonArea" class="mcp-textarea" spellcheck="false" rows="14"></textarea>
+      <div id="mcpCustomCards"></div>
+      <button class="mcp-add-btn" id="addCustomMcpBtn">+ Add Server</button>
     </div>
   </div>
 
@@ -317,20 +315,13 @@ function populateMcp(s, defaults){
   _setCheck('mcpEmail_receiveTasks', _parseBool(menv.AUTODEV_EMAIL_RECEIVE_TASKS, false));
   _setVal('mcpEmail_allowedSenders', menv.AUTODEV_EMAIL_ALLOWED_SENDERS || '');
 
-  // Custom JSON textarea — show only entries NOT managed by preset accordions.
-  const ta = document.getElementById('mcpJsonArea');
+  // Custom cards — show only entries NOT managed by preset accordions.
   const filtered = {};
   for(const name of Object.keys(userMcp)){
     if(name === RESERVED_MCP.jira || name === RESERVED_MCP.email) continue;
     filtered[name] = userMcp[name];
   }
-  const cnt = Object.keys(filtered).length;
-  const cntEl = document.getElementById('mcpCustomCount');
-  if(cntEl) cntEl.textContent = cnt ? '· '+cnt+' entr'+(cnt===1?'y':'ies') : '';
-  if(ta){
-    ta.placeholder = '{\\n  "mcpServers": {\\n    "my-custom-mcp": {\\n      "command": "uvx",\\n      "args": ["my-custom-mcp"],\\n      "env": { "FOO": "bar" }\\n    }\\n  }\\n}';
-    ta.value = cnt === 0 ? '' : JSON.stringify({ mcpServers: filtered }, null, 2);
-  }
+  _renderCustomCards(filtered);
 
   setMcpStatus('', '');
   window.__mcpFormReady = true;
@@ -440,16 +431,102 @@ function _gatherEmail(){
   return out;
 }
 
-// Collect every user MCP entry (Jira + Email + Custom JSON) into one object.
+function _updateCustomCount(){
+  var cards = document.querySelectorAll('#mcpCustomCards .mcp-custom-card');
+  var cnt = cards.length;
+  var el = document.getElementById('mcpCustomCount');
+  if(el) el.textContent = cnt ? '· '+cnt+' entr'+(cnt===1?'y':'ies') : '';
+}
+
+function _renderOneCustomCard(name, entry){
+  var enabled = entry.enabled !== false;
+  var args = (entry.args || []).join('\n');
+  var envLines = Object.keys(entry.env || {}).map(function(k){ return k+'='+(entry.env[k]||''); }).join('\n');
+  var card = document.createElement('div');
+  card.className = 'mcp-acc mcp-custom-card' + (enabled ? '' : ' disabled');
+  card.innerHTML =
+    '<div class="mcp-acc-head" data-acc-custom="1">'
+    + '<input type="checkbox"'+(enabled?' checked':'')+'>'
+    + '<span class="mcp-acc-title mcp-custom-label">'+esc(name)+'</span>'
+    + '<span class="mcp-acc-chev">&#9656;</span>'
+    + '</div>'
+    + '<div class="mcp-acc-body">'
+    + '<div class="cfg-field"><label class="cfg-label">Name</label>'
+    + '<input class="cfg-input mcp-custom-name-inp" value="'+esc(name)+'"></div>'
+    + '<div class="cfg-field"><label class="cfg-label">Command</label>'
+    + '<input class="cfg-input mcp-custom-cmd-inp" value="'+esc(entry.command||'uvx')+'"></div>'
+    + '<div class="cfg-field"><label class="cfg-label">Args <small style="opacity:.6">(one per line)</small></label>'
+    + '<textarea class="mcp-textarea mcp-custom-args-inp" rows="3" style="min-height:60px">'+esc(args)+'</textarea></div>'
+    + '<div class="cfg-field"><label class="cfg-label">Env <small style="opacity:.6">(KEY=VALUE, one per line)</small></label>'
+    + '<textarea class="mcp-textarea mcp-custom-env-inp" rows="3" style="min-height:60px">'+esc(envLines)+'</textarea></div>'
+    + '<div class="mcp-card-actions"><button class="mcp-remove-btn mcp-custom-remove-btn">Remove</button></div>'
+    + '</div>';
+  card.querySelector('.mcp-acc-head').addEventListener('click', function(e){
+    if(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL')) return;
+    card.classList.toggle('open');
+  });
+  card.querySelector('input[type=checkbox]').addEventListener('change', function(e){
+    if(e.target.checked) card.classList.remove('disabled'); else card.classList.add('disabled');
+  });
+  card.querySelector('.mcp-custom-name-inp').addEventListener('input', function(e){
+    card.querySelector('.mcp-custom-label').textContent = e.target.value || '(unnamed)';
+  });
+  card.querySelector('.mcp-custom-remove-btn').addEventListener('click', function(){
+    card.remove();
+    _updateCustomCount();
+  });
+  return card;
+}
+
+function _renderCustomCards(entries){
+  var container = document.getElementById('mcpCustomCards');
+  if(!container) return;
+  container.innerHTML = '';
+  Object.keys(entries).forEach(function(name){
+    container.appendChild(_renderOneCustomCard(name, entries[name]));
+  });
+  _updateCustomCount();
+}
+
+function _gatherCustomCards(){
+  var out = {};
+  document.querySelectorAll('#mcpCustomCards .mcp-custom-card').forEach(function(card){
+    var nameInp   = card.querySelector('.mcp-custom-name-inp');
+    var cmdInp    = card.querySelector('.mcp-custom-cmd-inp');
+    var argsInp   = card.querySelector('.mcp-custom-args-inp');
+    var envInp    = card.querySelector('.mcp-custom-env-inp');
+    var enabledCb = card.querySelector('input[type=checkbox]');
+    var name = nameInp ? String(nameInp.value||'').trim() : '';
+    var cmd  = cmdInp  ? String(cmdInp.value||'').trim()  : '';
+    if(!name || !cmd) return;
+    var args = argsInp
+      ? argsInp.value.split('\n').map(function(s){ return s.trim(); }).filter(function(s){ return !!s; })
+      : [];
+    var env = {};
+    if(envInp && envInp.value.trim()){
+      envInp.value.split('\n').forEach(function(line){
+        line = line.trim(); if(!line) return;
+        var eq = line.indexOf('=');
+        if(eq > 0){ env[line.slice(0,eq).trim()] = line.slice(eq+1); }
+      });
+    }
+    var entry = { command: cmd, args: args };
+    if(Object.keys(env).length) entry.env = env;
+    if(enabledCb && !enabledCb.checked) entry.enabled = false;
+    out[name] = entry;
+  });
+  return out;
+}
+
+// Collect every user MCP entry (Jira + Email + Custom cards) into one object.
 // Throws on validation errors so the caller can surface a single status line.
 function _gatherMcpEntries(){
   const out = {};
   const j = _gatherJira();   if(j) out[RESERVED_MCP.jira]  = j;
   const e = _gatherEmail();  if(e) out[RESERVED_MCP.email] = e;
-  const ta = document.getElementById('mcpJsonArea');
-  const custom = _parseMcpInput(ta ? ta.value : '');
+  const custom = _gatherCustomCards();
   for(const name of Object.keys(custom)){
-    if(name === RESERVED_MCP.jira || name === RESERVED_MCP.email) continue; // never let custom shadow presets
+    if(name === RESERVED_MCP.jira || name === RESERVED_MCP.email) continue;
     out[name] = custom[name];
   }
   return out;
@@ -564,9 +641,22 @@ function _bindMcpEvents(){
     setTimeout(function(){ tb.disabled = false; tb.textContent = orig; }, 70000);
   });}
 
-  // Global Save All & Sync — gathers Jira + Email + Custom JSON in one shot.
+  // Global Save All & Sync — gathers Jira + Email + Custom cards in one shot.
   const sa = document.getElementById('saveMcpAllBtn');
   if(sa){ sa.addEventListener('click',function(){ _saveAllNow(); });}
+
+  // Add custom server card.
+  const ac = document.getElementById('addCustomMcpBtn');
+  if(ac){ ac.addEventListener('click',function(){
+    const container = document.getElementById('mcpCustomCards');
+    if(!container) return;
+    const card = _renderOneCustomCard('new-mcp-server', {command:'uvx', args:[], env:{}});
+    card.classList.add('open');
+    container.appendChild(card);
+    _updateCustomCount();
+    const ni = card.querySelector('.mcp-custom-name-inp');
+    if(ni){ ni.focus(); ni.select(); }
+  });}
 }
 
 // Wire up DOM event listeners once the DOM is ready.

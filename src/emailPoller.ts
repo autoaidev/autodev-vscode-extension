@@ -35,7 +35,7 @@ export class EmailTaskPoller {
   private client: ImapFlow | null = null;
   private connecting: Promise<void> | null = null;
   private polling = false;
-  private readonly allowed: Set<string>;
+  private readonly allowed: RegExp[];
   /**
    * Snapshot of UNSEEN UIDs that existed when the poller first connected.
    * Those messages are ignored — they were already in the inbox before the
@@ -50,7 +50,12 @@ export class EmailTaskPoller {
   private static readonly MAX_CONN_AGE_MS = 15 * 60 * 1000;
 
   constructor(private readonly opts: EmailPollerOptions) {
-    this.allowed = new Set(opts.allowedSenders.map(s => s.toLowerCase().trim()).filter(Boolean));
+    // Pre-compile each pattern to a regex — '*' acts as a wildcard.
+    // e.g. "agent-*@company.com" matches "agent-bot@company.com".
+    this.allowed = opts.allowedSenders
+      .map(s => s.toLowerCase().trim())
+      .filter(Boolean)
+      .map(p => new RegExp('^' + p.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$'));
   }
 
   /**
@@ -168,8 +173,10 @@ export class EmailTaskPoller {
   }
 
   private _senderAllowed(address?: string | null): boolean {
-    if (this.allowed.size === 0) return true;
-    return !!address && this.allowed.has(address.toLowerCase());
+    if (this.allowed.length === 0) return true;
+    if (!address) return false;
+    const addr = address.toLowerCase();
+    return this.allowed.some(p => p.test(addr));
   }
 
   private async _buildTaskFromMessage(source: Buffer, envelope: any, workspaceRoot: string): Promise<string> {
