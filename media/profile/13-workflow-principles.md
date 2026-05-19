@@ -53,13 +53,16 @@ git push origin main --tags
 | **No magic values** | Extract literals to named constants. |
 | **Explicit over implicit** | Typed signatures, no `any`, no dynamic dispatch without justification. |
 | **Single responsibility** | Each function/class does one thing. |
-| **Fail loudly** | Throw/return errors explicitly. Never swallow exceptions silently. |
+| **Fail loudly** | Throw/return errors explicitly. Never swallow exceptions silently. `"Completed"` is wrong if anything was skipped. Surface uncertainty; do not hide it. |
 | **No dead code** | Remove unused variables, imports, functions, and files. |
 | **Consistent naming** | Follow the existing convention in the file. Do not mix styles. |
 | **Security by default** | Sanitize inputs, escape outputs, never trust external data. |
-| **Tests are proof** | If behavior is not tested, it is not verified. |
+| **Tests encode intent** | Tests must say **WHY** behavior matters, not just WHAT it does. A test that cannot fail when business logic changes is wrong. Untested behavior is unverified behavior. |
 | **Docs reflect reality** | Update comments, docstrings, and README whenever behavior changes. |
 | **Logs are facts** | Log important events, errors, and state changes. Clean up debug logs after tasks. |
+| **Surgical changes** | Touch only what is necessary. Do not improve adjacent code. Do not refactor what isn't broken. |
+| **Convention conformance** | Match the codebase's conventions even if you disagree. Conformance beats taste. If a convention is harmful, surface it — don't fork silently. |
+| **Simplicity first** | Minimum code that solves the problem. Nothing speculative. No abstractions for single-use code. |
 
 ---
 
@@ -71,7 +74,7 @@ git push origin main --tags
 |---|---|
 | **Plan before code** | Non-trivial work starts with a written, checkable plan. |
 | **Re-plan when reality changes** | If evidence invalidates the plan, stop and rewrite it before proceeding. |
-| **Read first, always** | Explore before dispatching. Understand before writing. |
+| **Read first, always** | Explore before dispatching. Understand before writing. Read exports, immediate callers, and shared utilities before adding code. |
 | **Batch, not single** | Process all queued tasks without stopping between them. |
 | **Mark progressively** | `[ ]` → `[~]` → `[x]` — every state transition written to `TODO.md` immediately. |
 | **Delegate by type** | Code → Code Agent. Tests → QA Agent. Every task → Verifier Agent. |
@@ -81,12 +84,19 @@ git push origin main --tags
 | **Bug reports are action items** | Start from logs, errors, or failing tests and fix them end-to-end without waiting for hand-holding. |
 | **Learn from corrections** | After a correction or preventable mistake, update `LESSONS.md` / `tasks/lessons.md` with a prevention rule. |
 | **Elegant, not hacky** | Prefer the simplest durable solution; if a fix feels hacky, pause and rethink it. |
-| **Fail loudly** | Explicit errors, non-zero exits, clear messages. |
+| **Simplicity first** | Minimum code that solves the problem. Nothing speculative. No abstractions for single-use code. |
+| **Surgical changes** | Touch only what is necessary. Avoid collateral refactors and side effects. |
+| **Fail loudly** | Explicit errors, non-zero exits, clear messages. `"Completed"` is wrong if anything was skipped silently. |
 | **Small commits** | One logical change, conventional message, verified before committing. |
 | **No magic** | Named constants, typed interfaces, no inline literals. |
-| **Minimal impact** | Touch only what is necessary. Avoid collateral refactors and side effects. |
+| **Convention conformance** | Match the codebase's style. Conformance beats taste. Surface harmful conventions; don't fork silently. |
 | **Security by default** | Validate inputs, escape outputs, no secrets in code. |
-| **Tests are proof** | Untested behavior is unverified behavior. |
+| **Tests encode intent** | Tests must say WHY behavior matters. A test that can't fail when business logic changes is wrong. |
+| **Checkpoint after each step** | After every significant step: summarise what was done, what is verified, what remains. Do not continue from a state you cannot describe. |
+| **Assumptions are not facts** | State assumptions explicitly. If an assumption cannot be confirmed from actual files, surface it. Do not guess. |
+| **Model for judgment only** | Use AI for classification, drafting, summarisation, extraction. If code can answer it, code answers it. |
+| **Think big, hand off clean** | Think as deeply as the problem demands. When context grows unwieldy or reasoning circles, summarise the full state and spawn a subagent to continue with a clean scope. Never silently degrade. |
+| **Surface conflicts** | If two patterns contradict, pick one (more recent / more tested), explain why, flag the other for cleanup. |
 | **Own the outcome** | The Orchestrator is accountable. The batch ships because of you. |
 
 ---

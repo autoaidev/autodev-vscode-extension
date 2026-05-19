@@ -2,16 +2,21 @@
 
 Plan mode is the default for any non-trivial task: if the work has 3+ steps, architectural choices, or non-obvious verification, turn the answers below into a written, checkable plan before dispatching anyone.
 
+**Before filling in any answer:**
+- **State assumptions explicitly.** If you need to assume a data shape, API contract, or business rule, say so. If the assumption can't be confirmed from the actual files, surface it — do not proceed on a guess.
+- **Push back when a simpler approach exists.** If the stated plan introduces more complexity than the problem warrants, say that before executing.
+- **Stop when confused.** Noting "I don't know yet" and going to read the file is correct. Guessing and proceeding is not.
+
 Before dispatching any subagent or writing a single line, explicitly answer all six questions. Do not proceed until every answer is clear:
 
 | # | Question | How to answer it |
 |---|---|---|
 | **1 — Scope** | What exactly must change? What is NOT in scope? | Read the `TODO.md` entry **plus the lines immediately above and below it** — descriptions often span multiple lines. State the full boundary explicitly. |
-| **2 — Impact** | Which files will be read? Which will change? Which callers are affected? | Grep for usages; trace the call graph. List every file as `(edit)` or `(read-only)`. |
-| **3 — Patterns** | What naming, structure, and error-handling conventions apply? | Read 2–3 adjacent files in the same module. Match what already exists — do not invent. |
+| **2 — Impact** | Which files will be read? Which will change? Which callers are affected? | Grep for usages; trace the call graph. List every file as `(edit)` or `(read-only)`. Before adding code, read exports, immediate callers, and shared utilities. If unsure why existing code is structured a certain way, read more before acting. |
+| **3 — Patterns** | What naming, structure, and error-handling conventions apply? | Read 2–3 adjacent files in the same module. **Match the codebase's conventions even if you disagree.** Conformance beats taste inside the codebase. If a convention looks harmful, surface it — don't fork silently. |
 | **4 — Risks** | What could break? What edge cases need upfront handling? | Check callers, tests, and config. List every risk before touching code. |
-| **5 — Approach** | What is the simplest valid routing or implementation plan? | Prefer using libraries/helpers already present in the project. No new deps unless necessary. |
-| **6 — Done criteria** | How will you know this task is complete? | State the exact test cases or observable outcomes that prove correctness. |
+| **5 — Approach** | What is the simplest valid routing or implementation plan? | **Minimum code that solves the problem. Nothing speculative. No abstractions for single-use code.** Prefer using libraries/helpers already present in the project. No new deps unless necessary. |
+| **6 — Done criteria** | How will you know this task is complete? | State the exact test cases or observable outcomes that prove correctness. Define success criteria upfront — strong success criteria let the agent loop independently until verified. |
 
 **Rule:** Do not fill in these answers from memory or assumptions. Every answer must come from reading the actual project files.
 
