@@ -440,8 +440,8 @@ function _updateCustomCount(){
 
 function _renderOneCustomCard(name, entry){
   var enabled = entry.enabled !== false;
-  var args = (entry.args || []).join('\n');
-  var envLines = Object.keys(entry.env || {}).map(function(k){ return k+'='+(entry.env[k]||''); }).join('\n');
+  var args = (entry.args || []).join('\\n');
+  var envLines = Object.keys(entry.env || {}).map(function(k){ return k+'='+(entry.env[k]||''); }).join('\\n');
   var card = document.createElement('div');
   card.className = 'mcp-acc mcp-custom-card' + (enabled ? '' : ' disabled');
   card.innerHTML =
@@ -500,11 +500,11 @@ function _gatherCustomCards(){
     var cmd  = cmdInp  ? String(cmdInp.value||'').trim()  : '';
     if(!name || !cmd) return;
     var args = argsInp
-      ? argsInp.value.split('\n').map(function(s){ return s.trim(); }).filter(function(s){ return !!s; })
+      ? argsInp.value.split('\\n').map(function(s){ return s.trim(); }).filter(function(s){ return !!s; })
       : [];
     var env = {};
     if(envInp && envInp.value.trim()){
-      envInp.value.split('\n').forEach(function(line){
+      envInp.value.split('\\n').forEach(function(line){
         line = line.trim(); if(!line) return;
         var eq = line.indexOf('=');
         if(eq > 0){ env[line.slice(0,eq).trim()] = line.slice(eq+1); }
