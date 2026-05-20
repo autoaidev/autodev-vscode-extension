@@ -195,7 +195,7 @@ export async function sendPromptToAi(
 
     let cmd: string;
     if (providerId === 'claude-cli') {
-      cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile);
+      cmd = buildClaudeCliCommand(agentProfileFile, messageFile, resolvedSessionId, includeProfile, settings.claudeModel || undefined);
       cmd = teeCommand(cmd, stdoutFile);
     } else if (providerId === 'copilot-cli') {
       const combinedFile = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);

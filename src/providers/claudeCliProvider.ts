@@ -228,15 +228,17 @@ export function buildClaudeCliCommand(
   messageFile: string,
   sessionId?: string,
   includeProfile = true,
+  model?: string,
 ): string {
   const resume = sessionId ? ` --resume ${sessionId}` : '';
+  const modelFlag = model ? ` --model ${model}` : '';
   // -p takes ONE prompt argument. Concatenate both @file refs into a single
   // quoted string so Claude sees both — passing them as two args drops the
   // second one silently (claude consumes the first as the prompt).
   const promptArg = includeProfile
     ? JSON.stringify(`@${agentProfileFile} @${messageFile}`)
     : JSON.stringify(`@${messageFile}`);
-  return `claude --allow-dangerously-skip-permissions --dangerously-skip-permissions${resume} -p ${promptArg}`;
+  return `claude --allow-dangerously-skip-permissions --dangerously-skip-permissions${resume}${modelFlag} -p ${promptArg}`;
 }
 
 /**

@@ -57,6 +57,12 @@ export interface AutodevSettings {
    */
   copilotModel: string;
   /**
+   * Optional model override for Claude CLI. When set, passes `--model <value>`
+   * to the `claude` command. Leave empty to use the CLI default.
+   * Example values: `best`, `sonnet`, `opus`, `haiku`.
+   */
+  claudeModel: string;
+  /**
    * Optional model override for OpenCode CLI. When set, passes `--model=<value>`
    * to the `opencode` command. Leave empty to use the CLI default.
    * Example values: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`.
@@ -216,6 +222,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   openCodeHooksEnabled: false,
   autoStartLoop: false,
   copilotModel: '',
+  claudeModel: '',
   opencodeModel: '',
   opencodeCacheEnabled: false,
   mcpServers: {},

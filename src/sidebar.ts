@@ -617,6 +617,10 @@ function buildHtml(webview: vscode.Webview): string {
   <label for="fallbackCheck" style="white-space:nowrap">On limit, use:</label>
   <select class="provider-select" id="fallbackSelect"></select>
 </div>
+<div class="model-row" id="claudeModelRow" style="display:none">
+  <span class="provider-label">Model:</span>
+  <select class="model-select" id="claudeModelSelect"></select>
+</div>
 <div class="model-row" id="modelRow" style="display:none">
   <span class="provider-label">Model:</span>
   <select class="model-select" id="modelSelect"></select>
@@ -905,6 +909,25 @@ function renderProviders(){
       renameRow.style.display='none';
     };
     renameInput.onkeydown=function(e){if(e.key==='Enter'){renameSaveBtn.click();}if(e.key==='Escape'){renameCancelBtn.click();}};
+  }
+
+  var claudeModelRow=document.getElementById('claudeModelRow');
+  var claudeModelSel=document.getElementById('claudeModelSelect');
+  var isClaude=state.selectedProvider==='claude-cli';
+  if(claudeModelRow) claudeModelRow.style.display=isClaude?'flex':'none';
+  if(isClaude&&claudeModelSel){
+    var CLAUDE_MODELS=[
+      {v:'',l:'Default'},
+      {v:'best',l:'Best'},
+      {v:'sonnet',l:'Sonnet'},
+      {v:'opus',l:'Opus'},
+      {v:'haiku',l:'Haiku'},
+    ];
+    var curClaude=(state.settings&&state.settings.claudeModel)||'';
+    claudeModelSel.innerHTML=CLAUDE_MODELS.map(function(m){return '<option value="'+m.v+'"'+(m.v===curClaude?' selected':'')+'>'+m.l+'</option>';}).join('');
+    claudeModelSel.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{claudeModel:claudeModelSel.value})});
+    };
   }
 
   var modelRow=document.getElementById('modelRow');
