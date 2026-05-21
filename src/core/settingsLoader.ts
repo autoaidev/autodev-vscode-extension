@@ -69,6 +69,12 @@ export interface AutodevSettings {
    */
   opencodeModel: string;
   /**
+   * Optional model override for Grok TUI. When set, passes `-m <value>` to
+   * the `grok` command. Leave empty to use the default (sxs-claude-opus-4-6).
+   * Run `grok models` to list available models.
+   */
+  grokModel: string;
+  /**
    * When true, writes `setCacheKey: true` into the provider options of the
    * project-level `opencode.json`, enabling prompt/model caching.
    */
@@ -224,6 +230,7 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   copilotModel: '',
   claudeModel: '',
   opencodeModel: '',
+  grokModel: '',
   opencodeCacheEnabled: false,
   mcpServers: {},
   disabledBuiltinMcp: [],

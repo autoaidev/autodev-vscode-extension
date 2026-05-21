@@ -11,6 +11,7 @@ import { buildOpenCodeCliCommand, getLatestOpenCodeSessionId } from './providers
 import { sendClaudeTuiPrompt } from './providers/claudeTuiProvider';
 import { sendCopilotSdkPrompt, getLatestCopilotSdkSessionId, setCopilotSettingsToken } from './providers/copilotSdkProvider';
 import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
+import { sendGrokTuiPrompt } from './providers/grokTuiProvider';
 import { getManualHookCmd } from './hooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
@@ -190,6 +191,14 @@ export async function sendPromptToAi(
       const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
       sendOpencodeSdkPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, settings.opencodeModel || undefined, showOutput);
       log(`OpenCode SDK: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
+      return;
+    }
+
+    // --- grok-tui: in-process spawn, no terminal ---
+    if (providerId === 'grok-tui') {
+      const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
+      sendGrokTuiPrompt(root, promptFilePath, stdoutFile, exitFile, log, settings.grokModel || undefined, showOutput);
+      log('Grok TUI: prompt dispatched');
       return;
     }
 
