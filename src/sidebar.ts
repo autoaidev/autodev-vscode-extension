@@ -913,7 +913,7 @@ function renderProviders(){
 
   var claudeModelRow=document.getElementById('claudeModelRow');
   var claudeModelSel=document.getElementById('claudeModelSelect');
-  var isClaude=state.selectedProvider==='claude-cli';
+  var isClaude=state.selectedProvider==='claude-cli'||state.selectedProvider==='claude-tui';
   if(claudeModelRow) claudeModelRow.style.display=isClaude?'flex':'none';
   if(isClaude&&claudeModelSel){
     var CLAUDE_MODELS=[

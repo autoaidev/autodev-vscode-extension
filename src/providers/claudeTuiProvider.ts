@@ -75,6 +75,7 @@ async function getOrCreateClient(
   root: string,
   resumeSessionId: string | undefined,
   log: (msg: string) => void,
+  model?: string,
 ): Promise<StructuredClient> {
   const existing = _clients.get(root);
   if (existing) {
@@ -91,6 +92,7 @@ async function getOrCreateClient(
     includePartialMessages: true,
     resumeSessionId: resumeSessionId || undefined,
     env: { CI: 'true' },
+    ...(model ? { model } : {}),
   });
 
   _clients.set(root, client);
@@ -140,6 +142,7 @@ export function sendClaudeTuiPrompt(
   stdoutFile: string,
   exitFile: string,
   log: (msg: string) => void,
+  model?: string,
   /** Optional callback invoked once to reveal the output panel to the user. */
   showOutput?: () => void,
 ): void {
@@ -154,7 +157,7 @@ export function sendClaudeTuiPrompt(
       const promptText = fs.readFileSync(promptFilePath, 'utf8');
 
       // Get (or start) the persistent client for this workspace.
-      const client = await getOrCreateClient(root, resolvedSessionId, log);
+      const client = await getOrCreateClient(root, resolvedSessionId, log, model);
       if (client.sessionId) { _latestSessionIds.set(root, client.sessionId); }
 
       log(`Claude TUI: sending turn (${promptText.length} chars)`);

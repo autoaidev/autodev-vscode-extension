@@ -168,7 +168,7 @@ export async function sendPromptToAi(
     // --- claude-tui: in-process spawn, no terminal ---
     if (providerId === 'claude-tui') {
       const promptFilePath = writeCombinedFile(root, agentProfileFile, messageFile, includeProfile);
-      sendClaudeTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, showOutput);
+      sendClaudeTuiPrompt(root, promptFilePath, resolvedSessionId, stdoutFile, exitFile, log, settings.claudeModel || undefined, showOutput);
       log(`Claude TUI: prompt dispatched (session=${resolvedSessionId ?? 'new'})`);
       return;
     }
