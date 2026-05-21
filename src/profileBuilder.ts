@@ -141,6 +141,14 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
       'Never delete journal rows — `discard` entries are the most valuable data; they prevent re-trying failed approaches.',
     ],
   },
+  {
+    id: '17-issue-tracking', label: 'Issue Tracking Protocol (per-issue living docs)', file: '17-issue-tracking.md',
+    keyRules: [
+      'For every issue/ticket, create `.autodev/ISSUE-NNN-kebab-title.md` before doing any work — it is the single living record of that issue.',
+      'Append Work Log entries and artifacts as the issue evolves. Never edit past entries.',
+      'Cross-reference related issues bidirectionally so any agent can navigate the full user story from a single file.',
+    ],
+  },
 ];
 
 /** Returns all section IDs in order — useful as the default "all enabled" value. */

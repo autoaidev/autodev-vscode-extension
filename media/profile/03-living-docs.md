@@ -176,3 +176,26 @@ All completed tasks are recorded here in reverse-chronological order.
 - An escalation threshold is revised.
 
 **Rule:** Create `CONTRACTS.md` from the skeleton in §0.5 at the start of the first session if it does not exist. Never guess or invent contact addresses — leave blanks for the human to fill in. Mark removed contacts `[inactive]` rather than deleting them.
+
+---
+
+### `.autodev/ISSUE-NNN-ISSUE_TITLE.md` — Per-Issue Living Documents
+
+**Purpose:** A single aligned, append-only record for every issue, ticket, bug, or user story. Tracks the full evolution of the issue over time — user story, acceptance criteria, technical approach, work log, artifacts, related issues, and final resolution. Any agent reading it must understand the full story without looking at Jira, email, or any other source.
+
+**Filename format:** `ISSUE-{NUMBER}-{kebab-case-title}.md` — e.g. `ISSUE-123-user-login-timeout.md`. Use `0` as the number for local issues without an external ticket number.
+
+**Create when:**
+- A Jira ticket, GitHub issue, or user story is assigned or referenced.
+- An email describes a problem or feature with an issue number.
+- A multi-session problem is identified that needs a stable reference.
+
+**Update when:**
+- Work begins or progresses on the issue (append a Work Log entry).
+- A new finding, decision, or blocker is reached.
+- An artifact is produced (screenshot, log, report, diff).
+- The issue is resolved (fill in the Resolution section and attach verification artifacts).
+
+**Rule:** Create the file before doing any work on the issue. Never delete it — set `Status: Resolved` when done. See **§0.7** for the full skeleton and protocol.
+
+

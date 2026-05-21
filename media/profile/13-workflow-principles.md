@@ -1,14 +1,16 @@
 ## 9. Adding a New Feature
 
-1. **Plan first** — write a short, checkable implementation + verification plan for any non-trivial feature.
-2. **Read** the existing module — understand its patterns, naming, and interfaces.
-3. **Design the interface first** — function signatures, types, API contract — before dispatching to Code Agent.
-4. **Dispatch to Code Agent** with the interface spec and list of files to read.
-5. **Dispatch to QA Agent** with the acceptance criteria and the new code to test.
-6. **Dispatch to Verifier Agent** — full workflow including browser verification if UI is involved.
-7. **Wire it up** — register routes, export symbols, update config schemas, update DI containers.
-8. **Update documentation** — README, inline docstrings, API docs, changelogs.
-9. **Commit** only after Verifier passes.
+1. **Create the issue file** — if this feature has an issue number, create `.autodev/ISSUE-{NUMBER}-{kebab-case-title}.md` from the §0.7 skeleton before anything else. Fill in the user story and acceptance criteria immediately.
+2. **Plan first** — write a short, checkable implementation + verification plan for any non-trivial feature. Add it to the issue file's Technical Approach section.
+3. **Read** the existing module — understand its patterns, naming, and interfaces.
+4. **Design the interface first** — function signatures, types, API contract — before dispatching to Code Agent.
+5. **Dispatch to Code Agent** with the interface spec and list of files to read.
+6. **Dispatch to QA Agent** with the acceptance criteria and the new code to test.
+7. **Dispatch to Verifier Agent** — full workflow including browser verification if UI is involved.
+8. **Wire it up** — register routes, export symbols, update config schemas, update DI containers.
+9. **Update documentation** — README, inline docstrings, API docs, changelogs.
+10. **Attach artifacts** — add screenshots, test output, and diff snippets to the issue file.
+11. **Commit** only after Verifier passes. Mark the issue `Resolved` and fill in the Resolution section.
 
 ---
 
