@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // copilotSdkProvider - GitHub Copilot in-process SDK integration.
 //
 // Uses @github/copilot sdk/index.js (LocalSession) directly - no subprocess,
@@ -184,7 +184,7 @@ interface CopilotSdkState {
   log:        ((msg: string) => void) | null;
   offIdle:    (() => void) | null;
   deltasSeen: boolean;
-  /** Set when session.error fires â€” next idle should dispose & fail the task */
+  /** Set when session.error fires — next idle should dispose & fail the task */
   sessionErrored: boolean;
 }
 
@@ -265,7 +265,7 @@ async function _sendAsync(
   let state = _sessions.get(root);
   if (!state) {
     log('Copilot SDK: creating LocalSession for ' + path.basename(root));
-    // SDK v1.0.48+ constructor is (coreServices, options) â€” two args.
+    // SDK v1.0.48+ constructor is (coreServices, options) — two args.
     // Passing everything as one arg puts authInfo in the coreServices slot
     // where it is ignored, so this.authInfo is never set â†’ session.error.
     const coreServices = sdk.createCoreServices ? sdk.createCoreServices({}) : {};
@@ -309,7 +309,7 @@ async function _sendAsync(
         // Track session errors so the next idle disposes the broken session
         if (ev.type === 'session.error') {
           localState.sessionErrored = true;
-          localState.log?.('Copilot SDK: session.error â€” will dispose session on next idle');
+          localState.log?.('Copilot SDK: session.error — will dispose session on next idle');
         }
         appendHookEvent(
           hooksJsonlPath, 'copilot-sdk',
@@ -348,7 +348,7 @@ async function _sendAsync(
   state.exitFile   = exitFile;
   state.log        = log;
 
-  // Completion helper â€” safe to call multiple times (no-ops after first call)
+  // Completion helper — safe to call multiple times (no-ops after first call)
   let completionFired = false;
   let offIdleHandle: (() => void) | null = null;
   let offTaskComplete: (() => void) | null = null;
@@ -371,11 +371,11 @@ async function _sendAsync(
 
   // 3-minute timeout: dispose the stuck session so the next task gets a fresh one
   timeoutHandle = setTimeout(() => {
-    log('Copilot SDK: timeout (3min) â€” disposing stuck session');
+    log('Copilot SDK: timeout (3min) — disposing stuck session');
     completionFired = true;
     offIdleHandle?.();   offIdleHandle = null;
     offTaskComplete?.(); offTaskComplete = null;
-    // Dispose the session (it's stuck on a tool execution â€” can't recover)
+    // Dispose the session (it's stuck on a tool execution — can't recover)
     const s = _sessions.get(root);
     if (s) {
       try { s.session.dispose(); } catch { /* ignore */ }
@@ -390,7 +390,7 @@ async function _sendAsync(
   // session.idle fires when the agent finishes a turn
   offIdleHandle = state.session.on('session.idle', () => {
     if (state!.sessionErrored) {
-      log('Copilot SDK: session.idle after error â€” disposing broken session');
+      log('Copilot SDK: session.idle after error — disposing broken session');
       // Dispose so the next task creates a fresh session
       const s = _sessions.get(root);
       if (s) {
@@ -413,10 +413,10 @@ async function _sendAsync(
   log('Copilot SDK: sending prompt (' + promptText.length + ' chars)');
   await state.session.send({ prompt: promptText });
   // send() resolves when the prompt is submitted, not when the agent finishes.
-  // Do NOT call _complete here â€” the session is still executing. Wait for
+  // Do NOT call _complete here — the session is still executing. Wait for
   // session.idle (or the 3-minute timeout) so the loop doesn't proceed while
   // the agent is still making tool calls and editing TODO.md.
-  log('Copilot SDK: send() resolved â€” waiting for session.idle');
+  log('Copilot SDK: send() resolved — waiting for session.idle');
 }
 
 // ---------------------------------------------------------------------------

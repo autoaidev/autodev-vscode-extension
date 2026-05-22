@@ -16,7 +16,9 @@ import { isOpenCodeHooksInstalled, installOpenCodeHooks } from './openCodeHooksM
 import { saveSettings } from './settings';
 
 let _out: vscode.OutputChannel;
-export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${msg}`); }
+// eslint-disable-next-line no-control-regex
+const _stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b[^[]/g, '');
+export function log(msg: string): void { _out?.appendLine(`[AutoDev] ${_stripAnsi(msg)}`); }
 
 // ---------------------------------------------------------------------------
 // Extension lifecycle

@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -28,7 +28,7 @@ import { rebuildProfile } from './messageBuilder';
 import { copilotNpmRoot, clearCopilotSdkCache } from './providers/copilotSdkProvider';
 
 // ---------------------------------------------------------------------------
-// TodoViewProvider â€” sidebar webview that shows TODO.md tasks + loop controls
+// TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
 // ---------------------------------------------------------------------------
 
 const PROVIDER_KEY = 'autodev.selectedProvider';
@@ -151,9 +151,9 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'saveMcpBulk': {
-          // Global Save All & Sync â€” full replace of user MCP entries directly
+          // Global Save All & Sync — full replace of user MCP entries directly
           // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
-          // mcpServers field (it's been retired â€” .mcp.json is the source).
+          // mcpServers field (it's been retired — .mcp.json is the source).
           const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
           // ALL entries (including enabled:false) are written to .mcp.json so that
           // credentials are preserved when a server is disabled. syncProjectMcpServers
@@ -220,7 +220,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
             try { rebuildProfile(root); } catch (err) {
-              vscode.window.showErrorMessage(`AutoDev: Profile rebuild failed â€” ${(err as Error).message}`);
+              vscode.window.showErrorMessage(`AutoDev: Profile rebuild failed — ${(err as Error).message}`);
             }
           }
           this._push();
@@ -244,7 +244,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           ];
           const target = allServers.find(s => s.name === name);
           if (!target) break;
-          // Async probe â€” must not block the extension host.
+          // Async probe — must not block the extension host.
           checkMcpInstallAsync({ command: target.command, args: target.args }).then(info => {
             const cmd = installCommandFor(info);
             if (!cmd) {
@@ -458,7 +458,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       if (wasEnabled || areHooksInstalled('project', root)) { uninstallHooks('project', root); }
       if (areHooksInstalled('global', root))                { uninstallHooks('global', root); }
     } else {
-      // Always project scope â€” also migrate away from global if it was set before
+      // Always project scope — also migrate away from global if it was set before
       if (areHooksInstalled('global', root)) { uninstallHooks('global', root); }
       installHooks('project', root);
     }
@@ -591,7 +591,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 }
 
 // ---------------------------------------------------------------------------
-// HTML for the sidebar webview â€” assembled from composable panel modules
+// HTML for the sidebar webview — assembled from composable panel modules
 // ---------------------------------------------------------------------------
 
 function buildHtml(webview: vscode.Webview): string {
