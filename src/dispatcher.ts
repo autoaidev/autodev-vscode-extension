@@ -39,7 +39,7 @@ function teeCommand(cmd: string, outFile: string): string {
     const utf8NoBom = 'New-Object System.Text.UTF8Encoding($false)';
     return `$OutputEncoding=${utf8NoBom}; [Console]::OutputEncoding=${utf8NoBom}; ${cmd} 2>&1 | Tee-Object -FilePath ${JSON.stringify(outFile)}`;
   }
-  return `{ ${cmd}; } 2>&1 | tee ${JSON.stringify(outFile)}`;
+  return `{ LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 ${cmd}; } 2>&1 | tee ${JSON.stringify(outFile)}`;
 }
 
 function withExitFile(cmd: string, exitFile: string): string {
