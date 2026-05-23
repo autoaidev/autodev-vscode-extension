@@ -92,7 +92,7 @@ async function getOrCreateClient(
     includePartialMessages: true,
     resumeSessionId: resumeSessionId || undefined,
     env: { CI: 'true' },
-    ...(model ? { model } : {}),
+    ...(model ? { model: model.replace(/-1m$/i, '') } : {}),
   });
 
   _clients.set(root, client);

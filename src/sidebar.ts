@@ -920,7 +920,9 @@ function renderProviders(){
       {v:'',l:'Default'},
       {v:'best',l:'Best'},
       {v:'sonnet',l:'Sonnet'},
+      {v:'sonnet-1m',l:'Sonnet [1M]'},
       {v:'opus',l:'Opus'},
+      {v:'opus-1m',l:'Opus [1M]'},
       {v:'haiku',l:'Haiku'},
     ];
     var curClaude=(state.settings&&state.settings.claudeModel)||'';

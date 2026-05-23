@@ -117,7 +117,7 @@ export function sendGrokTuiPrompt(
 
     if (type === 'assistant' || type === 'text') {
       // Assistant response text.
-      const text: string = msg.content ?? msg.text ?? msg.message ?? '';
+      const text: string = msg.content ?? msg.data ?? msg.text ?? msg.message ?? '';
       if (text) {
         try { fs.appendFileSync(stdoutFile, text, 'utf8'); } catch { /* ignore */ }
         const preview = text.replace(/\r?\n/g, ' ').trim().substring(0, 120);

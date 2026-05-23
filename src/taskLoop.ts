@@ -90,9 +90,9 @@ function sleep(ms: number): Promise<void> {
 /**
  * Read a CLI stdout file and return its content as a UTF-8 string.
  * Handles all BOM variants that PowerShell may write:
- *   \xFF\xFE â†’ UTF-16 LE (Tee-Object default on PS5)
- *   \xEF\xBB\xBF â†’ UTF-8 with BOM (Out-File -Encoding UTF8 on PS5)
- *   no BOM â†’ plain UTF-8 (PS7)
+ *   \xFF\xFE → UTF-16 LE (Tee-Object default on PS5)
+ *   \xEF\xBB\xBF → UTF-8 with BOM (Out-File -Encoding UTF8 on PS5)
+ *   no BOM → plain UTF-8 (PS7)
  */
 function readOutputFile(filePath: string): string {
   const raw = fs.readFileSync(filePath);
@@ -144,7 +144,7 @@ export class TaskLoopRunner {
   private _idleNotified = false;
   private _pollerIntervals: NodeJS.Timeout[] = [];
   private _hooksFileOffset = 0;
-  /** Recently-forwarded hook-line hashes â†’ first-seen timestamp (ms).
+  /** Recently-forwarded hook-line hashes → first-seen timestamp (ms).
    *  Used to suppress byte-identical hook events that get appended multiple
    *  times to the shared JSONL (Copilot CLI fires the same hook from every
    *  parallel session in the same workspace, all writing to one homedir
@@ -897,7 +897,7 @@ export class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`▶ï¸ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
+        this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
       }
 
       const taskStartTime = Date.now();
@@ -1194,8 +1194,8 @@ export class TaskLoopRunner {
               if (this._workspaceRoot) {
                 const pruned = pruneTodoToArchive(todoPath, this._workspaceRoot);
                 if (pruned > 0) {
-                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md â†’ TODO_ARCHIVE.md`);
-                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md â†’ TODO_ARCHIVE.md`);
+                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
+                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
                 } else {
                   this._cb?.log(`🧹 Prune TODO: no completed tasks to move`);
                 }
@@ -1214,10 +1214,10 @@ export class TaskLoopRunner {
         if (err instanceof RateLimitError) {
           // Two flavours:
           //   1. Daily usage limit — message includes "resets 9pm (Europe/Sofia)"
-          //      â†’ resume 15 min after the parsed reset time.
+          //      → resume 15 min after the parsed reset time.
           //   2. Transient server throttle — "API Error: Server is temporarily
-          //      limiting requests (not your usage limit) Â· Rate limited"
-          //      â†’ no reset time given, retry in 5 minutes by default.
+          //      limiting requests (not your usage limit) · Rate limited"
+          //      → no reset time given, retry in 5 minutes by default.
           const DEFAULT_RETRY_MS = 5 * 60_000;
           const resetAt   = err.resetAt;
           const resumeMs  = resetAt ? (resetAt.getTime() - Date.now() + 15 * 60_000) : DEFAULT_RETRY_MS;
@@ -1237,8 +1237,8 @@ export class TaskLoopRunner {
             this._mainProviderBeforeFallback = currentProvider as ProviderId;
             this._mainProviderResumeAt = resumeAt;
             this._resumeAt = resumeAt;
-            this._cb?.log(`â© Rate limit on ${currentProvider} — switching to ${fallbackId} until ${resumeStr} (${suffix})`);
-            this._notifyDiscord(`â© **Rate limit on ${currentProvider}** — switching to **${fallbackId}** until ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
+            this._cb?.log(`⏩ Rate limit on ${currentProvider} — switching to ${fallbackId} until ${resumeStr} (${suffix})`);
+            this._notifyDiscord(`⏩ **Rate limit on ${currentProvider}** — switching to **${fallbackId}** until ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
             this._notifyWebhook('rate_limit', {
               iteration:       this._iterations,
               task:            { text: task.text },
@@ -1257,8 +1257,8 @@ export class TaskLoopRunner {
           }
 
           // No usable fallback — standard pause
-          this._cb?.log(`â¸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
-          this._notifyDiscord(`â¸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._cb?.log(`⏸ Rate limit hit — ${rawMsg}. Auto-resume at ${resumeStr} (${suffix})`);
+          this._notifyDiscord(`⏸ **Rate limit hit** — resuming at ${resumeStr} (${suffix})\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
             iteration:   this._iterations,
             task:        { text: task.text },
@@ -1329,8 +1329,8 @@ export class TaskLoopRunner {
         if (err instanceof ContextLengthError) {
           const rawMsg = err.rawMessage.slice(0, 300);
           const provider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`â¸ Context length exceeded (${provider}) and already compacted — pausing. Click Retry to resume.\n${rawMsg}`);
-          this._notifyDiscord(`â¸ **Context length exceeded** (${provider}) — already compacted or plan limit hit. Pausing…\n\`\`\`\n${rawMsg}\n\`\`\``);
+          this._cb?.log(`⏸ Context length exceeded (${provider}) and already compacted — pausing. Click Retry to resume.\n${rawMsg}`);
+          this._notifyDiscord(`⏸ **Context length exceeded** (${provider}) — already compacted or plan limit hit. Pausing…\n\`\`\`\n${rawMsg}\n\`\`\``);
           this._notifyWebhook('rate_limit', {
             iteration:   this._iterations,
             task:        { text: task.text },
@@ -1352,7 +1352,7 @@ export class TaskLoopRunner {
         const duration = Math.round((Date.now() - taskStartTime) / 1000);
         this._failedCount++;
         const msg = err instanceof Error ? err.message : String(err);
-        this._cb?.log(`âŒ Task failed: ${task.text} — ${msg}`);
+        this._cb?.log(`❌ Task failed: ${task.text} — ${msg}`);
         this._notifyWebhook('task_fail', {
           iteration: this._iterations,
           task:      { text: task.text },
@@ -1362,7 +1362,7 @@ export class TaskLoopRunner {
           gitRepo:   this._gitRepo,
           gitBranch: this._gitBranch,
         });
-        this._notifyDiscord(`âŒ **Task failed:**\n${discordLabel(task.text)}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
+        this._notifyDiscord(`❌ **Task failed:**\n${discordLabel(task.text)}\n\`${msg}\``);        const afterRemainingFail = countRemaining(parseTodo(todoPath));
         if (afterRemainingFail > 0) {
           const totalKnownFail = this._iterations + afterRemainingFail;
           this._notifyDiscord(`\ud83d\udcca Progress: ${this._iterations}/${totalKnownFail}`);

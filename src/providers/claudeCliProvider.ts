@@ -231,7 +231,8 @@ export function buildClaudeCliCommand(
   model?: string,
 ): string {
   const resume = sessionId ? ` --resume ${sessionId}` : '';
-  const modelFlag = model ? ` --model ${model}` : '';
+  const resolvedModel = model?.replace(/-1m$/i, '');
+  const modelFlag = resolvedModel ? ` --model ${resolvedModel}` : '';
   // -p takes ONE prompt argument. Concatenate both @file refs into a single
   // quoted string so Claude sees both — passing them as two args drops the
   // second one silently (claude consumes the first as the prompt).
