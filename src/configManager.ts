@@ -37,6 +37,9 @@ export class ConfigManager {
       perms['defaultMode'] = 'bypassPermissions';
       perms['skipDangerousModePermissionPrompt'] = true;
       cfg['permissions'] = perms;
+      const env = _obj(cfg['env']);
+      env['CLAUDE_CODE_DISABLE_1M_CONTEXT'] = '1';
+      cfg['env'] = env;
     }, log, 'Claude user settings');
 
     // Project-level: allow all tools

@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
@@ -365,7 +365,7 @@ export class TaskLoopRunner {
     if (this._emailPoller) {
       try {
         await this._emailPoller.initialize();
-        callbacks.log('ðŸ“§ Email task poller started — checking inbox every 10s');
+        callbacks.log('🔧 Email task poller started — checking inbox every 10s');
       }
       catch (e) { callbacks.log(`Email poller init failed: ${e instanceof Error ? e.message : String(e)}`); }
     } else {
@@ -381,7 +381,7 @@ export class TaskLoopRunner {
         if (!(env.MCP_EMAIL_SERVER_USER_NAME || env.MCP_EMAIL_SERVER_EMAIL_ADDRESS)) reasons.push('IMAP user/email missing');
         if (!env.MCP_EMAIL_SERVER_PASSWORD) reasons.push('IMAP password missing');
       }
-      if (reasons.length) callbacks.log(`ðŸ“§ Email task poller NOT started: ${reasons.join('; ')}`);
+      if (reasons.length) callbacks.log(`🔧 Email task poller NOT started: ${reasons.join('; ')}`);
     }
 
     // Connect to Discord Gateway so the bot appears online
@@ -868,7 +868,7 @@ export class TaskLoopRunner {
           continue;
         }
         if (attempts > 1) {
-          this._cb?.log(`ðŸ” Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
+          this._cb?.log(`🔍 Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
         }
       }
       this._currentTask = task.text;
@@ -1150,8 +1150,8 @@ export class TaskLoopRunner {
         if (settings.resumeSession && resetInterval > 0 && this._resetSessionCounter >= resetInterval) {
           this._resetSessionCounter = 0;
           const rsProvider = this._cb?.getActiveProvider() ?? '';
-          this._cb?.log(`ðŸ”„ Session reset triggered after ${resetInterval} tasks (provider: ${rsProvider})`);
-          this._notifyDiscord(`ðŸ”„ Session reset after ${resetInterval} tasks — summarising and starting fresh`);
+          this._cb?.log(`🔄 Session reset triggered after ${resetInterval} tasks (provider: ${rsProvider})`);
+          this._notifyDiscord(`🔄 Session reset after ${resetInterval} tasks — summarising and starting fresh`);
           // Ask the agent to write a summary before the session is cleared
           try {
             const summaryMsg = `Before this session ends, please summarise everything accomplished so far into a file called SUMMARY.md in the project root. Include: tasks completed, key decisions made, any issues found, and current project state. Write comprehensively so the next session can continue without context loss. Then stop — do not pick up any new tasks.`;
@@ -1164,7 +1164,7 @@ export class TaskLoopRunner {
           // Clear the session ID so the next dispatch starts a fresh session
           if (this._workspaceRoot && rsProvider) {
             clearSessionId(this._workspaceRoot, rsProvider as import('./providers').ProviderId);
-            this._cb?.log(`ðŸ”„ Session ID cleared — next task will start a new session`);
+            this._cb?.log(`🔄 Session ID cleared — next task will start a new session`);
           }
         }
 
@@ -1526,7 +1526,7 @@ export class TaskLoopRunner {
           const newText = content.slice(lastStdoutLen).trim();
           lastStdoutLen = content.length;
           if (newText) {
-            this._notifyDiscord(`ðŸ–¥ **Claude output:**\n\`\`\`\n${newText}\n\`\`\``);
+            this._notifyDiscord(`🖥 **Claude output:**\n\`\`\`\n${newText}\n\`\`\``);
             this._notifyWebhook('claude_output', {
               iteration: this._iterations,
               task:      { text: task.text },
