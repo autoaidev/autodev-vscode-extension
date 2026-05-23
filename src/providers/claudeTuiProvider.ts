@@ -244,6 +244,30 @@ export async function runClaudeTuiCompact(
 }
 
 // ---------------------------------------------------------------------------
+// runClaudeTuiClear
+//
+// Sends /clear to the active session to wipe history and start fresh.
+// Used when autocompact is thrashing (context refills immediately after compact).
+// ---------------------------------------------------------------------------
+export async function runClaudeTuiClear(
+  root: string,
+  sessionId: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  try {
+    const client = await getOrCreateClient(root, sessionId, log);
+    log(`Claude TUI clear: sending /clear`);
+    const turn = client.send('/clear');
+    await turn.done;
+    log(`Claude TUI clear: done`);
+    _evictClient(root);
+  } catch (err) {
+    log(`Claude TUI clear error: ${(err as Error)?.message ?? String(err)}`);
+    _evictClient(root);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // detectTuiRateLimit
 // ---------------------------------------------------------------------------
 export function detectTuiRateLimit(stdoutContent: string): ReturnType<typeof RateLimitDetector.detect> {

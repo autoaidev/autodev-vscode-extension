@@ -179,11 +179,11 @@ All completed tasks are recorded here in reverse-chronological order.
 
 ---
 
-### `.autodev/ISSUE-NNN-ISSUE_TITLE.md` — Per-Issue Living Documents
+### `.autodev/issues/ISSUE-NNN-ISSUE_TITLE.md` — Per-Issue Living Documents
 
 **Purpose:** A single aligned, append-only record for every issue, ticket, bug, or user story. Tracks the full evolution of the issue over time — user story, acceptance criteria, technical approach, work log, artifacts, related issues, and final resolution. Any agent reading it must understand the full story without looking at Jira, email, or any other source.
 
-**Filename format:** `ISSUE-{NUMBER}-{kebab-case-title}.md` — e.g. `ISSUE-123-user-login-timeout.md`. Use `0` as the number for local issues without an external ticket number.
+**Directory:** `.autodev/issues/` · **Filename format:** `ISSUE-{NUMBER}-{kebab-case-title}.md` — e.g. `ISSUE-123-user-login-timeout.md`. Use `0` as the number for local issues without an external ticket number.
 
 **Create when:**
 - A Jira ticket, GitHub issue, or user story is assigned or referenced.
@@ -197,5 +197,28 @@ All completed tasks are recorded here in reverse-chronological order.
 - The issue is resolved (fill in the Resolution section and attach verification artifacts).
 
 **Rule:** Create the file before doing any work on the issue. Never delete it — set `Status: Resolved` when done. See **§0.7** for the full skeleton and protocol.
+
+---
+
+### `.autodev/knowledgebase/KB-NNN-title.md` — Knowledge Base
+
+**Purpose:** Reusable, project-level knowledge — architectural decisions, domain rules, recurring patterns, integration quirks, confirmed gotchas, and any insight that would otherwise be re-discovered repeatedly. Unlike issues (which track problems), KB entries are **evergreen reference material**.
+
+**Directory:** `.autodev/knowledgebase/` · **Filename format:** `KB-{NUMBER}-{kebab-case-title}.md` — e.g. `KB-001-auth-token-refresh-flow.md`. Use `0` for local insights with no external reference.
+
+**Create when:**
+- An architectural decision is made that should not be re-litigated.
+- A pattern applies across more than one part of the codebase.
+- An integration quirk or external API behaviour is confirmed.
+- A recurring question from a human or agent is answered definitively.
+- A `JOURNAL.md` `keep` outcome produces transferable insight.
+- A `TROUBLESHOOTING.md` entry reveals a class of problem worth preventing proactively.
+
+**Update when:**
+- The knowledge evolves — append a Change History entry and update the body in place.
+- A related issue is opened or closed — cross-reference both files.
+- The entry is superseded — mark `Status: Deprecated`, add a `Superseded by:` link.
+
+**Rule:** Write the KB entry during the session the insight is confirmed — not later. Never delete. See **§0.8** for the full skeleton and protocol.
 
 

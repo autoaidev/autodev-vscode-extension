@@ -13,8 +13,8 @@ import { IFileWatcher, IDisposable } from './core/adapters';
 import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession } from './dispatcher';
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
 import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedCleanly } from './openCodeHooksManager';
-import { runClaudeCompact } from './providers/claudeCliProvider';
-import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
+import { runClaudeCompact, runClaudeClear } from './providers/claudeCliProvider';
+import { runClaudeTuiCompact, runClaudeTuiClear, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { sendCopilotSdkPrompt, isCopilotSdkBusy, getLatestCopilotSdkSessionId, readCopilotSdkOutputSince, closeCopilotSdkSession, closeAllCopilotSdkSessions } from './providers/copilotSdkProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient, forceIdleOpencodeSdk } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
@@ -44,6 +44,14 @@ class ContextLengthError extends Error {
   constructor(readonly rawMessage: string) {
     super(rawMessage);
     this.name = 'ContextLengthError';
+  }
+}
+
+/** Thrown when Claude's autocompact is thrashing — /clear is needed. */
+class ThrashingError extends ContextLengthError {
+  constructor(rawMessage: string) {
+    super(rawMessage);
+    this.name = 'ThrashingError';
   }
 }
 
@@ -211,6 +219,35 @@ export class TaskLoopRunner {
       }
     } catch (e) {
       log(`⚠️ Compact failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** Manually trigger a /clear on the current Claude session for the given provider/root. */
+  async clearSession(root: string, provider: ProviderId): Promise<void> {
+    const log = (m: string) => this._cb?.log(m);
+    log(`🗑 Manual /clear triggered (provider: ${provider})`);
+    try {
+      if (provider === 'claude-cli') {
+        let sid = getSessionId(root, 'claude-cli');
+        if (!sid) { sid = findLatestClaudeSession(root); }
+        if (sid) {
+          await runClaudeClear(sid, root, log);
+          clearSessionId(root, 'claude-cli');
+          log('🗑 /clear complete — session reset');
+        } else { log('⚠️ /clear: no Claude session ID found'); }
+      } else if (provider === 'claude-tui') {
+        let sid = getSessionId(root, 'claude-tui');
+        if (!sid) { sid = getClaudeTuiLatestSessionId(root); }
+        if (sid) {
+          await runClaudeTuiClear(root, sid, log);
+          clearSessionId(root, 'claude-tui');
+          log('🗑 /clear (TUI) complete — session reset');
+        } else { log('⚠️ /clear: no Claude TUI session ID found'); }
+      } else {
+        log(`⚠️ /clear not supported for provider: ${provider}`);
+      }
+    } catch (e) {
+      log(`⚠️ /clear failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -513,6 +550,37 @@ export class TaskLoopRunner {
       this._cb?.log('🔄 /restart received — restarting loop…');
       this._notifyDiscord('🔄 Restarting loop (/restart received)');
       void this.restart();
+      return;
+    }
+    if (c === '/clear') {
+      this._cb?.log('🗑 /clear received — clearing Claude session…');
+      this._notifyDiscord('🗑 `/clear` received — clearing Claude session');
+      const root = this._workspaceRoot;
+      const provider = this._cb?.getActiveProvider() ?? '';
+      if (root) {
+        if (provider === 'claude-tui') {
+          let sessionId = getSessionId(root, 'claude-tui');
+          if (!sessionId) { sessionId = getClaudeTuiLatestSessionId(root); }
+          if (sessionId) {
+            runClaudeTuiClear(root, sessionId, msg => this._cb?.log(msg))
+              .then(() => { clearSessionId(root, 'claude-tui'); this._cb?.log('🗑 /clear (TUI) complete'); })
+              .catch(e => this._cb?.log(`⚠️ /clear (TUI) failed: ${e instanceof Error ? e.message : String(e)}`));
+          } else {
+            this._cb?.log('⚠️ /clear: no active Claude TUI session found');
+          }
+        } else {
+          // Default to claude-cli
+          let sessionId = getSessionId(root, 'claude-cli');
+          if (!sessionId) { sessionId = findLatestClaudeSession(root); }
+          if (sessionId) {
+            runClaudeClear(sessionId, root, msg => this._cb?.log(msg))
+              .then(() => { clearSessionId(root, 'claude-cli'); this._cb?.log('🗑 /clear complete'); })
+              .catch(e => this._cb?.log(`⚠️ /clear failed: ${e instanceof Error ? e.message : String(e)}`));
+          } else {
+            this._cb?.log('⚠️ /clear: no active Claude session found');
+          }
+        }
+      }
     }
   }
 
@@ -1278,6 +1346,48 @@ export class TaskLoopRunner {
           if (this._state !== 'running') { break; }
           continue; // pick up the same task at the top of the loop
         }
+        // --- Thrashing: /compact is failing, Claude recommends /clear -----
+        if (err instanceof ThrashingError) {
+          const rawMsg = err.rawMessage.slice(0, 300);
+          const provider = this._cb?.getActiveProvider() ?? '';
+          this._cb?.log(`🗑 Autocompact thrashing (${provider}) — running /clear to reset session…\n${rawMsg}`);
+          this._notifyDiscord(`🗑 **Autocompact thrashing** (${provider}) — running \`/clear\` to reset session…\n\`\`\`\n${rawMsg}\n\`\`\``);
+
+          if (provider === 'claude-cli') {
+            let sessionId = getSessionId(this._workspaceRoot!, 'claude-cli');
+            if (!sessionId) { sessionId = findLatestClaudeSession(this._workspaceRoot!); }
+            if (sessionId) {
+              try {
+                await runClaudeClear(sessionId, this._workspaceRoot!, msg => this._cb?.log(msg));
+                clearSessionId(this._workspaceRoot!, 'claude-cli');
+                this._cb?.log('🗑 /clear complete — session reset, retrying task');
+                this._notifyDiscord('🗑 `/clear` complete — session reset, retrying task');
+              } catch (e) {
+                this._cb?.log(`⚠️ /clear failed: ${e instanceof Error ? e.message : String(e)} — retrying anyway`);
+              }
+            } else {
+              this._cb?.log('⚠️ No Claude session ID found for /clear — retrying anyway');
+            }
+          } else if (provider === 'claude-tui') {
+            let sessionId = getSessionId(this._workspaceRoot!, 'claude-tui');
+            if (!sessionId) { sessionId = getClaudeTuiLatestSessionId(this._workspaceRoot!); }
+            if (sessionId) {
+              try {
+                await runClaudeTuiClear(this._workspaceRoot!, sessionId, msg => this._cb?.log(msg));
+                clearSessionId(this._workspaceRoot!, 'claude-tui');
+                this._cb?.log('🗑 /clear (TUI) complete — session reset, retrying task');
+                this._notifyDiscord('🗑 `/clear` (TUI) complete — session reset, retrying task');
+              } catch (e) {
+                this._cb?.log(`⚠️ /clear (TUI) failed: ${e instanceof Error ? e.message : String(e)} — retrying anyway`);
+              }
+            } else {
+              this._cb?.log('⚠️ No Claude TUI session ID found for /clear — retrying anyway');
+            }
+          }
+          this._compactedTaskLines.delete(task.line); // allow compact to run again next time
+          await todoWriter.resetToTodo(todoPath, task).catch(() => {});
+          continue;
+        }
         // --- Context length (OpenCode + Claude): run /compact once then retry
         if (err instanceof ContextLengthError && !this._compactedTaskLines.has(task.line)) {
           this._compactedTaskLines.add(task.line);
@@ -1302,6 +1412,21 @@ export class TaskLoopRunner {
               }
             } else {
               this._cb?.log('⚠️ No Claude session ID found for compact — retrying task without compact');
+            }
+          } else if (provider === 'claude-tui') {
+            let sessionId = getSessionId(this._workspaceRoot!, 'claude-tui');
+            if (!sessionId) { sessionId = getClaudeTuiLatestSessionId(this._workspaceRoot!); }
+            if (sessionId) {
+              try {
+                await runClaudeTuiCompact(this._workspaceRoot!, sessionId, msg => this._cb?.log(msg));
+                this._cb?.log('🗜 Claude TUI compact complete — retrying task');
+                this._notifyDiscord('🗜 Claude TUI compact complete — retrying task');
+              } catch (compactErr) {
+                const compactMsg = compactErr instanceof Error ? compactErr.message : String(compactErr);
+                this._cb?.log(`⚠️ Claude TUI compact failed: ${compactMsg} — retrying anyway`);
+              }
+            } else {
+              this._cb?.log('⚠️ No Claude TUI session ID found for compact — retrying task without compact');
             }
           } else {
             // OpenCode (existing behaviour)
@@ -1573,8 +1698,14 @@ export class TaskLoopRunner {
         //   "prompt is too long: 1018289 tokens > 1000000 maximum"
         //   "Prompt is too long" (last_assistant_message in StopFailure hook)
         //   "context_length_exceeded"
+        //   "Autocompact is thrashing" (context refills immediately after compact)
         if (isClaudeCli) {
           const lc = content.toLowerCase();
+          if (lc.includes('autocompact is thrashing')) {
+            cleanup();
+            reject(new ThrashingError(content.trim()));
+            return;
+          }
           if (lc.includes('prompt is too long')
               || lc.includes('context_length_exceeded')
               || /tokens?\s*>\s*\d+\s*maximum/.test(lc)) {
@@ -1587,6 +1718,11 @@ export class TaskLoopRunner {
         // Context length detection for claude-tui (same patterns)
         if (isClaudeTui) {
           const lc = content.toLowerCase();
+          if (lc.includes('autocompact is thrashing')) {
+            cleanup();
+            reject(new ThrashingError(content.trim()));
+            return;
+          }
           if (lc.includes('prompt is too long')
               || lc.includes('context_length_exceeded')
               || /tokens?\s*>\s*\d+\s*maximum/.test(lc)) {

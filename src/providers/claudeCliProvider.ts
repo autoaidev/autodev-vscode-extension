@@ -288,3 +288,28 @@ export function runClaudeCompact(
     });
   });
 }
+
+/**
+ * Run `/clear` on an existing Claude session to wipe the conversation history
+ * and start fresh. Used when autocompact is thrashing (context refills to
+ * limit immediately after compact). Resolves on exit.
+ */
+export function runClaudeClear(
+  sessionId: string,
+  cwd: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cmd = `claude --dangerously-skip-permissions --resume ${sessionId} -p "/clear"`;
+    log(`Claude clear: ${cmd}`);
+    exec(cmd, { cwd, encoding: 'utf8', timeout: 60_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout) => {
+      if (err) {
+        log(`Claude clear stderr: ${(err.message ?? '').slice(0, 300)}`);
+        reject(err);
+      } else {
+        log(`Claude clear done (${stdout.length} bytes of output)`);
+        resolve();
+      }
+    });
+  });
+}

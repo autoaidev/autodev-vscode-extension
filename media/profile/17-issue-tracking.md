@@ -1,6 +1,6 @@
-## 0.7 Issue Tracking Protocol — `.autodev/ISSUE-NNN-ISSUE_TITLE.md`
+## 0.7 Issue Tracking Protocol — `.autodev/issues/ISSUE-NNN-ISSUE_TITLE.md`
 
-**Each issue gets its own living document.** When any issue, ticket, bug report, or user story is assigned or referenced, the agent creates `.autodev/ISSUE-NNN-ISSUE_TITLE.md` immediately. This file is the single aligned record of that issue's full life — from first description through every decision, implementation detail, test result, artifact, and final resolution.
+**Each issue gets its own living document.** When any issue, ticket, bug report, or user story is assigned or referenced, the agent creates `.autodev/issues/ISSUE-NNN-ISSUE_TITLE.md` immediately. This file is the single aligned record of that issue's full life — from first description through every decision, implementation detail, test result, artifact, and final resolution.
 
 It is **never a snapshot**. It grows with the issue. Anyone — human or agent — reading it at any point in time must be able to understand the full context without looking elsewhere.
 
@@ -8,13 +8,13 @@ It is **never a snapshot**. It grows with the issue. Anyone — human or agent �
 
 ### On Session Start — Check for open issues
 
-After reading `SOUL.md` and `SUMMARY.md`, scan `.autodev/` for any `ISSUE-*.md` files whose status is not `Resolved` or `Closed`. Re-read each one before starting work so context is fully loaded.
+After reading `SOUL.md` and `SUMMARY.md`, scan `.autodev/issues/` for any `ISSUE-*.md` files whose status is not `Resolved` or `Closed`. Re-read each one before starting work so context is fully loaded.
 
 ---
 
 ### When to Create a New Issue File
 
-Create `.autodev/ISSUE-NNN-ISSUE_TITLE.md` the moment any of the following happens:
+Create `.autodev/issues/ISSUE-NNN-ISSUE_TITLE.md` the moment any of the following happens:
 
 - A Jira ticket / GitHub issue is assigned or referenced in a task.
 - An email arrives describing a bug, feature request, or user story with an issue number.
@@ -31,9 +31,10 @@ If no external issue number exists, use `0` as the number and a descriptive slug
 
 ```
 .autodev/
-  ISSUE-123-user-login-timeout.md      ← number + kebab-case title
-  ISSUE-456-add-pagination-to-list.md
-  ISSUE-0-local-login-bug.md           ← local issues without an external number
+  issues/
+    ISSUE-123-user-login-timeout.md      ← number + kebab-case title
+    ISSUE-456-add-pagination-to-list.md
+    ISSUE-0-local-login-bug.md           ← local issues without an external number
 ```
 
 - Format: `ISSUE-{NUMBER}-{kebab-case-title}.md`
@@ -76,7 +77,7 @@ Create the file with this skeleton, then fill in what is known immediately. Unkn
 ## Related Issues & Context
 
 <!-- Reference other issues that this one depends on, blocks, or is part of. -->
-<!-- Format: [ISSUE-NNN-title](.autodev/ISSUE-NNN-title.md) — one-line relationship note -->
+<!-- Format: [ISSUE-NNN-title](.autodev/issues/ISSUE-NNN-title.md) — one-line relationship note -->
 
 - Depends on: —
 - Blocks: —
@@ -151,7 +152,7 @@ Create the file with this skeleton, then fill in what is known immediately. Unkn
 When one issue depends on, blocks, or relates to another:
 
 1. Add the relationship to the **Related Issues & Context** section of **both** files.
-2. Use the format: `[ISSUE-NNN-title](.autodev/ISSUE-NNN-title.md) — {one-line relationship note}`.
+2. Use the format: `[ISSUE-NNN-title](.autodev/issues/ISSUE-NNN-title.md) — {one-line relationship note}`.
 3. When the relationship changes (e.g. a blocker is resolved), update both files.
 
 This ensures any agent reading a single issue file can navigate the full user story without external lookups.
@@ -165,6 +166,7 @@ This ensures any agent reading a single issue file can navigate the full user st
 | **TODO.md** | Task lines may include the issue reference: `- [~] [ISSUE-123-login-timeout] fix: login timeout`. The issue file is the detailed record; `TODO.md` is the status signal. |
 | **Jira / `mcp-atlassian`** | After updating a Jira ticket, update the corresponding issue file. After updating the issue file with a resolution, add a Jira comment with a link to the file and attach artifacts. |
 | **Email / `zerolib-email`** | When an issue transitions state (blocked, resolved, needs review), email the relevant agent or human per `CONTRACTS.md`. Include the issue file path and key artifacts in the email. |
+| **Knowledge Base / `.autodev/knowledgebase/`** | When an issue reveals a reusable insight, create a KB entry and cross-link. Reference the issue in the KB entry's **Related issues** field and link the KB entry in the issue's **Artifacts** section. |
 | **CHANGELOG.md** | When an issue is resolved, add a `CHANGELOG.md` entry that references the issue file. |
 | **JOURNAL.md** | Non-trivial experiments or research done for an issue get a `JOURNAL.md` row. Cross-reference the issue file name in the Journal row. |
 

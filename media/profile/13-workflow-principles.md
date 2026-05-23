@@ -1,6 +1,6 @@
 ## 9. Adding a New Feature
 
-1. **Create the issue file** — if this feature has an issue number, create `.autodev/ISSUE-{NUMBER}-{kebab-case-title}.md` from the §0.7 skeleton before anything else. Fill in the user story and acceptance criteria immediately.
+1. **Create the issue file** — if this feature has an issue number, create `.autodev/issues/ISSUE-{NUMBER}-{kebab-case-title}.md` from the §0.7 skeleton before anything else. Fill in the user story and acceptance criteria immediately.
 2. **Plan first** — write a short, checkable implementation + verification plan for any non-trivial feature. Add it to the issue file's Technical Approach section.
 3. **Read** the existing module — understand its patterns, naming, and interfaces.
 4. **Design the interface first** — function signatures, types, API contract — before dispatching to Code Agent.

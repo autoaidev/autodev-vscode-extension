@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { taskLoopRunner } from './taskLoop';
 import { openSettingsFile, loadSettings } from './settings';
+import { pruneTodoToArchive } from './todo';
 import { TodoViewProvider } from './sidebar';
 import { sendPromptToAi } from './dispatcher';
 import { closeClaudeTuiClient, closeAllClaudeTuiClients } from './providers/claudeTuiProvider';
@@ -136,7 +137,32 @@ export function activate(context: vscode.ExtensionContext): void {
       void taskLoopRunner.restart();
     }),
 
+    vscode.commands.registerCommand('autodev.clearSession', () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
+      const provider = sidebar.selectedProvider as import('./providers').ProviderId;
+      vscode.window.showInformationMessage('AutoDev: Running /clear on session…');
+      void taskLoopRunner.clearSession(root, provider);
+    }),
+
     vscode.commands.registerCommand('autodev.openSettings', () => openSettingsFile()),
+
+    vscode.commands.registerCommand('autodev.archiveTodo', () => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
+      const settings = loadSettings();
+      const todoPath = settings.todoPath || path.join(root, 'TODO.md');
+      try {
+        const pruned = pruneTodoToArchive(todoPath, root);
+        if (pruned > 0) {
+          vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) \u2192 TODO_ARCHIVE.md`);
+        } else {
+          vscode.window.showInformationMessage('AutoDev: No completed tasks to archive.');
+        }
+      } catch (e) {
+        vscode.window.showErrorMessage(`AutoDev: Archive failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }),
   );
 
   // Auto-start the task loop when a workspace was bound via the autodev CLI

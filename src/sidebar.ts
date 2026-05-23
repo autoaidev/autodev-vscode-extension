@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -14,7 +14,7 @@ import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
 import { applyMcpSkills } from './protocolSections';
-import { Task, parseTodo } from './todo';
+import { Task, parseTodo, pruneTodoToArchive } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId, saveSessionName, getSessionName } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
@@ -127,6 +127,24 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           taskLoopRunner.compact(root, provider).catch((e: unknown) => {
             vscode.window.showErrorMessage(`AutoDev: Compact failed: ${e instanceof Error ? e.message : String(e)}`);
           });
+          break;
+        }
+        case 'archiveTodo': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const settings = loadSettings();
+          const todoPath = settings.todoPath || path.join(root, 'TODO.md');
+          try {
+            const pruned = pruneTodoToArchive(todoPath, root);
+            if (pruned > 0) {
+              vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) -> TODO_ARCHIVE.md`);
+            } else {
+              vscode.window.showInformationMessage('AutoDev: No completed tasks to archive.');
+            }
+            this._refreshTasks();
+          } catch (e) {
+            vscode.window.showErrorMessage(`AutoDev: Archive failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
           break;
         }
         case 'renameSession': {
@@ -361,6 +379,14 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     if (!text.trim()) { return; }
     if (text.trim().toLowerCase() === '/restart') {
       void vscode.commands.executeCommand('autodev.restartTaskLoop');
+      return;
+    }
+    if (text.trim().toLowerCase() === '/clear') {
+      void vscode.commands.executeCommand('autodev.clearSession');
+      return;
+    }
+    if (text.trim().toLowerCase() === '/archive') {
+      void vscode.commands.executeCommand('autodev.archiveTodo');
       return;
     }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -689,6 +715,7 @@ ${PERIODIC_ACTIONS.map(a => `
   <span style="flex-shrink:0">Session:</span>
   <span class="session-id-val" id="sessionIdVal" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
   <button class="new-session-btn" id="compactBtn" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
+  <button class="new-session-btn" id="archiveTodoBtn" title="Move completed [x] tasks from TODO.md to TODO_ARCHIVE.md">&#x1F4E6; Archive</button>
   <button class="new-session-btn" id="renameSessionBtn" title="Set a display name for this session">&#x270F;</button>
 </div>
 <div class="model-row" id="renameRow" style="display:none;gap:4px">
@@ -890,6 +917,8 @@ function renderProviders(){
   }
   var compactBtn=document.getElementById('compactBtn');
   if(compactBtn){compactBtn.onclick=function(){vscode.postMessage({command:'compactSession'});};}
+  var archiveTodoBtn=document.getElementById('archiveTodoBtn');
+  if(archiveTodoBtn){archiveTodoBtn.onclick=function(){vscode.postMessage({command:'archiveTodo'});};}
   var renameSessionBtn=document.getElementById('renameSessionBtn');
   var renameRow=document.getElementById('renameRow');
   var renameInput=document.getElementById('renameInput');

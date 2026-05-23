@@ -144,9 +144,17 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
   {
     id: '17-issue-tracking', label: 'Issue Tracking Protocol (per-issue living docs)', file: '17-issue-tracking.md',
     keyRules: [
-      'For every issue/ticket, create `.autodev/ISSUE-NNN-kebab-title.md` before doing any work — it is the single living record of that issue.',
+      'For every issue/ticket, create `.autodev/issues/ISSUE-NNN-kebab-title.md` before doing any work — it is the single living record of that issue.',
       'Append Work Log entries and artifacts as the issue evolves. Never edit past entries.',
       'Cross-reference related issues bidirectionally so any agent can navigate the full user story from a single file.',
+    ],
+  },
+  {
+    id: '18-knowledgebase', label: 'Knowledge Base Protocol (reusable project knowledge)', file: '18-knowledgebase.md',
+    keyRules: [
+      'Capture reusable insights in `.autodev/knowledgebase/KB-NNN-kebab-title.md` the moment they are confirmed — architectural decisions, patterns, integration quirks, recurring gotchas.',
+      'KB entries are evergreen reference material — update the body in place, append Change History, never delete. Deprecate with a forward link.',
+      'Cross-reference KB entries and issue files bidirectionally; scan `.autodev/knowledgebase/` for relevant entries before starting related work.',
     ],
   },
 ];
@@ -295,6 +303,40 @@ export function assembleProfileBody(
     'It lists every human and agent contact address, per-channel routing rules, and the escalation',
     'thresholds that must be met before contacting the human.',
     'Never invent or guess a contact address — if it is not in CONTRACTS.md, do not send.',
+    '</think>',
+    '',
+  ].join('\n');
+
+  // Always append issue tracking and knowledge base anchors.
+  body += [
+    '',
+    '---',
+    '',
+    '## Open Issues',
+    '',
+    '@.autodev/issues/',
+    '<think>',
+    'IMPORTANT: At session start, scan .autodev/issues/ for ISSUE-*.md files whose Status is not Resolved or Closed.',
+    'Re-read each open issue file before starting work so context is fully loaded.',
+    'When assigned a ticket or bug, create .autodev/issues/ISSUE-NNN-kebab-title.md immediately — before any code or email.',
+    'If .autodev/issues/ does not exist yet, create it and the first issue file from the skeleton in §0.7.',
+    '</think>',
+    '',
+  ].join('\n');
+
+  body += [
+    '',
+    '---',
+    '',
+    '## Knowledge Base',
+    '',
+    '@.autodev/knowledgebase/',
+    '<think>',
+    'IMPORTANT: Before starting any non-trivial task, scan .autodev/knowledgebase/ for KB entries relevant to that task.',
+    'When a session produces a reusable insight (architectural decision, pattern, gotcha, confirmed API behaviour),',
+    'create .autodev/knowledgebase/KB-NNN-kebab-title.md immediately — do not wait until the end of the session.',
+    'Cross-reference KB entries and issue files bidirectionally. Never delete KB entries — deprecate with a forward link.',
+    'If .autodev/knowledgebase/ does not exist yet, create it and the first KB entry from the skeleton in §0.8.',
     '</think>',
     '',
   ].join('\n');
