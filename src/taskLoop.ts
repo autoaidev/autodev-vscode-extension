@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
@@ -1787,6 +1787,18 @@ export class TaskLoopRunner {
             if (fs.readFileSync(latestExit, 'utf8').trim() !== '') {
               handledExitFile = latestExit;
               void onCliExit();
+            } else if (isOpenCodeCli && this._workspaceRoot) {
+              // Empty exit file: the opencode process may have been killed before
+              // writing the exit code (VS Code restart, OOM, terminal force-close).
+              // If opencode is no longer active (hooks JSONL stale > 90s) and a
+              // minimum grace period has elapsed, treat it as an unclean exit so
+              // CliExitHandler can decide whether to retry, remind, or give up.
+              const minWaitMs = 2 * 60 * 1_000; // 2 min grace period for startup
+              if (Date.now() - taskStartTime > minWaitMs
+                  && !isOpenCodeCliActive(this._workspaceRoot)) {
+                handledExitFile = latestExit;
+                void onCliExit();
+              }
             }
           } catch { /* file not yet written — ignore */ }
         }
@@ -1832,6 +1844,38 @@ export class TaskLoopRunner {
           return;
         }
 
+        // TODO.md inactivity timeout — fires when TODO.md has not been touched
+        // for the full timeout duration (resets on every TODO.md write).
+        // Checked on every tick independently of the JSONL reminder flow, so it
+        // fires even after a reminder has already been sent and reminderPending=false.
+        {
+          const idleMs = Date.now() - lastTodoChangeTime;
+          if (idleMs >= timeoutMs) {
+            cleanup();
+            const minutes = settings.taskTimeoutMinutes ?? 30;
+            if (settings.retryOnTimeout) {
+              await todoWriter.resetToTodo(todoPath, task).catch(() => {});
+              const msg = `⏱ TODO.md idle for ${minutes}m — retrying: ${discordLabel(task.text)}`;
+              this._cb?.log(msg);
+              this._notifyDiscord(msg);
+              this._notifyWebhook('task_checkin', {
+                iteration:      this._iterations,
+                task:           { text: task.text },
+                elapsedMinutes: minutes,
+                timedOut:       true,
+                retrying:       true,
+                workDir:        this._workspaceRoot,
+                gitRepo:        this._gitRepo,
+                gitBranch:      this._gitBranch,
+              });
+              resolve(); // loop will pick it up again as a fresh [ ] task
+            } else {
+              reject(new Error(`Task timed out after ${minutes} minutes of TODO.md inactivity`));
+            }
+            return;
+          }
+        }
+
         // No new bytes — check if we've been quiet long enough
         if (!reminderPending) { return; }
         if (Date.now() - lastActivityTime < INACTIVITY_MS) { return; }
@@ -1875,34 +1919,6 @@ export class TaskLoopRunner {
           const reminderFile = writeMessageFile(this._workspaceRoot!, reminder);
           await this._cb!.sendToAi(reminder, task.text, false, reminderFile);
         } catch { /* ignore */ }
-
-        // TODO.md inactivity timeout — fires when TODO.md has not been touched
-        // for the full timeout duration (resets on every TODO.md write).
-        const idleMs = Date.now() - lastTodoChangeTime;
-        if (idleMs >= timeoutMs) {
-          cleanup();
-          const minutes = settings.taskTimeoutMinutes ?? 30;
-          if (settings.retryOnTimeout) {
-            await todoWriter.resetToTodo(todoPath, task).catch(() => {});
-            const msg = `â± TODO.md idle for ${minutes}m — retrying: ${discordLabel(task.text)}`;
-            this._cb?.log(msg);
-            this._notifyDiscord(msg);
-            this._notifyWebhook('task_checkin', {
-              iteration:      this._iterations,
-              task:           { text: task.text },
-              elapsedMinutes: minutes,
-              timedOut:       true,
-              retrying:       true,
-              workDir:        this._workspaceRoot,
-              gitRepo:        this._gitRepo,
-              gitBranch:      this._gitBranch,
-            });
-            resolve(); // loop will pick it up again as a fresh [ ] task
-          } else {
-            reject(new Error(`Task timed out after ${minutes} minutes of TODO.md inactivity`));
-          }
-          return;
-        }
       }, 3_000);
     });
   }
