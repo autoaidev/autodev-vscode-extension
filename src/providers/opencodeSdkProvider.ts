@@ -454,6 +454,13 @@ export function sendOpencodeSdkPrompt(
             try { fs.appendFileSync(stdoutFile, `\n[ERROR] ${errMsg}\n`, 'utf8'); } catch { /* ignore */ }
             break;
           }
+        } else if (type === 'server.instance.disposed') {
+          // Server is shutting down — abort the wait and evict the stale client
+          // so the next dispatch starts a fresh server instance.
+          log('OpenCode SDK: server.instance.disposed — aborting wait');
+          _evictClient(root);
+          try { fs.appendFileSync(stdoutFile, `\n[server disposed]\n`, 'utf8'); } catch { /* ignore */ }
+          break;
         }
       }
 
@@ -515,6 +522,17 @@ export function closeOpencodeSdkClient(root: string, log: (msg: string) => void)
     _activity.delete(root);
     _textBuffer.delete(root);
   }
+}
+
+/**
+ * Force-clear the busy flag for a root — used by the task loop when it detects
+ * via hooks-events.jsonl that the server was disposed while the SDK async was
+ * still running (i.e. the for-await loop never received the disposed event).
+ */
+export function forceIdleOpencodeSdk(root: string): void {
+  _busyRoots.delete(root);
+  _activity.delete(root);
+  _evictClient(root);
 }
 
 /** Close all open SDK servers — called on extension deactivate to avoid orphaned processes. */

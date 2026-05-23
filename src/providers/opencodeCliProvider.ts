@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 
 // ---------------------------------------------------------------------------
 // OpenCode CLI command builder
@@ -33,9 +33,36 @@ export function getLatestOpenCodeSessionId(
   notBefore = 0,
 ): Promise<string | undefined> {
   return new Promise(resolve => {
-    exec('opencode session list -n 10 --format json', { cwd, encoding: 'utf8', timeout: 10000 }, (_err, stdout) => {
+    let done = false;
+    let stdout = '';
+
+    // Use spawn with detached=true so the child gets its own process group.
+    // On timeout we kill the entire group (SIGKILL) to avoid leaving the
+    // opencode binary alive as a zombie when the shell wrapper exits.
+    const child = spawn('opencode', ['session', 'list', '-n', '10', '--format', 'json'], {
+      cwd,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    child.unref(); // don't prevent extension host from exiting
+
+    const timer = setTimeout(() => {
+      if (done) { return; }
+      done = true;
       try {
-        const sessions = JSON.parse(stdout ?? '[]') as Array<{ id: string; directory: string; created: number; updated: number }>;
+        if (child.pid !== undefined) { process.kill(-child.pid, 'SIGKILL'); }
+      } catch { /* process may have already exited */ }
+      resolve(undefined);
+    }, 10_000);
+
+    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+
+    child.on('close', () => {
+      if (done) { return; }
+      done = true;
+      clearTimeout(timer);
+      try {
+        const sessions = JSON.parse(stdout) as Array<{ id: string; directory: string; created: number; updated: number }>;
         const cwdNorm = cwd.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
         const match = sessions
           .filter(s => s.directory.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === cwdNorm)
@@ -47,6 +74,13 @@ export function getLatestOpenCodeSessionId(
       } catch {
         resolve(undefined);
       }
+    });
+
+    child.on('error', () => {
+      if (done) { return; }
+      done = true;
+      clearTimeout(timer);
+      resolve(undefined);
     });
   });
 }

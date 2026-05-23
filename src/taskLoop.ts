@@ -16,7 +16,7 @@ import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedClean
 import { runClaudeCompact } from './providers/claudeCliProvider';
 import { runClaudeTuiCompact, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
 import { sendCopilotSdkPrompt, isCopilotSdkBusy, getLatestCopilotSdkSessionId, readCopilotSdkOutputSince, closeCopilotSdkSession, closeAllCopilotSdkSessions } from './providers/copilotSdkProvider';
-import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient } from './providers/opencodeSdkProvider';
+import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient, forceIdleOpencodeSdk } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
 import { readClaudeOutputSince } from './dispatcher';
 import { PROVIDERS, ProviderId } from './providers';
@@ -950,6 +950,15 @@ export class TaskLoopRunner {
           let lastActivity: string | undefined;
           while (isOpencodeSdkBusy(this._workspaceRoot) && Date.now() < sdkDeadline) {
             if (this._state !== 'running') { break; }
+            // Escape hatch: if hooks-events.jsonl shows server was disposed but
+            // the SDK async never got the event (e.g. stream closed before we
+            // could read it), force-clear the busy flag so we don’t wait forever.
+            const sdkSid = getOpencodeSdkLatestSessionId(this._workspaceRoot);
+            if (openCodeExitedCleanly(this._workspaceRoot, sdkSid)) {
+              this._cb?.log('⚠️ OpenCode SDK: server disposed detected via hooks — force-clearing busy state');
+              forceIdleOpencodeSdk(this._workspaceRoot);
+              break;
+            }
             // Forward tool activity changes to the sidebar.
             const act = getOpencodeSdkActivity(this._workspaceRoot);
             if (act !== lastActivity) {

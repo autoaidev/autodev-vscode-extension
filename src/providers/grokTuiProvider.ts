@@ -40,6 +40,9 @@ const _hasSession = new Set<string>();
 /** Roots with an actively-running grok turn. */
 const _busyRoots = new Set<string>();
 
+/** Active child processes by root — used to kill them on extension deactivate. */
+const _activeChildren = new Map<string, child_process.ChildProcess>();
+
 /** True while a grok-tui turn is running for the given workspace root. */
 export function isGrokTuiBusy(root: string): boolean {
   return _busyRoots.has(root);
@@ -92,6 +95,7 @@ export function sendGrokTuiPrompt(
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
     });
+    _activeChildren.set(root, child);
   } catch (spawnErr) {
     const msg = (spawnErr as Error)?.message ?? String(spawnErr);
     log(`Grok TUI spawn error: ${msg}`);
@@ -138,6 +142,7 @@ export function sendGrokTuiPrompt(
 
   child.on('close', (code) => {
     flushLine(true);
+    _activeChildren.delete(root);
     const exitCode = code ?? 1;
     log(`Grok TUI: process exited (code=${exitCode})`);
     try { fs.writeFileSync(exitFile, `${exitCode}\n`, 'utf8'); } catch { /* ignore */ }
@@ -165,6 +170,11 @@ export function closeGrokTuiSession(root: string, log: (msg: string) => void): v
 
 /** Reset all sessions — called on extension deactivate. */
 export function closeAllGrokTuiSessions(): void {
+  // Kill any running child processes to avoid orphans after extension host restart.
+  for (const child of _activeChildren.values()) {
+    try { child.kill('SIGKILL'); } catch { /* ignore */ }
+  }
+  _activeChildren.clear();
   _hasSession.clear();
   _busyRoots.clear();
 }
