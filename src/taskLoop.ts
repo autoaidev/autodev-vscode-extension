@@ -932,7 +932,7 @@ export class TaskLoopRunner {
             await this._sleepAbortable(500);
           }
           if (isClaudeTuiBusy(this._workspaceRoot)) {
-            this._cb?.log('âš  Claude TUI turn did not complete within 10 minutes — moving on');
+            this._cb?.log('⚠️ Claude TUI turn did not complete within 10 minutes — moving on');
           }
         } else if (this._workspaceRoot && activeProvider === 'copilot-sdk') {
           const tuiDeadline = Date.now() + 10 * 60_000;
@@ -941,7 +941,7 @@ export class TaskLoopRunner {
             await this._sleepAbortable(500);
           }
           if (isCopilotSdkBusy(this._workspaceRoot)) {
-            this._cb?.log('âš  Copilot TUI turn did not complete within 10 minutes — moving on');
+            this._cb?.log('⚠️ Copilot TUI turn did not complete within 10 minutes — moving on');
           }
         } else if (this._workspaceRoot && activeProvider === 'opencode-sdk') {
           // opencode-sdk: same pattern as claude-tui — wait for the in-flight
@@ -969,7 +969,7 @@ export class TaskLoopRunner {
           }
           if (lastActivity !== undefined) { this._cb?.onActivityChange?.(undefined); }
           if (isOpencodeSdkBusy(this._workspaceRoot)) {
-            this._cb?.log('âš  OpenCode SDK turn did not complete within 30 minutes — moving on');
+            this._cb?.log('⚠️ OpenCode SDK turn did not complete within 30 minutes — moving on');
           }
         } else if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
@@ -998,7 +998,7 @@ export class TaskLoopRunner {
             // bundle aborted, etc.) — but the task is done and we're moving on.
             if (!isReady()) {
               try { fs.writeFileSync(exitFile, 'unknown\n', 'utf8'); } catch { /* ignore */ }
-              this._cb?.log('âš  CLI exit file never written — wrote sentinel to unblock next cycle');
+              this._cb?.log('⚠️ CLI exit file never written — wrote sentinel to unblock next cycle');
             }
           }
         } else {
@@ -1134,7 +1134,7 @@ export class TaskLoopRunner {
                 this._cb?.log('⚠️ Auto-compact: no Claude TUI session ID found — skipping');
               }
             } else if (acProvider === 'copilot-sdk') {
-              this._cb?.log('â„¹ï¸ Auto-compact not supported for copilot-sdk — skipping');
+              this._cb?.log('ℹ️ Auto-compact not supported for copilot-sdk — skipping');
             } else if (acProvider === 'opencode-cli') {
               let sid = getSessionId(this._workspaceRoot!, 'opencode-cli');
               if (!sid) { sid = await getLatestOpenCodeSessionId(this._workspaceRoot!, msg => this._cb?.log(msg)); }
@@ -1651,7 +1651,7 @@ export class TaskLoopRunner {
         if (decision.kind === 'done') { return; }
 
         if (decision.kind === 'deferred') {
-          this._cb?.log(`â†ªï¸Ž CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
+          this._cb?.log(`↩️ CLI exited with task [~] deferred — moving to next pending task: ${discordLabel(task.text)}`);
           cleanup();
           resolve();
           return;
@@ -1664,7 +1664,7 @@ export class TaskLoopRunner {
         }
 
         if (decision.kind === 'give_up') {
-          this._cb?.log(`â†ªï¸Ž CLI exited again without marking task done — auto-marking [x] and moving on: ${discordLabel(task.text)}`);
+          this._cb?.log(`↩️ CLI exited again without marking task done — auto-marking [x] and moving on: ${discordLabel(task.text)}`);
           // Auto-mark the task done so the loop doesn't re-pick the same
           // [ ] task on the next iteration, causing an infinite loop.
           await todoWriter.markDone(todoPath, task).catch(() => {});
