@@ -51,7 +51,6 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
         `file://${agentsAbsPath}`,
         `<think>`,
         `IMPORTANT: AGENTS.md is the primary instruction file. Read and follow all instructions in AGENTS.md before proceeding.`,
-        `Full path: file://${agentsAbsPath}`,
         `</think>`,
         AGENT_REF_END,
       ].join('\n');
@@ -61,10 +60,7 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
       const fileLines = allPaths
         .map(p => `file://${path.join(root, p).replace(/\\/g, '/')}`)
         .join('\n');
-      const readInstructions = allPaths
-        .map(p => `- Read and follow the instructions in the file: ${p}  (file://${path.join(root, p).replace(/\\/g, '/')})`)
-        .join('\n');
-      const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
+      const thinkBlock = `<think>\nIMPORTANT: Read all the instruction files listed above before proceeding.\nThey contain your core protocols, rules, and operational guidelines.\n</think>`;
       block = `${AGENT_REF_BEGIN}\n${fileLines}\n${thinkBlock}\n${AGENT_REF_END}`;
     }
 
