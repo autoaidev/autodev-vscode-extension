@@ -254,18 +254,25 @@ export function assembleProfileBody(
   const validCustom = customRefs.map(r => r.trim()).filter(r => r.length > 0);
   if (validCustom.length > 0) {
     body += '\n---\n\n## Custom References\n\n';
-    body += validCustom.map(r => r.startsWith('@') ? r : `@${r}`).join('\n');
+    body += validCustom.map(r => {
+      // Remove @ prefix if present
+      const cleanPath = r.startsWith('@') ? r.substring(1) : r;
+      // Convert to absolute path and use file:// scheme
+      const absPath = path.isAbsolute(cleanPath) ? cleanPath : path.join(root, cleanPath);
+      return `file://${absPath.replace(/\\/g, '/')}`;
+    }).join('\n');
     body += '\n';
   }
 
   // Always append SOUL.md reference so agents load their identity anchor first.
+  const soulPath = path.join(root, 'SOUL.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Agent Identity Anchor',
     '',
-    '@SOUL.md',
+    `file://${soulPath}`,
     '<think>',
     'IMPORTANT: Read SOUL.md before processing any incoming message.',
     'It contains your name, your contact addresses, and your full communication history.',
@@ -277,13 +284,14 @@ export function assembleProfileBody(
   ].join('\n');
 
   // Always append JOURNAL.md reference so agents write and read the research log.
+  const journalPath = path.join(root, 'JOURNAL.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Research Journal',
     '',
-    '@JOURNAL.md',
+    `file://${journalPath}`,
     '<think>',
     'IMPORTANT: Before every non-trivial task, write a hypothesis row in JOURNAL.md (status: pending).',
     'After the task: update the row to keep or discard. Apply the simplicity criterion.',
@@ -295,54 +303,56 @@ export function assembleProfileBody(
 
   // Always append a direct reference to CONTRACTS.md so agents auto-load
   // the project's contact directory regardless of which sections are enabled.
-  // Uses both @-syntax (Claude/OpenCode) and a <think> block (reasoning models).
+  const contractsPath = path.join(root, 'CONTRACTS.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Project Contact Directory',
     '',
-    '@CONTRACTS.md',
-    '</think>',
+    `file://${contractsPath}`,
+    '<think>',
     'IMPORTANT: Read CONTRACTS.md before sending any email, message, or task to another agent.',
     'It lists every human and agent contact address, per-channel routing rules, and the escalation',
     'thresholds that must be met before contacting the human.',
     'Never invent or guess a contact address — if it is not in CONTRACTS.md, do not send.',
-    '<think>',
+    '</think>',
     '',
   ].join('\n');
 
   // Always append issue tracking and knowledge base anchors.
+  const issuesPath = path.join(root, '.autodev', 'issues').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Open Issues',
     '',
-    '@.autodev/issues/',
-    '</think>',
+    `file://${issuesPath}/`,
+    '<think>',
     'IMPORTANT: At session start, scan .autodev/issues/ for ISSUE-*.md files whose Status is not Resolved or Closed.',
     'Re-read each open issue file before starting work so context is fully loaded.',
     'When assigned a ticket or bug, create .autodev/issues/ISSUE-NNN-kebab-title.md immediately — before any code or email.',
     'If .autodev/issues/ does not exist yet, create it and the first issue file from the skeleton in §0.7.',
-    '<think>',
+    '</think>',
     '',
   ].join('\n');
 
+  const kbPath = path.join(root, '.autodev', 'knowledgebase').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Knowledge Base',
     '',
-    '@.autodev/knowledgebase/',
-    '</think>',
+    `file://${kbPath}/`,
+    '<think>',
     'IMPORTANT: Before starting any non-trivial task, scan .autodev/knowledgebase/ for KB entries relevant to that task.',
     'When a session produces a reusable insight (architectural decision, pattern, gotcha, confirmed API behaviour),',
     'create .autodev/knowledgebase/KB-NNN-kebab-title.md immediately — do not wait until the end of the session.',
     'Cross-reference KB entries and issue files bidirectionally. Never delete KB entries — deprecate with a forward link.',
     'If .autodev/knowledgebase/ does not exist yet, create it and the first KB entry from the skeleton in §0.8.',
-    '<think>',
+    '</think>',
     '',
   ].join('\n');
 

@@ -31,8 +31,8 @@ const AGENT_REF_END   = '<!-- autodev:profile-ref:end -->';
  * Creates the file with just the reference block if it doesn't exist yet.
  */
 function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void {
-  // Inject AGENT_PROFILE.md plus every deployed section file directly so the
-  // LLM auto-loads all sub-files (agents only follow @-refs one level deep).
+  // Inject AGENT_PROFILE.md plus every deployed section file directly using
+  // file:// absolute paths so the LLM auto-loads all sub-files.
   const allPaths = [AGENT_PROFILE_FILE, ...sectionPaths];
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
@@ -47,20 +47,17 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
       const agentsAbsPath = path.join(root, 'AGENTS.md').replace(/\\/g, '/');
       block = [
         AGENT_REF_BEGIN,
-        // @-syntax (Claude Code, Codex)
-        `@AGENTS.md`,
-        // file:// absolute path for LLMs that don't understand @-refs
+        // file:// absolute path to avoid duplication (no @ reference)
         `file://${agentsAbsPath}`,
         `<think>`,
         `IMPORTANT: AGENTS.md is the primary instruction file. Read and follow all instructions in AGENTS.md before proceeding.`,
-        `Full path if needed: file://${agentsAbsPath}`,
+        `Full path: file://${agentsAbsPath}`,
         `</think>`,
         AGENT_REF_END,
       ].join('\n');
     } else {
       // AGENTS.md (primary) — or CLAUDE.md when no AGENTS.md exists: full reference block.
-      const atLines = allPaths.map(p => `@${p}`).join('\n');
-      // file:// absolute paths for LLMs that don't understand @-refs
+      // Only use file:// absolute paths to avoid duplication (no @ references)
       const fileLines = allPaths
         .map(p => `file://${path.join(root, p).replace(/\\/g, '/')}`)
         .join('\n');
@@ -68,7 +65,7 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
         .map(p => `- Read and follow the instructions in the file: ${p}  (file://${path.join(root, p).replace(/\\/g, '/')})`)
         .join('\n');
       const thinkBlock = `<think>\nIMPORTANT: The following files contain your instructions and must be read before proceeding:\n${readInstructions}\n</think>`;
-      block = `${AGENT_REF_BEGIN}\n${atLines}\n${fileLines}\n${thinkBlock}\n${AGENT_REF_END}`;
+      block = `${AGENT_REF_BEGIN}\n${fileLines}\n${thinkBlock}\n${AGENT_REF_END}`;
     }
 
     let content = '';
