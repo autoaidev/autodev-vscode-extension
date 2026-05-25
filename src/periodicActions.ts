@@ -38,10 +38,14 @@ export interface PeriodicActionDef {
 
 export const PERIODIC_ACTIONS: PeriodicActionDef[] = [
   // ─── Compact context ─────────────────────────────────────────────────────
-  // Runs the provider's native /compact tool — no AI prompt sent.
+  // ⚠️  WARNING: Auto-compact can cause INFINITE LOOPS!
+  // When compact runs, it loads all instruction files → context fills up →
+  // triggers another compact → infinite loop. KEEP THIS DISABLED (0) unless
+  // you're using a provider with native compact that doesn't reload instructions.
+  // Use manual compact (sidebar button) instead of auto-compact.
   {
     id: 'compact',
-    label: 'Auto compact',
+    label: 'Auto compact (⚠️ Can cause infinite loops - keep disabled)',
     settingKey: 'compactEveryNTasks',
     icon: '🗜',
     type: 'compact',

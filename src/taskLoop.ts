@@ -175,6 +175,10 @@ export class TaskLoopRunner {
   private _loopStartTime = 0;
   /** Task lines that have already had /compact run — prevents infinite compact loops. */
   private _compactedTaskLines = new Set<number>();
+  /** True while a compact operation is in progress — prevents nested/recursive compacts. */
+  private _compacting = false;
+  /** Timestamp (ms) when compact was last run — used to throttle auto-compact (minimum 2min between compacts). */
+  private _lastCompactTime = 0;
   /** Dispatch attempt counter per task key (id or text). After 3 failed attempts the
    *  loop force-marks the task done so it doesn't block the queue indefinitely. */
   private _taskAttempts = new Map<string, number>();
@@ -194,6 +198,14 @@ export class TaskLoopRunner {
   /** Manually trigger a /compact on the current session for the given provider/root. */
   async compact(root: string, provider: ProviderId): Promise<void> {
     const log = (m: string) => this._cb?.log(m);
+
+    // Guard: prevent infinite compact loops
+    if (this._compacting) {
+      log('⚠️  Compact skipped: already compacting (infinite loop prevention)');
+      return;
+    }
+
+    this._compacting = true;
     log(`🗜 Manual compact triggered (provider: ${provider})`);
     try {
       if (provider === 'claude-cli') {
@@ -219,6 +231,9 @@ export class TaskLoopRunner {
       }
     } catch (e) {
       log(`⚠️ Compact failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this._compacting = false;
+      this._lastCompactTime = Date.now();
     }
   }
 
@@ -1262,11 +1277,19 @@ export class TaskLoopRunner {
           this._notifyDiscord(`${action.icon} Periodic action: ${action.label}`);
           try {
             if (action.type === 'compact') {
-              const acProvider = this._cb?.getActiveProvider() ?? '';
-              if (acProvider && this._workspaceRoot) {
-                await this.compact(this._workspaceRoot, acProvider as ProviderId);
+              // Guard: time-based throttle — minimum 2 minutes between compacts
+              const MIN_COMPACT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+              const timeSinceLastCompact = Date.now() - this._lastCompactTime;
+              if (timeSinceLastCompact < MIN_COMPACT_INTERVAL_MS) {
+                const waitSec = Math.ceil((MIN_COMPACT_INTERVAL_MS - timeSinceLastCompact) / 1000);
+                this._cb?.log(`⚠️ Auto-compact throttled: wait ${waitSec}s (minimum 2min between compacts)`);
               } else {
-                this._cb?.log(`⚠️ Periodic compact: no active provider`);
+                const acProvider = this._cb?.getActiveProvider() ?? '';
+                if (acProvider && this._workspaceRoot) {
+                  await this.compact(this._workspaceRoot, acProvider as ProviderId);
+                } else {
+                  this._cb?.log(`⚠️ Periodic compact: no active provider`);
+                }
               }
             } else if (action.type === 'pruneTodo') {
               if (this._workspaceRoot) {
