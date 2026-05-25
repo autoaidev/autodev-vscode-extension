@@ -827,6 +827,16 @@ export class TaskLoopRunner {
         // incorrectly reporting "still running" when the file simply doesn't exist
         // (remote session never wrote one), causing [~] tasks to be stuck forever.
         if (provider === 'opencode-cli') {
+          // If the exit file from the last dispatch is non-empty, the process has
+          // definitely exited — don't block waiting for the hooks-file staleness
+          // window. The hooks Stop event may lag behind the bash echo due to async
+          // I/O ordering inside the opencode process, causing a race where
+          // isOpenCodeCliActive() returns true even after the process has exited.
+          // Checking the exit file first avoids a ~90 s stall between tasks.
+          try {
+            const xfContent = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();
+            if (xfContent !== '') { return false; } // process wrote exit code → done
+          } catch { /* no exit file yet — fall through to hooks check */ }
           const ocSid = getSessionId(this._workspaceRoot, 'opencode-cli');
           return isOpenCodeCliActive(this._workspaceRoot, 90_000, ocSid);
         }
