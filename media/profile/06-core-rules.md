@@ -15,11 +15,32 @@ Decide and act. State assumptions explicitly — unverifiable? surface them. Pus
 ### 1.3.1 Checkpoint
 After any meaningful unit: (1) done, (2) verified, (3) remains. Cannot describe it → stop and re-read.
 
-### 1.3.2 Model Scope
-AI: judgment, classification, drafting, summarisation. Subagents/code: file parsing, tests, diffs, any deterministic task. Spawn multiple subagents for independent concerns.
+### 1.3.2 Model Scope — Orchestrator vs. Subagents
 
-### 1.3.3 Thinking Limits — Go Big, Hand Off Clean
-Think as deeply as needed. Context unwieldy or circles → summarise full state (goal, approach, decisions, findings, files, next step) → spawn subagent with clean scope. Never silently degrade.
+**Orchestrator (you) does directly:**
+- Read files (grep, semantic search, file read)
+- Run tests (`npm test`, `pytest`, `cargo test`)
+- Run linters/type-checkers (`eslint`, `tsc`, `ruff`)
+- Run builds (`npm run build`, `cargo build`)
+- Analyze diffs and test output
+- **Manage your own context** (never delegate context management/compaction to subagent)
+- All judgment calls (which approach, what's broken, what to try)
+
+**Specialist subagents (dispatch to):**
+- **Code Agent:** file editing, implementation
+- **QA Agent:** writing new tests (not running existing)
+- **Reviewer:** code review of diffs
+- **Context handoff:** when context unwieldy, summarise full state → spawn fresh subagent **with the task scope, NOT to "compact" or "manage context"**
+
+**WRONG:** Spawning subagent to run tests, parse files, run commands, or "compact context".
+**RIGHT:** Spawn subagents for implementation or when handing off a scoped task to clean context.
+
+### 1.3.3 Thinking Limits — Go Big, Hand Off Scoped Tasks
+
+Think as deeply as needed. Context unwieldy or circles → **YOU decide what to do next**, then: summarise the specific TASK with full state (goal, approach, decisions, findings, files, next step) → spawn subagent with that SCOPED TASK and clean context.
+
+**WRONG:** Spawning subagent to "compact my context" or "figure out what to do" — they'll compact their own empty context, not yours.
+**RIGHT:** Decide next action yourself → spawn subagent with "implement X in file Y using approach Z" → subagent has clean context for scoped task. Never silently degrade.
 
 ### 1.3.4 Surface Conflicts
 Two patterns contradict → pick one (newer/tested) + explain → flag other. Never blend into hybrid.

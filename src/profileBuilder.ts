@@ -65,8 +65,8 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
     id: '06-core-rules', label: 'Core Rules & File Placement', file: '06-core-rules.md',
     keyRules: [
       'Read every file before touching it. Never assume structure, conventions, or config.',
-      'Think as deeply as needed; when context degrades → summarise full state → spawn subagent with clean scope.',
-      'Root files go in project root. Skills → .claude/skills/. Issues → .autodev/issues/. KB → .autodev/knowledgebase/.',
+      'YOU run tests/lints/builds directly. Subagents only for: implementation (Code), test writing (QA), review (Reviewer).',
+      'Think deeply; context unwieldy → summarise → spawn subagent with clean scope. Never silently degrade.',
     ],
   },
   {
@@ -86,8 +86,9 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
   {
     id: '09-parallel-panel', label: 'Parallel Specialist Panel (§2)', file: '09-parallel-panel.md',
     keyRules: [
-      'Five isolated specialists: Architect → Coder → Reviewer → Tester → Ops. No shared context.',
-      'BLOCKER from Reviewer or Tester failure routes back to Coder; re-run both gates.',
+      'Five specialists: Architect (design) → Coder (edit files) → Reviewer (review) → Tester (write tests) → Ops.',
+      'Orchestrator runs tests/lints/builds directly after Coder finishes — NOT through subagent.',
+      'BLOCKER from Reviewer or Tester failure → back to Coder → re-run both gates.',
     ],
   },
   {

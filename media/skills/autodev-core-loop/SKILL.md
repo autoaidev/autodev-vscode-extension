@@ -75,26 +75,34 @@ ONLY when TODO.md has ZERO [ ] and ZERO [~]:
          │
          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ STEP 5: DISPATCH TO SUBAGENT                                        │
+│ STEP 5: DISPATCH TO SUBAGENT (for implementation work only)         │
 │ - Classify: feat/fix/refactor/test/docs/chore                       │
-│ - Route: Code Agent | QA Agent | self                               │
+│ - Route to specialist subagent:                                     │
+│   • Code Agent: for file editing, implementation                    │
+│   • QA Agent: for writing new test files                            │
+│   • Reviewer: for code review of the diff                           │
 │ - Provide full context from Step 4                                  │
-│ - For dispatch rules: see skill `agent-routing`                     │
+│ - ⚠️ DO NOT dispatch subagent to run tests, linters, or builds     │
+│   (you do those directly in Step 7)                                 │
 └─────────────────────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ STEP 6: RECEIVE RESULT                                              │
-│ - Subagent returns: files changed, change summary, verification cmd │
+│ - Subagent returns: files changed, change summary                   │
 └─────────────────────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ STEP 7: VERIFY                                                       │
-│ - Run verification workflow (§4): tests + lint + build + browser    │
+│ STEP 7: VERIFY (Orchestrator runs these commands directly)          │
+│ - YOU run: `npm test` / `pytest` / `cargo test` (not subagent)     │
+│ - YOU run: `eslint .` / `tsc --noEmit` / `ruff check .`            │
+│ - YOU run: `npm run build` / `cargo build`                          │
+│ - YOU run: browser verification with Playwright MCP (if UI)         │
+│ - Analyze the output yourself                                       │
 │ - If PASS → go to Step 7a                                           │
 │ - If FAIL → go to Step 7b                                           │
-│ - For full verification detail: see skill `verification-workflow`   │
+│ - ⚠️ NEVER spawn a subagent just to run these verification commands│
 └─────────────────────────────────────────────────────────────────────┘
          │
     ┌────┴────┐
@@ -171,6 +179,41 @@ ONLY when TODO.md has ZERO [ ] and ZERO [~]:
 | Ending session with [~] tasks present | NEVER end with [~] — finish or revert |
 | Writing `- [X]` (uppercase) | Always lowercase: `- [x]` |
 | One space after date in [x] line | Two spaces: `- [x] 2026-05-25  task` |
+| **Spawning subagent to run `npm test`** | **Run tests directly yourself** |
+| **Spawning subagent to run `eslint`** | **Run linter directly yourself** |
+| **Spawning subagent to run `npm run build`** | **Run build directly yourself** |
+| **Spawning subagent to parse files** | **Read files directly yourself** |
+| **Spawning subagent to analyze test output** | **Analyze output directly yourself** |
+| **Spawning subagent to "compact context"** | **YOU manage your own context; subagent would compact ITS empty context = infinite loop** |
+| **Spawning subagent to "decide next step"** | **YOU decide next step, THEN spawn subagent with scoped task** |
+
+---
+
+## What to Use Subagents For (and What NOT To)
+
+### ✅ USE SUBAGENTS FOR:
+
+- **File editing / implementation** → Code Agent
+- **Writing new test files** → QA Agent
+- **Code review of diffs** → Reviewer
+- **Large architectural design** → Architect
+- **Context handoff** → when your context is unwieldy, summarise and spawn clean subagent
+
+### ❌ DO NOT USE SUBAGENTS FOR:
+
+- Running existing tests (`npm test`, `pytest`, `cargo test`) — **you run these**
+- Running linters (`eslint`, `ruff`, `mypy`) — **you run these**
+- Running type-checkers (`tsc --noEmit`) — **you run these**
+- Running builds (`npm run build`, `cargo build`) — **you run these**
+- Reading files — **you read them**
+- Parsing JSON/YAML/logs — **you parse them**
+- Analyzing test output — **you analyze it**
+- Grepping/searching codebase — **you use grep_search/semantic_search**
+- Running any deterministic command — **you run it**
+- **Compacting or managing YOUR context** — **subagents compact their own context, not yours — infinite loop!**
+- **"Figuring out what to do next"** — **YOU decide, then spawn subagent with scoped task**
+
+**Rule of thumb:** If it's a shell command that returns text output, YOU run it directly. If it's "manage my context" or "decide what to do", YOU do it directly. Only dispatch subagents for creative/implementation work on a clearly scoped task.
 
 ---
 

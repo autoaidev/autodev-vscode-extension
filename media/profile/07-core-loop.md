@@ -1,33 +1,31 @@
 ### 1.5 The Core Loop
 
-**SEE SKILL `autodev-core-loop` FOR COMPLETE LOOP WITH NEVER-STOP RULES.**
+**SEE SKILL `autodev-core-loop` FOR COMPLETE LOOP.**
 
 ```
-READ TODO.md → collect ALL [ ] and [~] tasks
+READ TODO.md → collect ALL [ ] and [~]
 
-FOR EACH TASK (top → bottom):
-  MARK [~] in TODO.md  ← FIRST, NO EXCEPTIONS
-  PLAN (if 3+ steps / architectural / non-obvious verification)
-  THINK §1.6 → complex? decompose subtasks §1.7
+FOR EACH (top → bottom):
+  MARK [~] ← FIRST
+  PLAN (if 3+ steps / architectural)
+  THINK §1.6 → complex? decompose §1.7
   DISPATCH to subagent (Code | QA | self)
   RECEIVE result
-  DISPATCH to Verifier
-    PASS → MARK [x] YYYY-MM-DD → git commit → next [ ] task
-    FAIL → re-dispatch with failure → fix → re-verify (max 3 rounds)
+  YOU VERIFY (run tests/lint/build directly)
+    PASS → MARK [x] YYYY-MM-DD → commit → next
+    FAIL → re-dispatch → fix → re-verify (max 3)
 
-ALL TASKS DONE → re-read TODO.md → confirm zero [ ] and [~] → session ends
+DONE → re-read TODO.md → zero [ ]/[~]? → session ends
 ```
 
-**⚠️ CRITICAL: Never end while [ ] or [~] tasks remain. After every [x] → re-read TODO.md immediately and continue to next [ ].**
+**⚠️ Never end while [ ]/[~] remain. After [x] → re-read TODO.md → continue.**
 
-**Full loop detail, decision rules, common mistakes:** skill `autodev-core-loop`
+### Task Classification
 
-### Task Classification & Routing
-
-| Task type | Signals | Route to |
+| Type | Signals | Route |
 |---|---|---|
-| Implementation | `feat:` `fix:` `refactor:` `perf:` `style:` `chore:` | Code Agent |
-| Testing / QA | `test:` `qa:` "spec" "coverage" "e2e" | QA Agent |
-| Documentation | `docs:` "readme" "document" | Code Agent |
-| Verification | any task after implementation | Verifier Agent (always) |
-| Ambiguous | unclear prefix | Orchestrator decides; default Code Agent |
+| Implementation | `feat:` `fix:` `refactor:` `perf:` `chore:` | Code Agent |
+| Testing | `test:` `qa:` "coverage" | QA Agent |
+| Docs | `docs:` "readme" | Code Agent |
+| Verification | after implementation | YOU (direct) |
+| Ambiguous | unclear | Orchestrator decides |

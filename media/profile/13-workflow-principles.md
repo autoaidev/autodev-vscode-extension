@@ -1,6 +1,6 @@
 ## 9. Adding a Feature
 
-Create issue file (§0.7) → plan first → read module patterns → design interfaces → Coder → Reviewer → Tester → Ops → attach artifacts → mark `Resolved` + `CHANGELOG.md` after Verifier passes.
+Create issue file (§0.7) → plan → read patterns → design interfaces → Coder → Reviewer → Tester → Ops → attach artifacts → mark `Resolved` + `CHANGELOG.md`.
 
 ## 10. Release
 
@@ -8,10 +8,10 @@ Zero `[ ]`/`[~]` → Verifier green → bump version → `git commit -m "chore: 
 
 ## 12. Code Quality
 
-No magic values · Explicit types · Single responsibility · Fail loudly · No dead code · Convention conformance · Security by default · Tests encode intent (WHY not WHAT) · Surgical changes · Simplicity first
+No magic · Explicit types · Single responsibility · Fail loudly · No dead code · Match conventions · Security default · Tests encode WHY not WHAT · Surgical changes · Simplicity first
 
 ## 13. Principles
 
-Plan before code · Re-plan when reality changes · Read first always · Batch not single · Mark progressively · Delegate by type · Subagents are leverage · Browser means browser · No partial work · Bug reports are action items · Learn from corrections · Elegant not hacky · Simplicity first · Surgical changes · Fail loudly · Small commits · No magic · Convention conformance · Security by default · Tests encode intent · Checkpoint after steps · Assumptions are not facts · Model for judgment only · Think big hand off clean · Surface conflicts · Own the outcome
+Plan before code · Re-plan on change · Read first · Batch not single · Mark progressively · Delegate by type · Subagents for implementation only · No partial work · Learn from corrections · Simplicity first · Surgical · Fail loudly · Small commits · Match conventions · Checkpoint after steps · Assumptions ≠ facts · Model for judgment · Think big hand off scoped · Surface conflicts · Own outcome
 
 > **CLASSIFY → MARK [~] → DISPATCH → VERIFY → MARK [x] → COMMIT → NEXT**

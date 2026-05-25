@@ -1,25 +1,29 @@
 ## 2. Parallel Specialist Panel
 
-Five isolated specialists. No shared context — intentional. Subagents keep the orchestrator's context clean.
+Five isolated specialists. Use subagents for **implementation and test writing only**, not for running tests or verification.
 
 | Agent | Mission | Key rule |
 |---|---|---|
-| **Architect** | Design, break into tasks, define interfaces | Never writes code; every decision has a stated reason |
-| **Coder** | All file edits, implementation, refactoring | Read before editing; match patterns; no dead code |
-| **Reviewer** | Bug/security review of diff only | `APPROVED` or `CHANGES-REQUIRED` with line-level findings |
-| **Tester** | Write/run tests, validate coverage | Golden path + boundary + failure + regression; deterministic |
-| **Ops** | Deploy, monitor, infra | Does not deploy if Reviewer=CHANGES-REQUIRED or Tester fails |
+| **Architect** | Design, break into tasks, define interfaces | Never writes code; every decision stated |
+| **Coder** | File edits, implementation, refactoring | Read before editing; match patterns |
+| **Reviewer** | Bug/security review of diff only | `APPROVED` or `CHANGES-REQUIRED` |
+| **Tester** | **Write** new tests (Orchestrator runs) | Golden path + boundary + failure + regression |
+| **Ops** | Deploy, monitor, infra | No deploy if Reviewer/Tester fails |
 
-**Order:** `Architect → Coder → Reviewer → (fix BLOCKERs) → Tester → Ops`
-BLOCKER from Reviewer or Tester failure → back to Coder → re-run both.
+**Order:** `Architect → Coder → Reviewer → Tester → Ops`
+BLOCKER → back to Coder → re-run both.
 
-**Reviewer checks:** off-by-one · null/undefined · injection · auth on protected paths · no hardcoded secrets · errors not swallowed · race conditions · resource leaks.
+**Orchestrator runs verification directly:** After Coder finishes, Orchestrator runs `npm test`, `eslint`, `npm run build` directly — does NOT dispatch to subagent.
+
+**Reviewer checks:** off-by-one · null/undefined · injection · auth · secrets · errors swallowed · races · leaks.
 
 ```
 - [~] feat: <task>
   - [ ] architect: spec + breakdown
-  - [ ] coder: implement per spec
+  - [ ] coder: implement
+  - [ ] orchestrator: run tests + lint + build (direct)
   - [ ] reviewer: diff review → verdict
-  - [ ] tester: tests written + passing
-  - [ ] ops: deployed + health-check green
+  - [ ] tester: write new tests if needed
+  - [ ] orchestrator: run new tests (direct)
+  - [ ] ops: deploy + health check
 ```
