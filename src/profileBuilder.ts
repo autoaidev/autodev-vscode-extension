@@ -1,4 +1,4 @@
-import * as crypto from 'crypto';
+﻿import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -21,140 +21,136 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
   {
     id: '00-identity', label: 'Identity & Autonomous Mode', file: '00-identity.md',
     keyRules: [
-      'Work autonomously — never ask for permission or pause for confirmation.',
-      'Mark tasks `[~]` before starting, `[x] YYYY-MM-DD` when done.',
-      'Read `TODO.md` at the start of every session.',
+      'Fully autonomous — never ask questions or wait for confirmation. Decide and act.',
+      'FIRST ACTION on every task: mark `[ ]` → `[~]` in TODO.md BEFORE anything else.',
+      'Never end the session while `[ ]` or `[~]` tasks remain.',
     ],
   },
   {
-    id: '01-learning', label: 'Learning Protocol (SUMMARY.md)', file: '01-learning.md',
+    id: '01-learning', label: 'Session Start Order (SUMMARY.md)', file: '01-learning.md',
     keyRules: [
-      'After each completed task append lessons to `SUMMARY.md`.',
-      'Never repeat a mistake already recorded in `SUMMARY.md`.',
+      'Read in order: SOUL.md → AGENTS.md → SUMMARY.md → LESSONS.md → CONTRACTS.md → open issues → KB → TODO.md.',
+      'Update SUMMARY.md whenever you discover non-obvious facts or make architectural decisions.',
     ],
   },
   {
     id: '02-memory-mcp', label: 'Memory MCP — State Persistence', file: '02-memory-mcp.md',
     keyRules: [
-      'Use Memory MCP to persist state, decisions, and context across sessions.',
-      'Read memory at session start; write updates after every significant action.',
+      'Query Memory MCP before reading TODO.md — load all project nodes first.',
+      'After every `[x]`: write ≥1 Memory MCP node (what changed, gotcha, convention).',
     ],
   },
   {
     id: '03-living-docs', label: 'Living Project Docs', file: '03-living-docs.md',
     keyRules: [
-      'Keep `PROJECT.md`, `TROUBLESHOOTING.md`, `SETUP.md`, and `CHANGELOG.md` current.',
-      'Update docs as part of every task — not as an afterthought.',
+      'Keep PROJECT.md, LESSONS.md, TROUBLESHOOTING.md, SETUP.md, CHANGELOG.md current every session.',
+      'Every resolved error → TROUBLESHOOTING.md. Every `[x]` → CHANGELOG.md. Every correction → LESSONS.md.',
     ],
   },
   {
-    id: '04-skill-files', label: 'Automatic Skill Development', file: '04-skill-files.md',
+    id: '04-skill-files', label: 'Automatic Skill Development (AGENTS.md)', file: '04-skill-files.md',
     keyRules: [
-      'Read `copilot-instructions.md`, `CLAUDE.md`, and `AGENTS.md` before starting any task.',
-      'Distil reusable patterns into skill files after discovering them.',
+      'AGENTS.md is single source of truth — read it before starting any task.',
+      'Update AGENTS.md (+ sync Copilot file) whenever a convention, pattern, or footgun is confirmed.',
     ],
   },
   {
     id: '05-skill-creation', label: 'Skill Creation Protocol', file: '05-skill-creation.md',
     keyRules: [
-      'Create a skill file for any pattern applied more than once.',
-      'Skill files live in `.claude/skills/<slug>/SKILL.md`.',
+      'Create .claude/skills/<slug>/SKILL.md when solution required 3+ failed attempts or agent would repeat mistake.',
+      'Add slug + summary to AGENTS.md `## Project Skills` after creating a skill.',
     ],
   },
   {
-    id: '06-core-rules', label: 'Core Rules & TODO Archival', file: '06-core-rules.md',
+    id: '06-core-rules', label: 'Core Rules & File Placement', file: '06-core-rules.md',
     keyRules: [
-      'Read every file before editing it. Use safe, reversible writes.',
-      'Archive done tasks to `DONE.md` when TODO.md exceeds scope.',
+      'Read every file before touching it. Never assume structure, conventions, or config.',
+      'Think as deeply as needed; when context degrades → summarise full state → spawn subagent with clean scope.',
+      'Root files go in project root. Skills → .claude/skills/. Issues → .autodev/issues/. KB → .autodev/knowledgebase/.',
     ],
   },
   {
     id: '07-core-loop', label: 'Core Loop & Task Classification', file: '07-core-loop.md',
     keyRules: [
-      'Classify → Plan → Implement → Verify. Never skip the Verify step.',
-      'Work tasks top-to-bottom; do not skip or reorder without a recorded reason.',
+      'Loop: MARK [~] → PLAN → DISPATCH → VERIFY → MARK [x] → commit → next task.',
+      'Re-read TODO.md after every [x]; never end while [ ] or [~] remain. Full loop: skill `autodev-core-loop`.',
     ],
   },
   {
     id: '08-thinking', label: 'Thinking, Decomposition & Validation', file: '08-thinking.md',
     keyRules: [
-      'Think step-by-step before acting on any multi-file task.',
-      'Decompose tasks that touch more than 3 files into explicit subtasks.',
+      'Answer 6 questions before dispatching: Scope, Impact, Patterns, Risks, Approach, Done criteria.',
+      'Validation panel (Simplicity · Assumption · User · Priority) must run before every [x].',
     ],
   },
   {
     id: '09-parallel-panel', label: 'Parallel Specialist Panel (§2)', file: '09-parallel-panel.md',
     keyRules: [
-      'For complex decisions, consult the 5-agent specialist panel before acting.',
-      'Record panel consensus in the task notes before implementing.',
+      'Five isolated specialists: Architect → Coder → Reviewer → Tester → Ops. No shared context.',
+      'BLOCKER from Reviewer or Tester failure routes back to Coder; re-run both gates.',
     ],
   },
   {
     id: '10-codebase-verification', label: 'Codebase Orientation & Verification', file: '10-codebase-verification.md',
     keyRules: [
-      'Run orientation (grep, search, read key files) before writing any code.',
-      'After every change, verify with tests and a diff review.',
+      'Orient before dispatching: entry point, browser UI?, test runner, core modules, config.',
+      'Verify: local tests + lint/build + browser (if UI) + browser test suite + security scan before every commit.',
     ],
   },
   {
     id: '11-git-debug-security', label: 'Git, Debugging & Security', file: '11-git-debug-security.md',
     keyRules: [
-      'Use conventional commits (`feat:`, `fix:`, `chore:` …). One concern per commit.',
-      'Apply OWASP Top-10 checks before marking any security-sensitive task done.',
+      'Conventional commits. One logical change per commit. Commit only after Verifier passes.',
+      'Debug: read full error → locate → context → trace → hypothesis → re-dispatch → re-verify.',
     ],
   },
   {
     id: '12-todo-format', label: 'TODO.md Format & Marking Rules', file: '12-todo-format.md',
     keyRules: [
-      '`[ ]` pending · `[~]` in-progress · `[x] YYYY-MM-DD` done. Never omit the `[ ]`.',
-      'Read 3 lines above and below any TODO entry before acting on it.',
+      '`[ ]` pending · `[~]` in-progress · `[x] YYYY-MM-DD` done (two spaces after date, lowercase x).',
+      'Non-trivial task → add checkable subtask list; final subtask is always verification.',
     ],
   },
   {
     id: '13-workflow-principles', label: 'Workflow, Quality & Principles', file: '13-workflow-principles.md',
     keyRules: [
-      'Feature work: branch → implement → test → PR. No direct commits to main.',
-      'Quality gate: lint + tests green before any task is marked `[x]`.',
+      'Quality: no magic values, explicit types, single responsibility, fail loudly, surgical changes, simplicity first.',
+      'Principles: Plan before code · Read first always · Subagents are leverage · Own the outcome.',
     ],
   },
   {
-    id: '14-contracts', label: 'Agent Contracts & Contact Directory', file: '14-contracts.md',
+    id: '14-contracts', label: 'Agent Contracts (CONTRACTS.md)', file: '14-contracts.md',
     keyRules: [
-      'Read `CONTRACTS.md` before contacting any human or agent — it lists real addresses and routing rules.',
-      'Never invent or guess an email address; if the address is missing, log in `TROUBLESHOOTING.md` and continue.',
-      'Contact the human only when all escalation thresholds in `CONTRACTS.md` are met.',
+      'Email is the primary agent-to-agent medium. Jira comments do NOT notify agents — email is mandatory.',
+      'Never invent or guess an address. Read CONTRACTS.md before any contact. Full skeleton: skill `contracts`.',
     ],
   },
   {
-    id: '15-soul', label: 'Soul Protocol — Agent Identity & Communication Memory', file: '15-soul.md',
+    id: '15-soul', label: 'Soul Protocol — Agent Identity', file: '15-soul.md',
     keyRules: [
-      'Read `SOUL.md` at the very start of every session — before `SUMMARY.md`. It holds your name, addresses, and message history.',
-      'When a message arrives, check `SOUL.md` to recognise the thread. Never act confused — your identity is stable.',
-      'After every sent or received message, update `## Communication History` in `SOUL.md` and commit.',
+      'Read SOUL.md first — before SUMMARY.md, before everything. It holds your name, addresses, history.',
+      'Append Communication History after every message. Never invent addresses.',
     ],
   },
   {
     id: '16-journal', label: 'Research Journal & Auto-Learn Loop', file: '16-journal.md',
     keyRules: [
-      'Before every non-trivial task, write a one-line hypothesis in `JOURNAL.md` (status: pending) before touching code.',
-      'After every task: log the outcome (keep/discard), apply the simplicity criterion, commit `JOURNAL.md` with the code change.',
-      'Never delete journal rows — `discard` entries are the most valuable data; they prevent re-trying failed approaches.',
+      'Research loop: HYPOTHESIS → IMPLEMENT → VERIFY → LOG → KEEP/DISCARD → REPEAT.',
+      'Write a row before/after any task that modifies 2+ files or involves a non-obvious fix.',
     ],
   },
   {
-    id: '17-issue-tracking', label: 'Issue Tracking Protocol (per-issue living docs)', file: '17-issue-tracking.md',
+    id: '17-issue-tracking', label: 'Issue Tracking (.autodev/issues/)', file: '17-issue-tracking.md',
     keyRules: [
-      'For every issue/ticket, create `.autodev/issues/ISSUE-NNN-kebab-title.md` before doing any work — it is the single living record of that issue.',
-      'Append Work Log entries and artifacts as the issue evolves. Never edit past entries.',
-      'Cross-reference related issues bidirectionally so any agent can navigate the full user story from a single file.',
+      'Create .autodev/issues/ISSUE-NNN-kebab-title.md before doing any work on an issue.',
+      'Append Work Log + attach artifacts on every session touching the issue. Resolved needs 1+ artifact.',
     ],
   },
   {
-    id: '18-knowledgebase', label: 'Knowledge Base Protocol (reusable project knowledge)', file: '18-knowledgebase.md',
+    id: '18-knowledgebase', label: 'Knowledge Base (.autodev/knowledgebase/)', file: '18-knowledgebase.md',
     keyRules: [
-      'Capture reusable insights in `.autodev/knowledgebase/KB-NNN-kebab-title.md` the moment they are confirmed — architectural decisions, patterns, integration quirks, recurring gotchas.',
-      'KB entries are evergreen reference material — update the body in place, append Change History, never delete. Deprecate with a forward link.',
-      'Cross-reference KB entries and issue files bidirectionally; scan `.autodev/knowledgebase/` for relevant entries before starting related work.',
+      'Create KB-NNN-kebab-title.md the moment an architectural decision, pattern, or gotcha is confirmed.',
+      'Never delete KB entries — deprecate with Status: Deprecated + Superseded by link.',
     ],
   },
 ];
@@ -298,12 +294,12 @@ export function assembleProfileBody(
     '## Project Contact Directory',
     '',
     '@CONTRACTS.md',
-    '<think>',
+    '</think>',
     'IMPORTANT: Read CONTRACTS.md before sending any email, message, or task to another agent.',
     'It lists every human and agent contact address, per-channel routing rules, and the escalation',
     'thresholds that must be met before contacting the human.',
     'Never invent or guess a contact address — if it is not in CONTRACTS.md, do not send.',
-    '</think>',
+    '<think>',
     '',
   ].join('\n');
 
@@ -315,12 +311,12 @@ export function assembleProfileBody(
     '## Open Issues',
     '',
     '@.autodev/issues/',
-    '<think>',
+    '</think>',
     'IMPORTANT: At session start, scan .autodev/issues/ for ISSUE-*.md files whose Status is not Resolved or Closed.',
     'Re-read each open issue file before starting work so context is fully loaded.',
     'When assigned a ticket or bug, create .autodev/issues/ISSUE-NNN-kebab-title.md immediately — before any code or email.',
     'If .autodev/issues/ does not exist yet, create it and the first issue file from the skeleton in §0.7.',
-    '</think>',
+    '<think>',
     '',
   ].join('\n');
 
@@ -331,13 +327,13 @@ export function assembleProfileBody(
     '## Knowledge Base',
     '',
     '@.autodev/knowledgebase/',
-    '<think>',
+    '</think>',
     'IMPORTANT: Before starting any non-trivial task, scan .autodev/knowledgebase/ for KB entries relevant to that task.',
     'When a session produces a reusable insight (architectural decision, pattern, gotcha, confirmed API behaviour),',
     'create .autodev/knowledgebase/KB-NNN-kebab-title.md immediately — do not wait until the end of the session.',
     'Cross-reference KB entries and issue files bidirectionally. Never delete KB entries — deprecate with a forward link.',
     'If .autodev/knowledgebase/ does not exist yet, create it and the first KB entry from the skeleton in §0.8.',
-    '</think>',
+    '<think>',
     '',
   ].join('\n');
 

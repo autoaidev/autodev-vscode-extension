@@ -1,53 +1,33 @@
-### 1.5 The Core Loop — Never Deviate
+### 1.5 The Core Loop
+
+**SEE SKILL `autodev-core-loop` FOR COMPLETE LOOP WITH NEVER-STOP RULES.**
 
 ```
-READ TODO.md            — collect ALL unfinished tasks as the current batch
-                          (read each task with surrounding lines — descriptions may span multiple lines)
-CLASSIFY each task      — code / qa / docs / chore (see §1.5)
-  ↓
-┌──────────────────────────────────────────────────────────────────┐
-│  FOR EACH TASK in batch (top → bottom):                          │
-│                                                                  │
-│  STEP 1 ► MARK [~] in TODO.md   ← DO THIS FIRST, NO EXCEPTIONS  │
-│    ↓                                                             │
-│  STEP 1.5 ► PLAN MODE DEFAULT   — write/refresh a checkable plan │
-│             ↳ if evidence changes, STOP and re-plan immediately  │
-│  STEP 1.6 ► THINK & PLAN        — §1.6 checklist + elegance bar  │
-│             ↳ complex task?  → decompose into subtasks (§1.7)    │
-│    ↓                                                             │
-│  STEP 2 ► DISPATCH to subagent  — Code Agent | QA Agent | self  │
-│    ↓                                                             │
-│  STEP 3 ► RECEIVE result        — implementation / test output  │
-│    ↓                                                             │
-│  STEP 4 ► DISPATCH to Verifier Agent                            │
-│    ↓                                                             │
-│  ┌── PASS? ──────────────────────────────────────────────────┐  │
-│  │  YES → MARK [x] YYYY-MM-DD → git commit                   │  │
-│  │        → pick NEXT [ ] task → back to STEP 1              │  │
-│  │  NO  → send failure report back to implementing agent     │  │
-│  │        → fix → re-verify (max 3 rounds, then escalate)    │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-  ↓
-ALL TASKS DONE               — batch complete
-  ↓
-RE-READ TODO.md              — confirm zero [ ] and [~] tasks remain
-  ↓
-IF any [ ] or [~] found      — loop back to top; do NOT stop
-  ↓
-ZERO remaining tasks         — session ends (only now)
+READ TODO.md → collect ALL [ ] and [~] tasks
+
+FOR EACH TASK (top → bottom):
+  MARK [~] in TODO.md  ← FIRST, NO EXCEPTIONS
+  PLAN (if 3+ steps / architectural / non-obvious verification)
+  THINK §1.6 → complex? decompose subtasks §1.7
+  DISPATCH to subagent (Code | QA | self)
+  RECEIVE result
+  DISPATCH to Verifier
+    PASS → MARK [x] YYYY-MM-DD → git commit → next [ ] task
+    FAIL → re-dispatch with failure → fix → re-verify (max 3 rounds)
+
+ALL TASKS DONE → re-read TODO.md → confirm zero [ ] and [~] → session ends
 ```
 
-### 1.5 Task Classification & Routing
+**⚠️ CRITICAL: Never end while [ ] or [~] tasks remain. After every [x] → re-read TODO.md immediately and continue to next [ ].**
 
-Classify each task before dispatching. Use the task prefix and description as signals:
+**Full loop detail, decision rules, common mistakes:** skill `autodev-core-loop`
+
+### Task Classification & Routing
 
 | Task type | Signals | Route to |
 |---|---|---|
-| **Implementation** | `feat:`, `fix:`, `refactor:`, `perf:`, `style:`, `chore:` | **Code Agent** |
-| **Testing / QA** | `test:`, `qa:`, keywords "test", "spec", "coverage", "e2e" | **QA Agent** |
-| **Documentation** | `docs:`, keywords "readme", "document", "comment" | **Code Agent** (docs are code) |
-| **Verification** | any task after implementation | **Verifier Agent** (always) |
-| **Ambiguous** | unclear prefix | Orchestrator decides; default to Code Agent |
-
-One task may require **both** Code Agent and QA Agent in sequence — implement first, then test.
+| Implementation | `feat:` `fix:` `refactor:` `perf:` `style:` `chore:` | Code Agent |
+| Testing / QA | `test:` `qa:` "spec" "coverage" "e2e" | QA Agent |
+| Documentation | `docs:` "readme" "document" | Code Agent |
+| Verification | any task after implementation | Verifier Agent (always) |
+| Ambiguous | unclear prefix | Orchestrator decides; default Code Agent |
