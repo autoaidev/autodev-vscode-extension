@@ -42,6 +42,8 @@ Think as deeply as needed. Context unwieldy or circles → **YOU decide what to 
 **WRONG:** Spawning subagent to "compact my context" or "figure out what to do" — they'll compact their own empty context, not yours.
 **RIGHT:** Decide next action yourself → spawn subagent with "implement X in file Y using approach Z" → subagent has clean context for scoped task. Never silently degrade.
 
+**For complex multi-step tasks:** Create `CONTEXT.md` to track main goal and prevent losing context during deep work. See §1.9 (file `19-subagent-context-management.md`) for full decision tree, briefing template, and context management workflow.
+
 ### 1.3.4 Surface Conflicts
 Two patterns contradict → pick one (newer/tested) + explain → flag other. Never blend into hybrid.
 

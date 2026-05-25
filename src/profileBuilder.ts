@@ -154,6 +154,14 @@ export const PROFILE_SECTIONS: ProfileSection[] = [
       'Never delete KB entries — deprecate with Status: Deprecated + Superseded by link.',
     ],
   },
+  {
+    id: '19-subagent-context-management', label: 'Subagent Context Management', file: '19-subagent-context-management.md',
+    keyRules: [
+      'Create CONTEXT.md for complex multi-step tasks to prevent losing track of main goal during deep work.',
+      'Subagents NEVER for: running tests/lints/builds, reading files, deciding what to do, or "compacting YOUR context".',
+      'Before spawning subagent: decide approach, write detailed brief (mission, context, files, patterns, done criteria).',
+    ],
+  },
 ];
 
 /** Returns all section IDs in order — useful as the default "all enabled" value. */

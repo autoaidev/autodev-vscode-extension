@@ -1,0 +1,86 @@
+# CONTEXT.md — Main Task Tracking
+
+> **Purpose:** Keep track of the main task goal and prevent getting lost in deep subtasks.
+> **Update:** After every major decision, subagent spawn, or context shift.
+
+---
+
+## Main Task
+
+**Goal:** [One-sentence description of the main task]
+
+**Status:** [Not Started / In Progress / Blocked / Completed]
+
+**TODO.md Task Line:**
+```
+- [~] [task description from TODO.md]
+```
+
+---
+
+## Key Decisions Made
+
+1. **[Date/Time]** Decision: [What was decided]
+   - Reasoning: [Why this choice]
+   - Alternative considered: [What was rejected and why]
+
+---
+
+## Architecture/Approach
+
+[High-level description of the chosen approach]
+
+**Files/Modules Involved:**
+- `path/to/file.ts` — [description]
+
+**Key Patterns/Conventions:**
+- [Pattern or convention to follow]
+
+---
+
+## Progress Tracker
+
+### Completed
+- [x] YYYY-MM-DD  [completed subtask]
+
+### In Progress
+- [~] [current subtask]
+
+### Remaining
+- [ ] [pending subtask]
+
+---
+
+## Subagent Spawns
+
+### Spawn 1: [Agent Type] — [Task Summary]
+**When:** YYYY-MM-DD HH:MM
+**Brief:** [Link or inline summary of the brief given to subagent]
+**Result:** [What the subagent delivered]
+**Verified:** [✅ pass / ❌ fail / ⏳ pending]
+
+---
+
+## Blockers / Issues
+
+- **[Date]** Blocker: [Description]
+  - Status: [Open / Resolved]
+  - Resolution: [How it was resolved]
+
+---
+
+## Context Checkpoints
+
+Use these checkpoints to verify you're still on track:
+
+1. **Can you state the main goal in one sentence?** [Yes/No - if no, re-read Main Task section]
+2. **Do you know the next concrete action?** [Yes/No - if no, review Progress Tracker]
+3. **Have you strayed into unrelated work?** [Yes/No - if yes, refocus on main goal]
+4. **Is there a clearer path than current approach?** [Yes/No - if yes, update Decisions section]
+
+---
+
+## Notes / Learnings
+
+[Add any important discoveries, gotchas, or learnings that should be remembered]
+

@@ -70,6 +70,8 @@ ONLY when TODO.md has ZERO [ ] and ZERO [~]:
 │   Approach, Done criteria                                            │
 │ - If 3+ steps / architectural / non-obvious verification:           │
 │   write concrete plan in TODO.md as subtasks under the [~] parent   │
+│ - If context-heavy multi-step task: create CONTEXT.md to track main │
+│   goal and prevent losing context during deep work (§1.9)           │
 │ - For full checklist detail: see skill `thinking-checklist`         │
 └─────────────────────────────────────────────────────────────────────┘
          │
@@ -190,6 +192,8 @@ ONLY when TODO.md has ZERO [ ] and ZERO [~]:
 ---
 
 ## What to Use Subagents For (and What NOT To)
+
+**For detailed decision tree, briefing templates, and CONTEXT.md workflow, see §1.9: `19-subagent-context-management.md`**
 
 ### ✅ USE SUBAGENTS FOR:
 
