@@ -155,7 +155,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         const pruned = pruneTodoToArchive(todoPath, root);
         if (pruned > 0) {
-          vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) \u2192 TODO_ARCHIVE.md`);
+          vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) \u2192 DONE.md`);
         } else {
           vscode.window.showInformationMessage('AutoDev: No completed tasks to archive.');
         }

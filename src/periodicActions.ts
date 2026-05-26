@@ -29,7 +29,7 @@ export interface PeriodicActionDef {
    * How the action is executed when due:
    * - 'prompt'     — send `prompt` text to the AI via sendToAi (default)
    * - 'compact'    — run provider-specific /compact tool (no AI prompt sent)
-   * - 'pruneTodo'  — move completed [x] tasks from TODO.md into TODO_ARCHIVE.md
+   * - 'pruneTodo'  — move completed [x] tasks from TODO.md into DONE.md
    */
   type?: 'prompt' | 'compact' | 'pruneTodo';
   /** Prompt text sent to the agent (only used when type === 'prompt'). */
@@ -45,7 +45,7 @@ export const PERIODIC_ACTIONS: PeriodicActionDef[] = [
   // Use manual compact (sidebar button) instead of auto-compact.
   {
     id: 'compact',
-    label: 'Auto compact (⚠️ Can cause infinite loops - keep disabled)',
+    label: 'Auto compact',
     settingKey: 'compactEveryNTasks',
     icon: '🗜',
     type: 'compact',
@@ -92,7 +92,7 @@ Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP
     prompt: `Before continuing to the next task, write a comprehensive up-to-date project state summary to SUMMARY.md in the project root. Cover: current architecture overview, module map, naming conventions, key files (entry points, config, router, DB schema), exact build & run commands (dev and prod), known gotchas, recent decisions, and non-obvious dependencies. If the file already exists, update it — preserve all valid existing content and add new learnings. Keep every entry concise — one bullet per fact. Then continue — pick up any new tasks .`,
   },
   // ─── Prune TODO.md ──────────────────────────────────────────────────────
-  // Moves completed [x] lines out of TODO.md into TODO_ARCHIVE.md.
+  // Moves completed [x] lines out of TODO.md into DONE.md.
   // No AI prompt — done entirely by the extension.
   {
     id: 'pruneTodo',

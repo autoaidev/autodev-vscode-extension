@@ -1295,8 +1295,8 @@ export class TaskLoopRunner {
               if (this._workspaceRoot) {
                 const pruned = pruneTodoToArchive(todoPath, this._workspaceRoot);
                 if (pruned > 0) {
-                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
-                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md → TODO_ARCHIVE.md`);
+                  this._cb?.log(`🧹 Pruned ${pruned} completed task(s) from TODO.md → DONE.md`);
+                  this._notifyDiscord(`🧹 Pruned ${pruned} completed task(s) from TODO.md → DONE.md`);
                 } else {
                   this._cb?.log(`🧹 Prune TODO: no completed tasks to move`);
                 }

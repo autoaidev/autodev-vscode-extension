@@ -137,7 +137,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           try {
             const pruned = pruneTodoToArchive(todoPath, root);
             if (pruned > 0) {
-              vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) -> TODO_ARCHIVE.md`);
+              vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) -> DONE.md`);
             } else {
               vscode.window.showInformationMessage('AutoDev: No completed tasks to archive.');
             }
@@ -718,7 +718,7 @@ ${PERIODIC_ACTIONS.map(a => `
   <span style="flex-shrink:0">Session:</span>
   <span class="session-id-val" id="sessionIdVal" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
   <button class="new-session-btn" id="compactBtn" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
-  <button class="new-session-btn" id="archiveTodoBtn" title="Move completed [x] tasks from TODO.md to TODO_ARCHIVE.md">&#x1F4E6; Archive</button>
+  <button class="new-session-btn" id="archiveTodoBtn" title="Move completed [x] tasks from TODO.md to DONE.md">&#x1F4E6; Archive</button>
   <button class="new-session-btn" id="renameSessionBtn" title="Set a display name for this session">&#x270F;</button>
 </div>
 <div class="model-row" id="renameRow" style="display:none;gap:4px">

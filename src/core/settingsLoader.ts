@@ -143,7 +143,7 @@ export interface AutodevSettings {
    */
   maxTaskAttempts: number;
   /**
-   * Move completed [x] tasks from TODO.md into TODO_ARCHIVE.md every N
+   * Move completed [x] tasks from TODO.md into DONE.md every N
    * completed tasks (0 = disabled). Keeps the active TODO file short.
    */
   pruneTodoEveryNTasks: number;

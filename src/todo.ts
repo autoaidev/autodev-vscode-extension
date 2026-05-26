@@ -223,16 +223,16 @@ function escapeRegex(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// TODO pruning — move completed tasks to TODO_ARCHIVE.md
+// TODO pruning — move completed tasks to DONE.md
 // ---------------------------------------------------------------------------
 
 /**
  * Move all completed `[x]` lines from `todoPath` into
- * `<workspaceRoot>/TODO_ARCHIVE.md`, grouped under a dated heading.
+ * `<workspaceRoot>/DONE.md`, grouped under a dated heading.
  *
  * - The original `[x]` lines (and any immediately-following indented subtask
  *   lines that belong to them) are removed from `TODO.md`.
- * - `TODO_ARCHIVE.md` is created if it does not exist; entries are appended
+ * - `DONE.md` is created if it does not exist; entries are appended
  *   so history is never lost.
  * - Returns the number of top-level `[x]` lines moved.
  */
@@ -285,8 +285,8 @@ export function pruneTodoToArchive(todoPath: string, workspaceRoot: string): num
     .trimEnd() + '\n';
   fs.writeFileSync(todoPath, newTodo, 'utf8');
 
-  // Append to TODO_ARCHIVE.md
-  const archivePath = path.join(workspaceRoot, 'TODO_ARCHIVE.md');
+  // Append to DONE.md
+  const archivePath = path.join(workspaceRoot, 'DONE.md');
   const date = new Date().toISOString().slice(0, 10);
   const heading = `\n## Archived ${date}\n\n`;
   const archiveBlock = heading + doneLines.join('\n') + '\n';
