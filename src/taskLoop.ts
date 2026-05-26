@@ -1052,7 +1052,10 @@ export class TaskLoopRunner {
         } else if (this._workspaceRoot && activeProvider === 'opencode-sdk') {
           // opencode-sdk: same pattern as claude-tui — wait for the in-flight
           // fire-and-forget async to fully complete (session.idle received).
-          const sdkDeadline = Date.now() + 30 * 60_000; // 30-minute safety cap
+          // Use activity-based deadline: reset the 30-minute window on each tool
+          // activity change so long-running tasks are never prematurely cut off.
+          const INACTIVITY_MS_SDK = 30 * 60_000;
+          let sdkDeadline = Date.now() + INACTIVITY_MS_SDK;
           let lastActivity: string | undefined;
           while (isOpencodeSdkBusy(this._workspaceRoot) && Date.now() < sdkDeadline) {
             if (this._state !== 'running') { break; }
@@ -1065,17 +1068,19 @@ export class TaskLoopRunner {
               forceIdleOpencodeSdk(this._workspaceRoot);
               break;
             }
-            // Forward tool activity changes to the sidebar.
+            // Forward tool activity changes to the sidebar; reset inactivity deadline.
             const act = getOpencodeSdkActivity(this._workspaceRoot);
             if (act !== lastActivity) {
               lastActivity = act;
               this._cb?.onActivityChange?.(act);
+              sdkDeadline = Date.now() + INACTIVITY_MS_SDK;
             }
             await this._sleepAbortable(500);
           }
           if (lastActivity !== undefined) { this._cb?.onActivityChange?.(undefined); }
           if (isOpencodeSdkBusy(this._workspaceRoot)) {
-            this._cb?.log('⚠️ OpenCode SDK turn did not complete within 30 minutes — moving on');
+            this._cb?.log('⚠️ OpenCode SDK turn: no activity for 30 minutes — force-clearing busy state and moving on');
+            forceIdleOpencodeSdk(this._workspaceRoot);
           }
         } else if (this._workspaceRoot && activeProvider && PROVIDERS[activeProvider]?.isCli) {
           const exitFile = exitFilePath(this._workspaceRoot, activeProvider);
