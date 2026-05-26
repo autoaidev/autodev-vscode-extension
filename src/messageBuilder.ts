@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Task } from './todo';
 import { autodevDir } from './sessionState';
-import { applyProtocolSections, applyMcpSkills } from './protocolSections';
+import { applyProtocolSections, applyMcpSkills, applyAllSkills } from './protocolSections';
 import { assembleProfileBody } from './profileBuilder';
 import { loadSettingsForRoot } from './core/settingsLoader';
 
@@ -336,6 +336,9 @@ export function buildMessage(
   // on the next regeneration.
   const finalProfileBody = applyProtocolSections(profileBody, settings);
 
+  // Copy all general skills from media/skills/ to .claude/skills/
+  if (root) { applyAllSkills(root); }
+  
   // Deploy / remove Claude skill files for enabled / disabled MCPs
   if (root) { applyMcpSkills(root, settings); }
 

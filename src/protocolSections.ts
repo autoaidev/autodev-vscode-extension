@@ -82,6 +82,39 @@ export function applyProtocolSections(body: string, settings: SettingsLike | und
 // ---------------------------------------------------------------------------
 
 /**
+ * Copy ALL skills from media/skills/ to root/.claude/skills/.
+ * This ensures all general skills (not just MCP-related ones) are available to Claude.
+ * Does nothing if root is falsy.
+ */
+export function applyAllSkills(root: string): void {
+  if (!root) { return; }
+
+  const skillsMedia = _skillsMediaDir();
+  if (!fs.existsSync(skillsMedia)) { return; }
+
+  const skillNames = fs.readdirSync(skillsMedia).filter(n => {
+    try { return fs.statSync(path.join(skillsMedia, n)).isDirectory(); } catch { return false; }
+  });
+
+  for (const name of skillNames) {
+    const srcSkill = path.join(skillsMedia, name, 'SKILL.md');
+    if (!fs.existsSync(srcSkill)) { continue; }
+
+    const destDir  = path.join(root, '.claude', 'skills', name);
+    const destSkill = path.join(destDir, 'SKILL.md');
+
+    // Always deploy the skill file
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+    try {
+      const src = fs.readFileSync(srcSkill, 'utf8');
+      fs.writeFileSync(destSkill, src, 'utf8');
+    } catch { /* ignore write errors */ }
+  }
+}
+
+/**
  * For every MCP that has a corresponding `media/skills/<name>/SKILL.md`:
  *   - If the MCP is enabled, copy the skill file to `<root>/.claude/skills/<name>/SKILL.md`.
  *   - If the MCP is disabled (or absent), delete `<root>/.claude/skills/<name>/SKILL.md`

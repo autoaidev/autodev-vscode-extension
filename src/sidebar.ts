@@ -13,7 +13,7 @@ import { ProviderId, ProviderConfig, PROVIDERS } from './providers';
 import { LoopState } from './taskLoop';
 import { taskLoopRunner } from './taskLoop';
 import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from './settings';
-import { applyMcpSkills } from './protocolSections';
+import { applyMcpSkills, applyAllSkills } from './protocolSections';
 import { Task, parseTodo, pruneTodoToArchive } from './todo';
 import { todoWriter } from './todoWriteManager';
 import { getSessionId, clearSessionId, saveSessionName, getSessionName } from './sessionState';
@@ -186,7 +186,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
             saveProjectUserMcp(root, allForMcp);
-            try { applyMcpSkills(root, loadSettings()); } catch { /* ignore */ }
+            try {
+              applyAllSkills(root);
+              applyMcpSkills(root, loadSettings());
+            } catch { /* ignore */ }
           }
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(
