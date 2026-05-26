@@ -56,9 +56,25 @@ const _latestSessionIds = new Map<string, string>();
 /** Roots that currently have a claude-tui turn actively running (fire-and-forget async in flight). */
 const _busyRoots = new Set<string>();
 
+/** Timestamp (ms) of the most recent streaming update received per root. */
+const _lastActivityMs = new Map<string, number>();
+
 /** True while a claude-tui turn is running for the given workspace root. */
 export function isClaudeTuiBusy(root: string): boolean {
   return _busyRoots.has(root);
+}
+
+/** Returns the epoch-ms timestamp of the last streaming update for the root, or 0 if none. */
+export function getClaudeTuiLastActivity(root: string): number {
+  return _lastActivityMs.get(root) ?? 0;
+}
+
+/**
+ * Force-clears the busy flag for a root whose turn appears hung
+ * (no activity for a long time). Call only after an inactivity timeout.
+ */
+export function forceIdleClaudeTui(root: string): void {
+  _busyRoots.delete(root);
 }
 
 export function getClaudeTuiLatestSessionId(root: string): string | undefined {
@@ -167,6 +183,7 @@ export function sendClaudeTuiPrompt(
       let _lineBuf = '';
 
       for await (const update of turn.updates()) {
+        _lastActivityMs.set(root, Date.now());
         const { snapshot } = update;
 
         // Stream any newly accumulated text to the output channel + capture file.

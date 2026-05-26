@@ -14,7 +14,7 @@ import { getClaudeSessionCursor, parseClaudeStateSince, findLatestClaudeSession 
 import { getLatestOpenCodeSessionId, runOpenCodeCompact } from './providers/opencodeCliProvider';
 import { getOpenCodeSessionIdFromHooks, isOpenCodeCliActive, openCodeExitedCleanly } from './openCodeHooksManager';
 import { runClaudeCompact, runClaudeClear } from './providers/claudeCliProvider';
-import { runClaudeTuiCompact, runClaudeTuiClear, getClaudeTuiLatestSessionId, isClaudeTuiBusy } from './providers/claudeTuiProvider';
+import { runClaudeTuiCompact, runClaudeTuiClear, getClaudeTuiLatestSessionId, isClaudeTuiBusy, getClaudeTuiLastActivity, forceIdleClaudeTui } from './providers/claudeTuiProvider';
 import { sendCopilotSdkPrompt, isCopilotSdkBusy, getLatestCopilotSdkSessionId, readCopilotSdkOutputSince, closeCopilotSdkSession, closeAllCopilotSdkSessions } from './providers/copilotSdkProvider';
 import { runOpencodeSdkCompact, getOpencodeSdkLatestSessionId, isOpencodeSdkBusy, getOpencodeSdkActivity, closeOpencodeSdkClient, forceIdleOpencodeSdk } from './providers/opencodeSdkProvider';
 import { captureAndSaveSessionId, saveSessionId, getSessionId, clearSessionId, stdoutFilePath, exitFilePath } from './sessionState';
@@ -1019,13 +1019,26 @@ export class TaskLoopRunner {
           // etc.).  Wait for the busy flag to clear — written at the very end of
           // the fire-and-forget async after 'result' fires — so we don't
           // prematurely proceed while the client is still mid-turn.
-          const tuiDeadline = Date.now() + 10 * 60_000; // 10-minute safety cap
+          //
+          // Use activity-based deadline: reset the 10-minute window whenever a
+          // new streaming event arrives so we never cut off an active turn early.
+          // Only time out after 10 consecutive minutes of no streaming activity.
+          const INACTIVITY_MS = 10 * 60_000;
+          let lastSeenActivity = getClaudeTuiLastActivity(this._workspaceRoot);
+          let tuiDeadline = Date.now() + INACTIVITY_MS;
           while (isClaudeTuiBusy(this._workspaceRoot) && Date.now() < tuiDeadline) {
             if (this._state !== 'running') { break; }
             await this._sleepAbortable(500);
+            // Reset deadline if new activity arrived since last check.
+            const nowActivity = getClaudeTuiLastActivity(this._workspaceRoot);
+            if (nowActivity > lastSeenActivity) {
+              lastSeenActivity = nowActivity;
+              tuiDeadline = Date.now() + INACTIVITY_MS;
+            }
           }
           if (isClaudeTuiBusy(this._workspaceRoot)) {
-            this._cb?.log('⚠️ Claude TUI turn did not complete within 10 minutes — moving on');
+            this._cb?.log('⚠️ Claude TUI turn: no streaming activity for 10 minutes — force-clearing busy state and moving on');
+            forceIdleClaudeTui(this._workspaceRoot);
           }
         } else if (this._workspaceRoot && activeProvider === 'copilot-sdk') {
           const tuiDeadline = Date.now() + 10 * 60_000;
