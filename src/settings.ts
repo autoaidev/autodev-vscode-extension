@@ -46,6 +46,22 @@ export function saveSettings(settings: AutodevSettings): void {
   void _drop;
   fs.writeFileSync(file, JSON.stringify(rest, null, 2), 'utf8');
   ensureGitignore(path.dirname(dir), '.autodev/');
+  // Sensitive config files that may contain API keys or private server definitions
+  for (const entry of [
+    '.mcp.json', 'opencode.json', '.opencode.json', 'AGENTS.md', 'CLAUDE.md',
+    '.claude/settings.json', '.claude/settings.local.json',
+    '.vscode/mcp.json', '.vscode/settings.json',
+    '.openai.json', '.copilot-instructions.md',
+  ]) {
+    ensureGitignore(path.dirname(dir), entry);
+  }
+  // AI-managed task/state files that should not pollute the repo
+  for (const entry of [
+    'TODO.md', 'DONE.md', 'TASKS.md', 'SOUL.md', 'MEMORY.md', 'JOURNAL.md', 'CONTRACTS.md',
+    '.autodev/',  
+  ]) {
+    ensureGitignore(path.dirname(dir), entry);
+  }
 }
 
 /** Add `entry` to the project .gitignore if not already present. */

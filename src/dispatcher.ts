@@ -137,6 +137,23 @@ export async function sendPromptToAi(
     const messageFile = messageFilePath ?? path.join(root, AGENT_PROFILE_FILE.replace('AGENT_PROFILE.md', 'MESSAGE.md'));
     autodevDir(root);
     ensureProjectGitignore(root, '.autodev/');
+    // Sensitive config files that may contain API keys or private server definitions
+    for (const entry of [
+      '.mcp.json', 'opencode.json', '.opencode.json', 'AGENTS.md', 'CLAUDE.md',
+      '.claude/settings.json', '.claude/settings.local.json',
+      '.vscode/mcp.json', '.vscode/settings.json',
+      '.openai.json', '.copilot-instructions.md',
+    ]) {
+      ensureProjectGitignore(root, entry);
+    }
+    // AI-managed task/state files that should not pollute the repo
+    for (const entry of [
+      'TODO.md', 'DONE.md', 'TASKS.md', 'NOTES.md', 'SCRATCHPAD.md', 'JOURNAL.md', 'CONTRACTS.md',
+      '.autodev-journal/', 'media/profile/', 'media/skills/', 'media/templates/',
+      'media/AUTODEV*.md', 'media/SUBAGENT_QUICK_REF.md',
+    ]) {
+      ensureProjectGitignore(root, entry);
+    }
 
     const settings = loadSettingsForRoot(root);
     const storedSessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
