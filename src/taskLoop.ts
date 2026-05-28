@@ -1632,12 +1632,16 @@ export class TaskLoopRunner {
         const byLineVerified = (byLine && byLine.text === task.text) ? byLine : undefined;
         const byText         = updated.find(t => t.text === task.text);
         const match          = byId ?? byLineVerified ?? byText;
-        if (!match) { return true; }   // task genuinely gone — treat as done
+        if (!match) { return undefined; }  // task not found — ambiguous state
         return match.status === 'done';
       };
 
+      // Track "task not found" state to detect line-number shifts from new tasks.
+      // If task becomes unfindable, give it 3 seconds grace before treating as lost.
+      let taskLostAt: number | null = null;
+
       // Check immediately (AI might have already edited the file)
-      if (found()) { resolve(); return; }
+      if (found() === true) { resolve(); return; }
 
       let poller: NodeJS.Timeout | undefined;
       let stdoutWatcherRef: IDisposable | undefined;
@@ -1664,9 +1668,40 @@ export class TaskLoopRunner {
 
       const check = () => {
         if (this._state !== 'running') { cleanup(); resolve(); return; }
-        lastTodoChangeTime = Date.now(); // reset inactivity clock on every TODO.md change
-        lastActivityTime = Date.now();  // also reset JSONL inactivity — TODO change = AI is active
-        if (found()) { cleanup(); resolve(); }
+        const state = found();  // returns true (done), false (undefined), or undefined (not found)
+        
+        if (state === true) {
+          // Task explicitly marked [x] done
+          lastTodoChangeTime = Date.now(); // reset inactivity clock
+          lastActivityTime = Date.now();
+          cleanup(); 
+          resolve(); 
+          return;
+        }
+        
+        if (state === false) {
+          // Task marked [~] in-progress or other non-done status
+          lastTodoChangeTime = Date.now();
+          lastActivityTime = Date.now();
+          taskLostAt = null; // task found again, reset lost timer
+          return;
+        }
+        
+        // state === undefined: task not found in TODO.md
+        if (taskLostAt === null) {
+          // First time seeing task as lost — start the grace period
+          taskLostAt = Date.now();
+          this._cb?.log(`⚠️ Task became unfindable in TODO.md (line shift from new tasks?) — giving 3s grace period…`);
+          return;
+        }
+        
+        // Check if grace period expired
+        if (Date.now() - taskLostAt > 3_000) {
+          this._cb?.log(`⚠️ Task still unfindable after 3s grace period — treating as lost and resolving`);
+          cleanup();
+          resolve();
+          return;
+        }
       };
 
       todoWatcher = this._cb!.fileWatcher.watch(todoPath, check);
