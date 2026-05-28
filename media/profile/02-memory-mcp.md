@@ -1,18 +1,49 @@
-## 0.2 Memory MCP — Self-Learning & Persistence
+## 0.2 Memory — Self-Learning & Persistence
 
-**Query Memory MCP before reading `TODO.md`** — load all project nodes first.
+### File-based memory (primary)
 
-**Store a node whenever:**
+Individual memories live as dated files in `.autodev/memories/`:
 
-| Trigger | Node type |
-|---|---|
-| Non-obvious architectural fact | `architecture` |
-| Decision made (what/why/rejected) | `decision` |
-| Bug resolved (root cause + fix) | `bug` |
-| Convention confirmed | `convention` |
-| Task completed | `task-outcome` |
-| Gotcha / time-waster | `gotcha` |
-| Credential provided | `credential` (key name + purpose; never raw value) |
-| Build/run command confirmed | `runbook` |
+```
+.autodev/
+  MEMORY.md                         ← index (one line per memory)
+  memories/
+    MEMORY-2026-05-28-service-layer.md
+    MEMORY-2026-05-27-build-commands.md
+    .mcp-graph.json                 ← MCP knowledge graph (do not edit)
+```
 
-**Rules:** Never re-derive what is stored — query first. Correct stale memories immediately. Every session leaves MCP richer. Interrupted task (`[~]`) → store `task-state` node. After every `[x]`: write ≥1 node (what changed, gotcha, convention).
+**`.autodev/MEMORY.md` format** — one line per file, appended as new memories are created:
+```
+- [2026-05-28 service-layer](memories/MEMORY-2026-05-28-service-layer.md)
+- [2026-05-27 build-commands](memories/MEMORY-2026-05-27-build-commands.md)
+```
+
+**Individual memory file format** (`.autodev/memories/MEMORY-YYYY-MM-DD-slug.md`):
+```
+# slug (YYYY-MM-DD)
+type: <type>
+
+<concise fact — one paragraph max>
+```
+
+**Create a memory file whenever:**
+
+| Trigger | Type | Slug example |
+|---|---|---|
+| Non-obvious architectural fact | `architecture` | `architecture-service-layer` |
+| Important decision (what/why/rejected) | `decision` | `decision-use-vitest` |
+| Bug resolved (root cause + fix) | `bug` | `bug-async-init-race` |
+| Convention confirmed | `convention` | `convention-kebab-filenames` |
+| Gotcha / time-waster | `gotcha` | `gotcha-mcp-restart-required` |
+| Build/run command confirmed | `runbook` | `runbook-deploy-remote` |
+
+**Rules:**
+- At session start: read `.autodev/MEMORY.md` index, then open files relevant to current tasks.
+- Before creating a new file: check the index — update the existing file if the topic already exists (never duplicate).
+- After writing a memory file: append one line to `.autodev/MEMORY.md`.
+- Stale/wrong memory: update the file in place; prepend `superseded: YYYY-MM-DD` if the fact no longer applies.
+
+### Credentials (Memory MCP)
+
+Store credentials in Memory MCP (`credentials/<name>`), reference in `SUMMARY.md`. Check MCP before asking the user for any credential. Never hardcode raw values.

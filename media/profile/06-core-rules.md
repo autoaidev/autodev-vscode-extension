@@ -52,6 +52,7 @@ Read fresh → apply → write → wait 1s → re-read and confirm. Never assume
 Scope change: move `[x]` lines → `DONE.md` under `## Session YYYY-MM-DD`.
 
 ### 1.5 File Placement
-Root: `SOUL.md` · `SUMMARY.md` · `JOURNAL.md` · `LESSONS.md` · `CONTRACTS.md` · `DONE.md` · `CLAUDE.md` · `AGENTS.md` · `.github/copilot-instructions.md`
+Root: `SOUL.md` · `SUMMARY.md` · `AGENTS.md` · `CONTRACTS.md` · `DONE.md`
+`.autodev/`: `MEMORY.md` · `JOURNAL.md` · `LESSONS.md` · `memories/` · `journals/` · `lessons/`
 Skills: `.claude/skills/<slug>/` · Issues: `.autodev/issues/` · KB: `.autodev/knowledgebase/`
 **NEVER put root files or skills inside `.autodev/`.**

@@ -68,18 +68,29 @@ export const PERIODIC_ACTIONS: PeriodicActionDef[] = [
 
     },
 
-  // ─── Memory / SUMMARY.md ──────────────────────────────────────────────────
-  // Protocol ref: media/profile/01-learning.md
+  // ─── Memory / dated files ─────────────────────────────────────────────────
+  // Protocol ref: media/profile/02-memory-mcp.md
   {
     id: 'memory',
     label: 'Update memory',
     settingKey: 'memoryEveryNTasks',
     icon: '🧠',
-    prompt: `Before continuing to the next task, update SUMMARY.md in the project root with any new architectural discoveries, naming conventions, gotchas, key files, decisions, or build/run changes from recent tasks. Keep entries concise — one clear bullet per fact. If SUMMARY.md does not exist, create it with these sections: Architecture, Naming Conventions, Key Files, Gotchas / Known Issues, Decisions, Build & Run, Dependencies, Credentials.
+    prompt: `Before continuing to the next task, consolidate what you have learned from recent tasks into the dated memory file system.
 
-Also update LESSONS.md (or tasks/lessons.md if it already exists) if any corrections, preventable mistakes, or repeat failures occurred in recent tasks.
+For each new durable fact (architectural discovery, decision, convention, gotcha, runbook, or bug fix) from recent work:
+1. Check .autodev/MEMORY.md — if a memory file for this topic already exists, update it in place instead of creating a duplicate.
+2. Otherwise create .autodev/memories/MEMORY-YYYY-MM-DD-slug.md with format:
+   # slug (YYYY-MM-DD)
+   type: <architecture|decision|bug|convention|gotcha|runbook>
+   
+   <concise fact — one paragraph max>
+3. Append one line to .autodev/MEMORY.md:
+   - [YYYY-MM-DD slug](memories/MEMORY-YYYY-MM-DD-slug.md)
+   Create .autodev/MEMORY.md with a "# Memory Index" heading if it does not exist.
 
-Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP key name only. Then continue — pick up any new tasks .`,
+Also update SUMMARY.md with any new architectural bullets, and .autodev/LESSONS.md (using dated lesson files in .autodev/lessons/) if any preventable mistakes occurred.
+
+Do NOT store credentials in memory files — use Memory MCP for credentials. Then continue — pick up any new tasks.`,
   },
 
   // ─── Full project summary ─────────────────────────────────────────────────
@@ -103,25 +114,32 @@ Do NOT store credentials in plaintext in SUMMARY.md — reference the Memory MCP
     prompt: '', // unused — handled by the extension, not the AI
   },
   // ─── Journal auto-learn ──────────────────────────────────────────────────
-  // Prompts the agent to review JOURNAL.md and distil patterns into LESSONS.md.
+  // Prompts the agent to review dated journal files and distil patterns into dated lesson files.
   {
     id: 'journalLearn',
     label: 'Auto-Learn (Journal Review)',
     settingKey: 'journalLearnEveryNTasks',
     icon: '🔬',
     type: 'prompt' as const,
-    prompt: `You are performing an autonomous research journal review (inspired by the autoresearch loop). Follow these steps exactly:
+    prompt: `You are performing an autonomous research journal review. Follow these steps exactly:
 
-1. Read JOURNAL.md in the project root. Find the most recent '## Auto-learn YYYY-MM-DD' heading. All entries after that heading (or all entries if none exists) are unreviewed.
-2. For each unreviewed entry, tally:
-   - Any hypothesis type that appears in 2+ 'discard' rows → recurring anti-pattern for this codebase.
-   - Any approach that appears in 2+ 'keep' rows → best practice worth formalising.
-   - Any 'keep' row with ΔC = '-' → simplification win worth highlighting.
-   - Any row where the Outcome contradicted the Hypothesis → knowledge gap about how the codebase actually works.
-3. Update LESSONS.md — add one entry per new pattern found. Format: 'YYYY-MM-DD — [Pattern Title]: [one sentence description and why it matters in this codebase]'. Do not duplicate existing entries.
+1. Read .autodev/JOURNAL.md index. Open all journal files in .autodev/journals/ that do not yet have a '## Auto-learn' marker at the bottom.
+2. For each unreviewed journal file, tally:
+   - Any hypothesis type in 2+ 'discard' rows → recurring anti-pattern.
+   - Any approach in 2+ 'keep' rows → best practice worth formalising.
+   - Any 'keep' row with ΔC = '-' → simplification win.
+   - Any row where Outcome contradicted Hypothesis → knowledge gap.
+3. For each new pattern: check .autodev/LESSONS.md index — if a lesson file for this topic already exists, update it in place. Otherwise create .autodev/lessons/LESSON-YYYY-MM-DD-slug.md:
+   # slug (YYYY-MM-DD)
+   type: <anti-pattern|best-practice|simplification|knowledge-gap>
+   
+   <one sentence: what it is and why it matters in this codebase>
+   Then append one line to .autodev/LESSONS.md:
+   - [YYYY-MM-DD slug](lessons/LESSON-YYYY-MM-DD-slug.md)
+   Create .autodev/LESSONS.md with a '# Lessons Index' heading if missing.
 4. If any pattern appears 3+ times and is actionable, check for a matching skill file in .claude/skills/. Create or update it.
-5. Append to JOURNAL.md: a new '## Auto-learn YYYY-MM-DD' heading followed by a one-paragraph summary of what was reviewed and what was learned.
-6. Commit: git add JOURNAL.md LESSONS.md && git commit -m 'chore: auto-learn journal review'
+5. Append to each reviewed journal file: '## Auto-learn YYYY-MM-DD' followed by a one-sentence summary of what was learned.
+6. Commit: git add .autodev/JOURNAL.md .autodev/journals/ .autodev/LESSONS.md .autodev/lessons/ && git commit -m 'chore: auto-learn journal review'
 7. Continue immediately with the next task — do not wait or ask for confirmation.`,
   },];
 

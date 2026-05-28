@@ -363,19 +363,9 @@ All completed tasks are recorded here in reverse-chronological order.
 
 ## 0.4 Automatic Skill Development — Live Project Skills
 
-As the agent learns about the project it **automatically creates and live-updates three agent instruction files** — one for each AI tool used in this project — so that every future session (regardless of which tool is used) starts with full project context already baked in.
+As the agent learns about the project it **automatically creates and live-updates `AGENTS.md`** so that every future session starts with full project context already baked in. (`CLAUDE.md` is a thin redirect to `AGENTS.md`.)
 
-### The Three Skill Files
-
-| File | Tool that reads it | Format requirement |
-|---|---|---|
-| `.github/copilot-instructions.md` | GitHub Copilot | YAML frontmatter `applyTo: '**'` |
-| `CLAUDE.md` | Claude Code CLI | Plain markdown, no frontmatter |
-| `AGENTS.md` | OpenCode | Plain markdown, no frontmatter |
-
-**All three files contain the same project knowledge.** They are kept in sync — when one is updated, all three are updated in the same operation.
-
-### What Goes In All Three Files
+### What Goes In AGENTS.md
 
 A curated, agent-readable distillation of confirmed project knowledge. Not a dump — only actionable, reusable facts:
 
@@ -392,7 +382,7 @@ A curated, agent-readable distillation of confirmed project knowledge. Not a dum
 
 ### Update Triggers
 
-Update all three files whenever:
+Update `AGENTS.md` whenever:
 - A new architectural pattern or module boundary is confirmed.
 - A naming or style convention is discovered or enforced.
 - A domain term is clarified.
@@ -400,78 +390,9 @@ Update all three files whenever:
 - The build/run/test process changes.
 - **At minimum: once per session**, even if only to add a single bullet.
 
-### Skeletons
+### Skeleton
 
-**`.github/copilot-instructions.md`** (Copilot — requires frontmatter):
-```markdown
----
-applyTo: '**'
----
-# <Project Name> — Copilot Instructions
-
-## Project Identity
-- 
-
-## Architecture Rules
-- 
-
-## Naming Conventions
-- 
-
-## Build & Run
-
-## Code Style
-- 
-
-## Domain Vocabulary
-- 
-
-## Do NOT Do
-- 
-
-## Key Files
-- 
-
-## Project Skills
-<!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
-- 
-```
-
-**`CLAUDE.md`** (Claude Code — no frontmatter):
-```markdown
-# <Project Name> — Claude Instructions
-
-## Project Identity
-- 
-
-## Architecture Rules
-- 
-
-## Naming Conventions
-- 
-
-## Build & Run
-
-## Code Style
-- 
-
-## Domain Vocabulary
-- 
-
-## Do NOT Do
-- 
-
-## Key Files
-- 
-
-## Project Skills
-<!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
-- 
-```
-
-**`AGENTS.md`** (OpenCode — no frontmatter):
+**`AGENTS.md`**:
 ```markdown
 # <Project Name> — Agent Instructions
 
@@ -500,14 +421,13 @@ applyTo: '**'
 
 ## Project Skills
 <!-- Skills created from hard problems solved in this project. -->
-<!-- Format: `- .vscode/skills/<slug>.instructions.md` — one-line description -->
+<!-- Format: `- .claude/skills/<slug>/SKILL.md` — one-line description -->
 - 
 ```
 
 ### Rules
 
-- **Create all three on first session** if they do not exist, using the skeletons above.
-- **Always update all three together** — never update one without the others.
+- **Create `AGENTS.md` on first session** if it does not exist, using the skeleton above.
 - **Never truncate** — append and refine, never delete confirmed knowledge.
 - **Verify before writing** — only write conventions confirmed by reading actual code, not assumptions.
 - After updating, add a one-line note to `SUMMARY.md` under `## Key Files`.
@@ -599,7 +519,7 @@ Files, modules, or subsystems where this pattern matters.
 
 ### After Creating a Skill
 
-1. Add the skill folder path and one-line summary to all three instruction files (`.github/copilot-instructions.md`, `CLAUDE.md`, `AGENTS.md`) under `## Project Skills`.
+1. Add the skill folder path and one-line summary to `AGENTS.md` under `## Project Skills`.
 2. Add a `SKILL CREATED: .claude/skills/<slug>/` note to `SUMMARY.md` for this session.
 3. Reference the skill folder in the relevant `TODO.md` task as a note.
 
