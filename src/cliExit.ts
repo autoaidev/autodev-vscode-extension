@@ -62,8 +62,12 @@ export class CliExitHandler {
   private taskIsInProgress(): boolean {
     try {
       const updated = parseTodo(this.todoPath);
-      const byLine = updated.find(t => t.line === this.task.line);
-      return byLine?.status === 'in-progress';
+      const byId           = this.task.id ? updated.find(t => t.id === this.task.id) : undefined;
+      const byLine         = updated.find(t => t.line === this.task.line);
+      const byLineVerified = (byLine && byLine.text === this.task.text) ? byLine : undefined;
+      const byText         = updated.find(t => t.text === this.task.text);
+      const match          = byId ?? byLineVerified ?? byText;
+      return match?.status === 'in-progress';
     } catch { return false; }
   }
 
