@@ -346,6 +346,16 @@ export class TaskLoopRunner {
       // Re-send agent_online once the WS connection is actually established so
       // the server can record the VNC host/port from the live connection context.
       this._webhookPoller.setOnConnect(() => {
+        // If the loop is no longer running (stopped or stopping), re-assert
+        // offline status on reconnect instead of claiming agent_online.
+        if (this._state === 'idle' || this._state === 'stopping') {
+          this._notifyWebhook('agent_offline', {
+            workDir:   this._workspaceRoot ?? '',
+            gitRepo:   this._gitRepo,
+            gitBranch: this._gitBranch,
+          });
+          return;
+        }
         this._notifyWebhook('agent_online', {
           hostname:           this._hostname,
           workDir:            this._workspaceRoot ?? '',
@@ -536,6 +546,13 @@ export class TaskLoopRunner {
     // Abort any in-progress task wait immediately
     this._taskCompletionAbort?.();
     this._taskCompletionAbort = null;
+    // Notify Pixel Office / webhook immediately — don't wait for the _runLoop
+    // finally block which may never fire if the WS disconnects before cleanup.
+    this._notifyWebhook('agent_offline', {
+      workDir:   this._workspaceRoot,
+      gitRepo:   this._gitRepo,
+      gitBranch: this._gitBranch,
+    });
     // Send discord goodbye right now (don't wait for cleanup path)
     this._notifyDiscord('⛔ AutoDev loop stopped');
     this._cb?.log('Task loop stop requested…');
