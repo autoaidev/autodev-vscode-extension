@@ -161,12 +161,19 @@ function shellQuotePath(p_: string): string {
   return `"${p_.replace(/\\/g, '/')}"`;
 }
 
+/** Use the exact Node runtime running the extension host.
+ * Copilot hook subprocesses can have a minimal PATH (especially on headless
+ * hosts), so relying on bare `node` may fail and drop hook events. */
+function nodeExec(): string {
+  return shellQuotePath(process.execPath);
+}
+
 /** Shell command for Claude Code — Claude already includes hook_event_name in
  *  the stdin payload, so we don't need to inject anything. */
 function claudeHookCommand(workspaceRoot: string): string {
   const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.mjs');
   const jsonl   = hooksJsonlPath(workspaceRoot);
-  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)}`;
+  return `${nodeExec()} ${shellQuotePath(script)} ${shellQuotePath(jsonl)}`;
 }
 
 /** Shell command for one Copilot CLI event — Copilot doesn't include the
@@ -174,7 +181,7 @@ function claudeHookCommand(workspaceRoot: string): string {
 function copilotHookCommand(eventName: string, workspaceRoot: string): string {
   const script  = path.join(hookScriptsDir(workspaceRoot), 'hook-append.mjs');
   const jsonl   = hooksJsonlPath(workspaceRoot);
-  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${JSON.stringify(eventName)} "copilot-cli"`;
+  return `${nodeExec()} ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${JSON.stringify(eventName)} "copilot-cli"`;
 }
 
 /** Same command as copilotHookCommand but uses Windows-native path separators
@@ -200,7 +207,7 @@ export function getManualHookCmd(provider: string, hookEvent: string, workspaceR
   fs.writeFileSync(payloadFile, JSON.stringify(payload), 'utf8');
   const script = path.join(scriptsDir, 'hook-event.mjs');
   const jsonl  = hooksJsonlPath(workspaceRoot);
-  return `node ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${shellQuotePath(payloadFile)}`;
+  return `${nodeExec()} ${shellQuotePath(script)} ${shellQuotePath(jsonl)} ${shellQuotePath(payloadFile)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,8 +246,11 @@ function isCurrentClaudeEntry(group: any, workspaceRoot: string): boolean {
   const cmd = group.hooks?.[0]?.command;
   if (typeof cmd !== 'string') return false;
   const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
+  const expectedNode = process.execPath.replace(/\\/g, '/');
   // Also require the .mjs extension so legacy .js installs are re-migrated.
-  return cmd.includes(JSON.stringify(expectedSink)) && cmd.includes('hook-append.mjs');
+  return cmd.includes(JSON.stringify(expectedSink))
+    && cmd.includes('hook-append.mjs')
+    && cmd.includes(expectedNode);
 }
 
 export function areClaudeHooksInstalled(workspaceRoot: string): boolean {
@@ -345,6 +355,7 @@ function isAutodevCopilotEntry(entry: any): boolean {
 function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
   if (!isAutodevCopilotEntry(entry)) return false;
   const expectedSink = hooksJsonlPath(workspaceRoot).replace(/\\/g, '/');
+  const expectedNode = process.execPath.replace(/\\/g, '/');
   const cmd = entry?.bash ?? entry?.powershell ?? '';
   // Also require the .mjs extension so legacy .js installs are re-migrated.
   // Also require the powershell field (added in v1.0.218) so Windows installs
@@ -352,6 +363,7 @@ function isCurrentCopilotEntry(entry: any, workspaceRoot: string): boolean {
   return typeof cmd === 'string'
     && cmd.includes(JSON.stringify(expectedSink))
     && cmd.includes('hook-append.mjs')
+    && cmd.includes(expectedNode)
     && typeof entry?.powershell === 'string';
 }
 

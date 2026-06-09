@@ -1649,7 +1649,11 @@ export class TaskLoopRunner {
         const byLineVerified = (byLine && byLine.text === task.text) ? byLine : undefined;
         const byText         = updated.find(t => t.text === task.text);
         const match          = byId ?? byLineVerified ?? byText;
-        if (!match) { return undefined; }  // task not found — ambiguous state
+        // If the current task can no longer be found but there are no pending
+        // tasks left at all, treat it as completed. This avoids re-prompt loops
+        // where the CLI exits cleanly after finishing work but TODO matching was
+        // invalidated by line shifts or post-processing.
+        if (!match) { return countRemaining(updated) === 0 ? true : undefined; }
         return match.status === 'done';
       };
 
@@ -1852,8 +1856,9 @@ export class TaskLoopRunner {
 
       // Watch the exit file — written by withExitFile() in dispatcher.ts when the CLI
       // process finishes. CliExitHandler owns the decision tree of what to do.
+      const isTaskDone = () => found() === true;
       const exitHandler = this._workspaceRoot
-        ? new CliExitHandler(this._workspaceRoot, todoPath, task, taskStartTime, found)
+        ? new CliExitHandler(this._workspaceRoot, todoPath, task, taskStartTime, isTaskDone)
         : null;
       const onCliExit = async () => {
         if (this._state !== 'running') { return; }

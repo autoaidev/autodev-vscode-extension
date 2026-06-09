@@ -21,6 +21,46 @@ export function buildOpenCodeCliCommand(
 }
 
 /**
+ * List all OpenCode sessions for this workspace directory (newest first, capped at 20).
+ * Uses `opencode session list --format json`. Returns empty array on timeout/error.
+ */
+export function listOpenCodeSessions(cwd: string): Promise<Array<{ id: string; mtime: number }>> {
+  return new Promise(resolve => {
+    let done = false;
+    let stdout = '';
+    const child = spawn('opencode', ['session', 'list', '-n', '20', '--format', 'json'], {
+      cwd,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    child.unref();
+    const timer = setTimeout(() => {
+      if (done) { return; }
+      done = true;
+      try { if (child.pid !== undefined) { process.kill(-child.pid, 'SIGKILL'); } } catch { /* ignore */ }
+      resolve([]);
+    }, 10_000);
+    child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+    child.on('close', () => {
+      if (done) { return; }
+      done = true;
+      clearTimeout(timer);
+      try {
+        const raw = JSON.parse(stdout) as Array<{ id: string; directory: string; created: number; updated: number }>;
+        const cwdNorm = cwd.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '');
+        const filtered = raw
+          .filter(s => s.directory.toLowerCase().replace(/\\/g, '/').replace(/\/$/, '') === cwdNorm)
+          .sort((a, b) => b.updated - a.updated)
+          .slice(0, 20)
+          .map(s => ({ id: s.id, mtime: s.updated ?? s.created ?? 0 }));
+        resolve(filtered);
+      } catch { resolve([]); }
+    });
+    child.on('error', () => { if (done) { return; } done = true; clearTimeout(timer); resolve([]); });
+  });
+}
+
+/**
  * Get the latest OpenCode session ID for this workspace directory by querying
  * `opencode session list`. No tokens consumed — purely a metadata read.
  *

@@ -257,22 +257,23 @@ export function assembleProfileBody(
     body += validCustom.map(r => {
       // Remove @ prefix if present
       const cleanPath = r.startsWith('@') ? r.substring(1) : r;
-      // Convert to absolute path and use file:// scheme
-      const absPath = path.isAbsolute(cleanPath) ? cleanPath : path.join(root, cleanPath);
-      return `file://${absPath.replace(/\\/g, '/')}`;
+      // Use a relative file:// path so the reference survives workspace moves.
+      const relPath = path.isAbsolute(cleanPath)
+        ? path.relative(root, cleanPath).replace(/\\/g, '/')
+        : cleanPath.replace(/\\/g, '/');
+      return `file://./${relPath}`;
     }).join('\n');
     body += '\n';
   }
 
   // Always append SOUL.md reference so agents load their identity anchor first.
-  const soulPath = path.join(root, 'SOUL.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Agent Identity Anchor',
     '',
-    `file://${soulPath}`,
+    `file://./SOUL.md`,
     '<think>',
     'IMPORTANT: Read SOUL.md before processing any incoming message.',
     'It contains your name, your contact addresses, and your full communication history.',
@@ -284,14 +285,13 @@ export function assembleProfileBody(
   ].join('\n');
 
   // Always append JOURNAL.md reference so agents write and read the research log.
-  const journalPath = path.join(root, 'JOURNAL.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Research Journal',
     '',
-    `file://${journalPath}`,
+    `file://./JOURNAL.md`,
     '<think>',
     'IMPORTANT: Before every non-trivial task, write a hypothesis row in JOURNAL.md (status: pending).',
     'After the task: update the row to keep or discard. Apply the simplicity criterion.',
@@ -303,14 +303,13 @@ export function assembleProfileBody(
 
   // Always append a direct reference to CONTRACTS.md so agents auto-load
   // the project's contact directory regardless of which sections are enabled.
-  const contractsPath = path.join(root, 'CONTRACTS.md').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Project Contact Directory',
     '',
-    `file://${contractsPath}`,
+    `file://./CONTRACTS.md`,
     '<think>',
     'IMPORTANT: Read CONTRACTS.md before sending any email, message, or task to another agent.',
     'It lists every human and agent contact address, per-channel routing rules, and the escalation',
@@ -321,14 +320,13 @@ export function assembleProfileBody(
   ].join('\n');
 
   // Always append issue tracking and knowledge base anchors.
-  const issuesPath = path.join(root, '.autodev', 'issues').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Open Issues',
     '',
-    `file://${issuesPath}/`,
+    `file://./.autodev/issues/`,
     '<think>',
     'IMPORTANT: At session start, scan .autodev/issues/ for ISSUE-*.md files whose Status is not Resolved or Closed.',
     'Re-read each open issue file before starting work so context is fully loaded.',
@@ -338,14 +336,13 @@ export function assembleProfileBody(
     '',
   ].join('\n');
 
-  const kbPath = path.join(root, '.autodev', 'knowledgebase').replace(/\\/g, '/');
   body += [
     '',
     '---',
     '',
     '## Knowledge Base',
     '',
-    `file://${kbPath}/`,
+    `file://./.autodev/knowledgebase/`,
     '<think>',
     'IMPORTANT: Before starting any non-trivial task, scan .autodev/knowledgebase/ for KB entries relevant to that task.',
     'When a session produces a reusable insight (architectural decision, pattern, gotcha, confirmed API behaviour),',

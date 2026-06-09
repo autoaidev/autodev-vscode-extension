@@ -16,7 +16,7 @@ import { loadSettings, saveSettings, AutodevSettings, getBuiltinProfiles } from 
 import { applyMcpSkills, applyAllSkills } from './protocolSections';
 import { Task, parseTodo, pruneTodoToArchive } from './todo';
 import { todoWriter } from './todoWriteManager';
-import { getSessionId, clearSessionId, saveSessionName, getSessionName } from './sessionState';
+import { getSessionId, clearSessionId, saveSessionId as _saveSessionId, saveSessionName, getSessionName } from './sessionState';
 import { mcpConfigCss, mcpConfigHtml, mcpConfigScript } from './sidebarMcpConfig';
 import { sidebarCss } from './sidebarCss';
 import { tasksPanelHtml, tasksPanelScript } from './sidebarTasksPanel';
@@ -26,6 +26,8 @@ import { PROFILE_SECTIONS } from './profileBuilder';
 import { PERIODIC_ACTIONS } from './periodicActions';
 import { rebuildProfile } from './messageBuilder';
 import { copilotNpmRoot, clearCopilotSdkCache } from './providers/copilotSdkProvider';
+import { listClaudeSessions } from './providers/claudeCliProvider';
+import { listOpenCodeSessions } from './providers/opencodeCliProvider';
 
 // ---------------------------------------------------------------------------
 // TodoViewProvider — sidebar webview that shows TODO.md tasks + loop controls
@@ -53,6 +55,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _lastNotifyTime = 0;
   private _lastKnownMtime = 0;
   private _cozempicInstalled: boolean | null = null;
+  private _ocSessionsCache: Array<{ id: string; mtime: number }> = [];
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -115,6 +118,18 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'newSession': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) { clearSessionId(root, this._selectedProvider); this._push(); }
+          break;
+        }
+        case 'selectSession': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const sid = String(msg.sessionId ?? '').trim();
+          if (!sid) {
+            clearSessionId(root, this._selectedProvider);
+          } else {
+            _saveSessionId(root, this._selectedProvider, sid);
+          }
+          this._push();
           break;
         }
         case 'compactSession': {
@@ -328,6 +343,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     // Defer install probes so the webview's service worker has time to
     // register before we spawn child processes that hog the event loop.
     setTimeout(() => this._refreshMcpInstall(), 8000);
+    if (this._selectedProvider === 'opencode-cli') { this._refreshOpenCodeSessions(); }
   }
 
   setLoopState(state: LoopState, task?: string): void {
@@ -349,6 +365,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     const current = loadSettings();
     saveSettings({ ...current, provider: id });
     this._push();
+    if (id === 'opencode-cli') { this._refreshOpenCodeSessions(); }
   }
 
   /** Transiently switch the active provider without persisting (used by fallback logic). */
@@ -421,7 +438,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     this._sessionWatcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(root, '.autodev/session-state.json')
     );
-    const sessionNotify = () => this._push();
+    const sessionNotify = () => {
+      if (this._selectedProvider === 'opencode-cli') { this._refreshOpenCodeSessions(); }
+      else { this._push(); }
+    };
     this._sessionWatcher.onDidChange(sessionNotify);
     this._sessionWatcher.onDidCreate(sessionNotify);
 
@@ -550,6 +570,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     refreshMcpInstall(targets).then(() => this._push()).catch(() => { /* ignore */ });
   }
 
+  private _refreshOpenCodeSessions(): void {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) { return; }
+    listOpenCodeSessions(root).then(sessions => {
+      this._ocSessionsCache = sessions;
+      this._push();
+    }).catch(() => { /* ignore, keep stale cache */ });
+  }
+
   private _checkCozempic(): boolean {
     if (this._cozempicInstalled !== null) { return this._cozempicInstalled; }
     // VS Code's process doesn't inherit the user's full shell PATH (e.g. ~/.local/bin
@@ -567,6 +596,24 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _push(): void {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const sessionId = root ? (getSessionId(root, this._selectedProvider) ?? null) : null;
+    const availableSessions: Array<{id: string; mtime: number; name: string | null}> = (() => {
+      if (!root) { return []; }
+      if (this._selectedProvider === 'claude-cli') {
+        return listClaudeSessions(root).slice(0, 20).map(s => ({
+          id: s.id, mtime: s.mtime, name: getSessionName(root, s.id) ?? null,
+        }));
+      }
+      if (this._selectedProvider === 'opencode-cli') {
+        return this._ocSessionsCache.map(s => ({
+          id: s.id, mtime: s.mtime, name: getSessionName(root, s.id) ?? null,
+        }));
+      }
+      // For copilot-cli, opencode-sdk, copilot-sdk: show current session only (no enumeration)
+      if (sessionId) {
+        return [{ id: sessionId, mtime: 0, name: getSessionName(root, sessionId) ?? null }];
+      }
+      return [];
+    })();
     const settings = loadSettings();
     // mcpServers are sourced from <root>/.mcp.json (the official MCP file),
     // NOT .autodev/settings.json. The settings file no longer carries them.
@@ -604,6 +651,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       settings,
       sessionId,
       sessionName: (root && sessionId) ? (getSessionName(root, sessionId) ?? null) : null,
+      availableSessions,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
       cozempicInstalled: this._checkCozempic(),
@@ -716,7 +764,9 @@ ${PERIODIC_ACTIONS.map(a => `
 <div class="session-id-row" id="sessionIdRow" style="display:none">
   <span class="session-id-dot"></span>
   <span style="flex-shrink:0">Session:</span>
-  <span class="session-id-val" id="sessionIdVal" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  <select id="sessionSelect" style="flex:1;min-width:0;font-size:11px" title="Select an existing session or start a new one">
+    <option value="">⊕ New session</option>
+  </select>
   <button class="new-session-btn" id="compactBtn" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
   <button class="new-session-btn" id="archiveTodoBtn" title="Move completed [x] tasks from TODO.md to DONE.md">&#x1F4E6; Archive</button>
   <button class="new-session-btn" id="renameSessionBtn" title="Set a display name for this session">&#x270F;</button>
@@ -910,13 +960,37 @@ function renderProviders(){
     if(periodicArrow){periodicArrow.innerHTML='&#9654;';}
   }
   var sidRow=document.getElementById('sessionIdRow');
-  var sidVal=document.getElementById('sessionIdVal');
-  var hasSession=isCli&&resumeOn&&state.sessionId;
-  sidRow.style.display=hasSession?'flex':'none';
-  if(sidVal){
-    var displayName=state.sessionName||state.sessionId||'';
-    sidVal.textContent=displayName;
-    sidVal.title=state.sessionId||'';
+  var sessionSelect=document.getElementById('sessionSelect');
+  sidRow.style.display=isCli&&resumeOn?'flex':'none';
+  if(sessionSelect){
+    // Build options: "New session" + one per available session (newest first)
+    var sessions=state.availableSessions||[];
+    var noSel=!state.sessionId;
+    var opts='<option value=""'+(noSel?' selected':'')+'>⊕ New session</option>';
+    sessions.forEach(function(s){
+      var d=new Date(s.mtime);
+      var dateStr=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      var shortId=s.id.length>12?s.id.slice(0,12)+'…':s.id;
+      var label=s.name?s.name+' ('+shortId+')':shortId+' · '+dateStr;
+      var sel=s.id===state.sessionId?' selected':'';
+      opts+='<option value="'+esc(s.id)+'"'+sel+'>'+esc(label)+'</option>';
+    });
+    // If current session ID is not in the list (e.g. from another provider dir),
+    // append it so the dropdown reflects the saved state correctly.
+    if(state.sessionId&&!sessions.find(function(s){return s.id===state.sessionId;})){
+      var fallbackLabel=state.sessionName||state.sessionId;
+      opts+='<option value="'+esc(state.sessionId)+'" selected>'+esc(fallbackLabel)+'</option>';
+    }
+    sessionSelect.innerHTML=opts;
+    sessionSelect.onchange=function(){
+      var val=sessionSelect.value;
+      if(val===''){
+        vscode.postMessage({command:'newSession'});
+      } else {
+        vscode.postMessage({command:'selectSession',sessionId:val});
+      }
+    };
+    sessionSelect.title=state.sessionId||'No active session';
   }
   var compactBtn=document.getElementById('compactBtn');
   if(compactBtn){compactBtn.onclick=function(){vscode.postMessage({command:'compactSession'});};}

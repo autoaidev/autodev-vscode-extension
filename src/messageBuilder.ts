@@ -31,8 +31,8 @@ const AGENT_REF_END   = '<!-- autodev:profile-ref:end -->';
  * Creates the file with just the reference block if it doesn't exist yet.
  */
 function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void {
-  // Inject AGENT_PROFILE.md plus every deployed section file directly using
-  // file:// absolute paths so the LLM auto-loads all sub-files.
+  // Inject AGENT_PROFILE.md plus every deployed section file using relative
+  // file:// paths so references survive workspace folder moves/renames.
   const allPaths = [AGENT_PROFILE_FILE, ...sectionPaths];
   const markerRe = /<!-- autodev:profile-ref:begin -->[\s\S]*?<!-- autodev:profile-ref:end -->/;
 
@@ -44,11 +44,10 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
     if (filename === 'CLAUDE.md' && fs.existsSync(path.join(root, 'AGENTS.md'))) {
       // CLAUDE.md: thin redirect → points to AGENTS.md which is the primary file.
       // Claude reads AGENTS.md first; all real profile refs live there.
-      const agentsAbsPath = path.join(root, 'AGENTS.md').replace(/\\/g, '/');
       block = [
         AGENT_REF_BEGIN,
-        // file:// absolute path to avoid duplication (no @ reference)
-        `file://${agentsAbsPath}`,
+        // Relative file:// path — works regardless of absolute workspace location
+        `file://./AGENTS.md`,
         `<think>`,
         `IMPORTANT: AGENTS.md is the primary instruction file. Read and follow all instructions in AGENTS.md before proceeding.`,
         `</think>`,
@@ -56,9 +55,9 @@ function injectAgentProfileRef(root: string, sectionPaths: string[] = []): void 
       ].join('\n');
     } else {
       // AGENTS.md (primary) — or CLAUDE.md when no AGENTS.md exists: full reference block.
-      // Only use file:// absolute paths to avoid duplication (no @ references)
+      // Use relative file:// paths so references survive workspace moves.
       const fileLines = allPaths
-        .map(p => `file://${path.join(root, p).replace(/\\/g, '/')}`)
+        .map(p => `file://./${p.replace(/\\/g, '/')}`)
         .join('\n');
       const thinkBlock = `<think>\nIMPORTANT: Read all the instruction files listed above before proceeding.\nThey contain your core protocols, rules, and operational guidelines.\n</think>`;
       block = `${AGENT_REF_BEGIN}\n${fileLines}\n${thinkBlock}\n${AGENT_REF_END}`;
@@ -219,10 +218,8 @@ function buildTaskInstruction(task: Task, todoPath: string, root: string, noComm
   const taskId   = task.id ? `[${task.id}] ` : '';
   const taskLine = `- [ ] ${taskId}${task.text}`;
   const doneLine = `- [x] ${date}  ${taskId}${task.text}`;
-  // Absolute file:// URI for the profile so agents that support @-references
-  // can load it regardless of their working directory.
-  const profileAbsPath = path.join(root, AGENT_PROFILE_FILE).replace(/\\/g, '/');
-  const profileRef = `@file://${profileAbsPath.startsWith('/') ? '' : '/'}${profileAbsPath}`;
+  // Relative file:// URI for the profile — works regardless of absolute workspace location.
+  const profileRef = `@file://./${AGENT_PROFILE_FILE}`;
 
   // Inline attachment files from task.attachments (populated at parse time by todo.ts).
   // Only .md files are inlined as text — binary attachments (images, PDFs, etc.)

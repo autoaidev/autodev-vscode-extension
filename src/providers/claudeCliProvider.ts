@@ -55,6 +55,13 @@ function listClaudeSessionFiles(workspacePath: string): Array<{ name: string; mt
   } catch { return []; }
 }
 
+export function listClaudeSessions(workspacePath: string): Array<{ id: string; mtime: number }> {
+  return listClaudeSessionFiles(workspacePath).map(f => ({
+    id: f.name.replace('.jsonl', ''),
+    mtime: f.mtime,
+  }));
+}
+
 export function findLatestClaudeSession(workspacePath: string): string | undefined {
   return listClaudeSessionFiles(workspacePath)[0]?.name.replace('.jsonl', '');
 }
