@@ -14,8 +14,19 @@ import { exec } from 'child_process';
  * POSIX paths (e.g. `/home/x/foo` → `-home-x-foo`), so we don't strip `^-`.
  * Trailing dashes are dropped.
  */
-function claudeProjectFolder(workspacePath: string): string {
+export function claudeProjectFolder(workspacePath: string): string {
   return workspacePath.replace(/[:\\/]/g, '-').replace(/-+/g, '-').replace(/-$/g, '');
+}
+
+/**
+ * Compute the `~/.claude/projects/<encoded>` directory for a workspace,
+ * regardless of whether it already exists. Used when restoring an agent
+ * backup into a new folder: the destination's session traces must land in
+ * the project dir that Claude will look up for that folder.
+ */
+export function getClaudeProjectDir(workspacePath: string): string {
+  const claudeDir = process.env['CLAUDE_CONFIG_DIR'] ?? path.join(os.homedir(), '.claude');
+  return path.join(claudeDir, 'projects', claudeProjectFolder(workspacePath));
 }
 
 /**
@@ -44,7 +55,7 @@ function findClaudeProjectDir(workspacePath: string): string | undefined {
   } catch { return undefined; }
 }
 
-function listClaudeSessionFiles(workspacePath: string): Array<{ name: string; mtime: number; full: string }> {
+export function listClaudeSessionFiles(workspacePath: string): Array<{ name: string; mtime: number; full: string }> {
   const sessionsDir = findClaudeProjectDir(workspacePath);
   if (!sessionsDir) { return []; }
   try {

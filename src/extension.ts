@@ -15,6 +15,7 @@ import { PROVIDERS } from './providers';
 import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from './hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks } from './openCodeHooksManager';
 import { saveSettings } from './settings';
+import { exportAgentBackup, importAgentBackup } from './agentBackup';
 
 let _out: vscode.OutputChannel;
 // eslint-disable-next-line no-control-regex
@@ -147,6 +148,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('autodev.openSettings', () => openSettingsFile()),
 
+    vscode.commands.registerCommand('autodev.exportAgent', () => {
+      const r = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!r) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
+      void exportAgentBackup(r);
+    }),
+
+    vscode.commands.registerCommand('autodev.importAgent', () => {
+      const r = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      void importAgentBackup(r);
+    }),
+
     vscode.commands.registerCommand('autodev.archiveTodo', () => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
@@ -155,7 +167,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         const pruned = pruneTodoToArchive(todoPath, root);
         if (pruned > 0) {
-          vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) \u2192 DONE.md`);
+          vscode.window.showInformationMessage(`AutoDev: Archived ${pruned} completed task(s) \u2192 TODO_ARCHIVE.md`);
         } else {
           vscode.window.showInformationMessage('AutoDev: No completed tasks to archive.');
         }

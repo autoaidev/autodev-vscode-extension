@@ -981,6 +981,11 @@ export class TaskLoopRunner {
           this._cb?.log(`🔍 Retrying task (attempt ${attempts}/${maxAttempts}): ${task.text}`);
         }
       }
+      // Detect first pickup of a watchingInProgress task (OpenCode was already
+      // running when this iteration started). We need to send task_start so
+      // Pixel Office flips from idle → active — but only once per task, not on
+      // every polling iteration while the process is still running.
+      const isNewWatchedTask = watchingInProgress && this._currentTask !== task.text;
       this._currentTask = task.text;
       this._setState('running', task.text);
 
@@ -1008,6 +1013,19 @@ export class TaskLoopRunner {
           gitBranch: this._gitBranch,
         });
         this._notifyDiscord(`▶️ **Task started** (${remaining} remaining):\n${discordLabel(task.text)}`);
+      } else if (isNewWatchedTask) {
+        // CLI was already running when this task was first detected — send task_start
+        // so Pixel Office flips from idle → active (it never saw the original start).
+        this._cb?.log(`⏳ Watching in-progress task: ${task.text}`);
+        this._idleNotified = false;
+        this._notifyWebhook('task_start', {
+          iteration: this._iterations,
+          task:      { text: task.text },
+          remaining,
+          workDir:   this._workspaceRoot,
+          gitRepo:   this._gitRepo,
+          gitBranch: this._gitBranch,
+        });
       }
 
       const taskStartTime = Date.now();

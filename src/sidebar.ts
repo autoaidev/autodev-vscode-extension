@@ -409,6 +409,14 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       void vscode.commands.executeCommand('autodev.archiveTodo');
       return;
     }
+    if (text.trim().toLowerCase() === '/export') {
+      void vscode.commands.executeCommand('autodev.exportAgent');
+      return;
+    }
+    if (text.trim().toLowerCase() === '/import') {
+      void vscode.commands.executeCommand('autodev.importAgent');
+      return;
+    }
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
     const settings = loadSettings();

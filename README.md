@@ -14,6 +14,7 @@
 - [TODO.md Format](#todomd-format)
 - [AI Providers](#ai-providers)
 - [Session Resuming](#session-resuming)
+- [Agent Backup Export](#agent-backup-export)
 - [Agent Profile (AUTODEV.md)](#agent-profile-autodevmd)
 - [Prompt Structure](#prompt-structure)
 - [MCP Servers](#mcp-servers)
@@ -222,6 +223,18 @@ On the next task, the stored ID is passed as `--resume <id>` (claude-cli / copil
 
 Click **New** in the sidebar to clear the session ID and start fresh.
 
+### Session selector
+
+The Tasks tab includes a **session dropdown** that lists existing sessions for the active provider so you can resume a specific one or start a new conversation:
+
+| Provider | Sessions listed |
+|---|---|
+| claude-cli | Local `.jsonl` session traces for this workspace, newest first (date + short ID + optional custom name) |
+| opencode-cli | Sessions from `opencode session list --format json`, filtered by workspace and refreshed live |
+| copilot-cli / copilot-sdk / opencode-sdk | The currently connected session |
+
+Selecting `⊕ New session` clears the stored ID; selecting an entry stores it for resume on the next task.
+
 ### How session IDs are found
 
 | Provider | Source | Field |
@@ -231,6 +244,52 @@ Click **New** in the sidebar to clear the session ID and start fresh.
 | opencode-cli | `opencode session list --format json` | `"id"` (filtered by cwd) |
 
 If no stored session exists, the extension probes for a live session before the first task.
+
+---
+
+## Agent Backup Export
+
+Preserve and move an agent between machines or workspaces. Run **`AutoDev: Export Agent Backup (.zip)`** from the command palette, the `$(archive)` icon in the sidebar toolbar, or the **`/export`** slash command in the Add-task input.
+
+The export bundles everything the agent needs to be reconstructed into a single `agent.zip`:
+
+```
+agent-export/
+├── workspace/
+│   ├── .autodev/                 ← profiles, memory, session-state, output
+│   ├── media/profile/            ← profile assets
+│   ├── media/skills/             ← skill files
+│   └── *.md                      ← AGENTS, CLAUDE, SOUL, JOURNAL, CONTRACTS,
+│                                    TODO, DONE, TASKS, LESSONS, NOTES, SCRATCHPAD
+├── sessions/
+│   ├── claude/                   ← .jsonl traces + agent-* sidecars
+│   └── copilot-cli/              ← session-state/<uuid>/ folders for this workspace
+└── manifest/
+    └── session-ids.json          ← per-provider portability, notes, discovered + connected IDs
+```
+
+**Provider portability** (verified against on-disk stores):
+
+| Provider | Portability | What travels |
+| --- | --- | --- |
+| `claude-cli` / `claude-tui` | **full** | JSONL traces from `~/.claude/projects`, re-encoded for the destination path |
+| `copilot-cli` | **full** | `~/.copilot/session-state/<uuid>/` copied, `workspace.yaml` `cwd:` rewritten |
+| `opencode-cli` / `opencode-sdk` | none | sessions live in a shared SQLite `opencode.db`; IDs recorded for reference only |
+| `copilot-sdk` | none | in-memory sessions only |
+| `grok-tui` | none | keeps no session store |
+
+Because all generated agent files use **relative** `file://./…` references, the exported folder stays valid after being moved or unzipped elsewhere.
+
+### Restore into another folder
+
+Run **`AutoDev: Import Agent Backup (.zip)`** (command palette, sidebar `$(cloud-download)` icon, or the **`/import`** slash command). Pick the backup ZIP and a destination folder; AutoDev reconstructs the agent so it runs there:
+
+- Workspace state (`.autodev/`, `media/profile/`, `media/skills/`) and root docs are extracted into the destination folder
+- Claude session traces are restored into the destination's `~/.claude/projects/<encoded>` dir — recomputed for the **new** path, so `--resume` keeps working after the move
+- Copilot CLI session folders are restored into `~/.copilot/session-state/` with their `workspace.yaml` `cwd:` rewritten to the destination (resume with `--resume=<uuid>`)
+- Connected session IDs travel verbatim inside the restored `.autodev/session-state.json`, so resume works in the new folder without a separate merge step
+
+The backup feature lives in `src/agentBackup/` — a shared `layout` (what to back up), an `Archive` abstraction over `adm-zip`, and per-provider `SessionBackupProvider` strategies used by both export and import.
 
 ---
 
@@ -610,11 +669,12 @@ Click the **AutoDev** icon in the Activity Bar.
 |---|---|
 | Provider dropdown | Switch between `claude-cli`, `copilot-cli`, `opencode-cli` |
 | Resume Session checkbox | Enable session ID reuse across tasks |
+| Session dropdown | Pick an existing session to resume or start a new one |
 | New button | Clear stored session ID (start fresh conversation) |
 | Session ID badge | Shows the currently stored session ID |
 | Start / Stop / Retry Now | Control the loop |
 | Loop status | Current state + active task + live tool activity |
-| Add task input | Type a task + Enter to append `- [ ]` to TODO.md |
+| Add task input | Type a task + Enter to append `- [ ]` to TODO.md (slash commands: `/restart`, `/clear`, `/archive`, `/export`, `/import`) |
 | Task list | Pending tasks (click to jump to line in editor) + completed tasks |
 
 ### Settings tab
