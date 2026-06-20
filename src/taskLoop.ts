@@ -27,6 +27,7 @@ import { WebhookPoller } from './webhookPoller';
 import { EmailTaskPoller } from './emailPoller';
 import { loadProjectUserMcp, saveProjectUserMcp } from './core/projectMcp';
 import { ConfigManager } from './configManager';
+import { createAgentBackup, uploadAgentBackup, downloadAgentBackup, restoreAgentBackup } from './agentBackup';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -404,6 +405,9 @@ export class TaskLoopRunner {
       this._webhookPoller.setOnTaskAppend(() => this._wakeIdleSleep());
       this._webhookPoller.setOnCommand((cmd) => this._handleCommand(cmd));
       this._webhookPoller.setOnMcpUpdate((entries) => this._handleMcpUpdate(entries));
+      this._webhookPoller.setOnExportRequest((agentId) => void this._handleExportRequest(agentId));
+      this._webhookPoller.setOnRestoreRequest((agentId, downloadUrl) => void this._handleRestoreRequest(agentId, downloadUrl));
+      this._webhookPoller.setOnExportConfig((exportEnabled, exportDailyBackup, agentId) => this._handleExportConfig(exportEnabled, exportDailyBackup, agentId));
     }
     if (this._discordPoller) {
       this._discordPoller.setOnCommand((cmd) => this._handleCommand(cmd));
@@ -488,6 +492,8 @@ export class TaskLoopRunner {
     if (settings.provider === 'claude-cli') {
       this._runCozempicInit(root, callbacks.log.bind(callbacks));
     }
+
+    this._checkDailyBackup(settings.agentId || settings.webhookSlug || undefined);
 
     try {
       await this._runLoop(todoPath, settings);
@@ -593,6 +599,96 @@ export class TaskLoopRunner {
       return;
     }
     void this.restart();
+  }
+
+  /** Handle export_request from pixel-office: create backup zip and upload. */
+  private async _handleExportRequest(agentId: string): Promise<void> {
+    const root = this._workspaceRoot;
+    const settings = this._settings;
+    if (!root || !settings?.serverBaseUrl || !settings?.serverApiKey) {
+      this._cb?.log('⚠️ export_request ignored — serverBaseUrl/serverApiKey not configured');
+      return;
+    }
+    this._cb?.log('📦 export_request received — building backup zip…');
+    const tmpPath = path.join(os.tmpdir(), `agent-backup-${agentId}-${Date.now()}.zip`);
+    try {
+      await createAgentBackup(root, tmpPath);
+      this._cb?.log('📤 Uploading backup to pixel-office…');
+      const result = await uploadAgentBackup(tmpPath, agentId, settings.serverBaseUrl, settings.serverApiKey);
+      this._saveLastBackupTime(root);
+      this._cb?.log(`✅ Backup uploaded: ${result.filename}`);
+    } catch (err) {
+      this._cb?.log(`⚠️ Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  }
+
+  /** Handle restore_request from pixel-office: download zip and restore workspace. */
+  private async _handleRestoreRequest(agentId: string, downloadUrl: string): Promise<void> {
+    const root = this._workspaceRoot;
+    const settings = this._settings;
+    if (!root || !settings?.serverApiKey) {
+      this._cb?.log('⚠️ restore_request ignored — serverApiKey not configured');
+      return;
+    }
+    this._cb?.log(`🔄 restore_request received — downloading backup from ${downloadUrl}…`);
+    const tmpPath = path.join(os.tmpdir(), `agent-restore-${agentId}-${Date.now()}.zip`);
+    try {
+      await downloadAgentBackup(downloadUrl, tmpPath, settings.serverApiKey);
+      this._cb?.log('📂 Restoring workspace from backup…');
+      const result = await restoreAgentBackup(tmpPath, root);
+      this._cb?.log(`✅ Restored ${result.workspaceFiles} workspace file(s) — restarting loop…`);
+      void this.restart();
+    } catch (err) {
+      this._cb?.log(`⚠️ Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  }
+
+  /** Handle export_config from pixel-office: persist exportEnabled + exportDailyBackup to settings. */
+  private _handleExportConfig(exportEnabled: boolean, exportDailyBackup: boolean, agentId: string): void {
+    const root = this._workspaceRoot;
+    if (!root) return;
+    try {
+      const { loadSettingsForRoot: load, settingsWritePath } = require('./core/settingsLoader') as typeof import('./core/settingsLoader');
+      const current = load(root);
+      if (current.exportEnabled === exportEnabled && current.exportDailyBackup === exportDailyBackup && (!agentId || current.agentId === agentId)) return;
+      current.exportEnabled     = exportEnabled;
+      current.exportDailyBackup = exportDailyBackup;
+      if (agentId) current.agentId = agentId;
+      fs.mkdirSync(path.join(root, '.autodev'), { recursive: true });
+      fs.writeFileSync(settingsWritePath(root), JSON.stringify(current, null, 2), 'utf8');
+      this._cb?.log(`⚙️ Export config updated: enabled=${exportEnabled}, dailyBackup=${exportDailyBackup}`);
+    } catch (err) {
+      this._cb?.log(`⚠️ export_config write failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Check if a daily backup is due and trigger it automatically. */
+  private _checkDailyBackup(agentId: string | undefined): void {
+    if (!agentId) return;
+    const settings = this._settings;
+    if (!settings?.exportEnabled || !settings?.exportDailyBackup) return;
+    const root = this._workspaceRoot;
+    if (!root) return;
+    const MS_PER_DAY = 86_400_000;
+    const statePath = path.join(root, '.autodev', 'last_backup.json');
+    try {
+      if (fs.existsSync(statePath)) {
+        const { ts } = JSON.parse(fs.readFileSync(statePath, 'utf8')) as { ts: number };
+        if (Date.now() - ts < MS_PER_DAY) return;
+      }
+    } catch { /* proceed */ }
+    this._cb?.log('⏰ Daily backup due — triggering automatic export…');
+    void this._handleExportRequest(agentId);
+  }
+
+  private _saveLastBackupTime(root: string): void {
+    try {
+      fs.writeFileSync(path.join(root, '.autodev', 'last_backup.json'), JSON.stringify({ ts: Date.now() }), 'utf8');
+    } catch { /* ignore */ }
   }
 
   /** Dispatch a slash command received from any inbound channel. */

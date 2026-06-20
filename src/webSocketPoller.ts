@@ -35,6 +35,9 @@ export class WebSocketPoller {
   private _onTaskAppend: (() => void) | null = null;
   private _onCommand: ((cmd: string) => void) | null = null;
   private _onMcpUpdate: ((entries: Record<string, unknown>) => void) | null = null;
+  private _onExportRequest: ((agentId: string) => void) | null = null;
+  private _onRestoreRequest: ((agentId: string, downloadUrl: string) => void) | null = null;
+  private _onExportConfig: ((exportEnabled: boolean, exportDailyBackup: boolean, agentId: string) => void) | null = null;
   private _pendingFrames: unknown[] = [];
   private _seenTaskIds = new Set<string>();
 
@@ -64,6 +67,15 @@ export class WebSocketPoller {
 
   /** Called when a mcp_update frame arrives — receives the new mcpServers map. */
   setOnMcpUpdate(cb: (entries: Record<string, unknown>) => void): void { this._onMcpUpdate = cb; }
+
+  /** Called when an export_request frame arrives — agent should create + upload a backup. */
+  setOnExportRequest(cb: (agentId: string) => void): void { this._onExportRequest = cb; }
+
+  /** Called when a restore_request frame arrives — agent should download + restore a backup. */
+  setOnRestoreRequest(cb: (agentId: string, downloadUrl: string) => void): void { this._onRestoreRequest = cb; }
+
+  /** Called when an export_config frame arrives — sync exportEnabled/exportDailyBackup settings. */
+  setOnExportConfig(cb: (exportEnabled: boolean, exportDailyBackup: boolean, agentId: string) => void): void { this._onExportConfig = cb; }
 
   /** Start the WebSocket connection (call once). */
   start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
@@ -333,6 +345,29 @@ export class WebSocketPoller {
       if (entries && typeof entries === 'object') {
         this._onMcpUpdate?.(entries);
       }
+      return;
+    }
+
+    // ── Export / restore requests from pixel-office ───────────────────────────
+
+    if (msgType === 'export_request') {
+      const agentId = msg['agentId'] as string | undefined;
+      if (agentId) { this._onExportRequest?.(agentId); }
+      return;
+    }
+
+    if (msgType === 'restore_request') {
+      const agentId     = msg['agentId']     as string | undefined;
+      const downloadUrl = msg['downloadUrl'] as string | undefined;
+      if (agentId && downloadUrl) { this._onRestoreRequest?.(agentId, downloadUrl); }
+      return;
+    }
+
+    if (msgType === 'export_config') {
+      const exportEnabled     = !!(msg['exportEnabled'] as boolean | undefined);
+      const exportDailyBackup = !!(msg['exportDailyBackup'] as boolean | undefined);
+      const agentId           = (msg['agentId'] as string | undefined) ?? '';
+      this._onExportConfig?.(exportEnabled, exportDailyBackup, agentId);
       return;
     }
 

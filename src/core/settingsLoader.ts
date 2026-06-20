@@ -191,6 +191,12 @@ export interface AutodevSettings {
    * The token needs the `copilot` scope (or a classic token with `read:user` + `copilot`).
    */
   copilotGithubToken: string;
+  /** Upload an agent backup zip to pixel-office when the export_request WS message is received. */
+  exportEnabled: boolean;
+  /** Automatically upload a backup once per day (only active when exportEnabled is true). */
+  exportDailyBackup: boolean;
+  /** Agent database ID (set automatically when export_config is received from pixel-office). */
+  agentId: string;
 }
 
 export const SETTINGS_DEFAULTS: AutodevSettings = {
@@ -252,6 +258,9 @@ export const SETTINGS_DEFAULTS: AutodevSettings = {
   memoryEveryNTasks: 0,
   summaryEveryNTasks: 0,
   copilotGithubToken: '',
+  exportEnabled: false,
+  exportDailyBackup: false,
+  agentId: '',
 };
 
 /**

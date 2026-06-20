@@ -148,6 +148,24 @@ export class WebhookPoller {
     }
   }
 
+  setOnExportRequest(cb: (agentId: string) => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnExportRequest(cb);
+    }
+  }
+
+  setOnRestoreRequest(cb: (agentId: string, downloadUrl: string) => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnRestoreRequest(cb);
+    }
+  }
+
+  setOnExportConfig(cb: (exportEnabled: boolean, exportDailyBackup: boolean, agentId: string) => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnExportConfig(cb);
+    }
+  }
+
   /** True when backed by a WebSocket connection (vs HTTP polling). */
   get isWebSocket(): boolean {
     return this._impl instanceof WebSocketPoller;
