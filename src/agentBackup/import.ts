@@ -1,5 +1,4 @@
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { AdmZipArchive } from './archive';
 import { ARCHIVE_PATHS, TOP_FOLDER } from './layout';
 import { SESSION_BACKUP_PROVIDERS } from './sessionProviders';
@@ -49,6 +48,8 @@ export async function restoreAgentBackup(zipPath: string, destRoot: string): Pro
  * restore, then offer to open the restored workspace.
  */
 export async function importAgentBackup(defaultRoot?: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const vscode = require('vscode') as typeof import('vscode');
   const picked = await vscode.window.showOpenDialog({
     title: 'Select Agent Backup ZIP',
     canSelectFiles: true,

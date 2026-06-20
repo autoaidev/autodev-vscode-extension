@@ -46,7 +46,8 @@
     "./todo": "./out/todo.js",
     "./settings": "./out/core/settingsLoader.js",
     "./providers": "./out/providers.js",
-    "./hooks": "./out/hooksManager.js"
+    "./hooks": "./out/hooksManager.js",
+    "./agentBackup": "./out/agentBackup/nodeApi.js"
   },
   "contributes": {
     "viewsContainers": {
