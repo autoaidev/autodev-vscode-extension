@@ -25,7 +25,8 @@ import { PeriodicActionManager, PERIODIC_ACTIONS } from './periodicActions';
 import { DiscordGateway } from './discordGateway';
 import { WebhookPoller } from './webhookPoller';
 import { EmailTaskPoller } from './emailPoller';
-import { loadProjectUserMcp } from './core/projectMcp';
+import { loadProjectUserMcp, saveProjectUserMcp } from './core/projectMcp';
+import { ConfigManager } from './configManager';
 
 // ---------------------------------------------------------------------------
 // TaskLoopRunner — mirrors PHP Loop.php
@@ -402,6 +403,7 @@ export class TaskLoopRunner {
       // Wake the idle no-task sleep instantly when a WS-pushed task arrives.
       this._webhookPoller.setOnTaskAppend(() => this._wakeIdleSleep());
       this._webhookPoller.setOnCommand((cmd) => this._handleCommand(cmd));
+      this._webhookPoller.setOnMcpUpdate((entries) => this._handleMcpUpdate(entries));
     }
     if (this._discordPoller) {
       this._discordPoller.setOnCommand((cmd) => this._handleCommand(cmd));
@@ -573,6 +575,24 @@ export class TaskLoopRunner {
       }
     }
     await this.start(savedCb);
+  }
+
+  /** Handle mcp_update pushed from pixel-office: write .mcp.json, sync all providers, restart loop. */
+  private _handleMcpUpdate(entries: Record<string, unknown>): void {
+    const root = this._workspaceRoot;
+    if (!root) return;
+    this._cb?.log('🔧 mcp_update received — writing .mcp.json and syncing providers…');
+    try {
+      // Cast to the shape saveProjectUserMcp expects
+      const typed = entries as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
+      saveProjectUserMcp(root, typed);
+      ConfigManager.syncProjectMcpServers(root, (m) => this._cb?.log(m));
+      this._cb?.log('✅ MCP config synced to .mcp.json, opencode.json, .vscode/mcp.json — restarting loop…');
+    } catch (err) {
+      this._cb?.log(`⚠️ MCP update failed: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    void this.restart();
   }
 
   /** Dispatch a slash command received from any inbound channel. */

@@ -142,6 +142,12 @@ export class WebhookPoller {
     }
   }
 
+  setOnMcpUpdate(cb: (entries: Record<string, unknown>) => void): void {
+    if (this._impl instanceof WebSocketPoller) {
+      this._impl.setOnMcpUpdate(cb);
+    }
+  }
+
   /** True when backed by a WebSocket connection (vs HTTP polling). */
   get isWebSocket(): boolean {
     return this._impl instanceof WebSocketPoller;

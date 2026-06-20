@@ -34,6 +34,7 @@ export class WebSocketPoller {
   private _onConnect: (() => void) | null = null;
   private _onTaskAppend: (() => void) | null = null;
   private _onCommand: ((cmd: string) => void) | null = null;
+  private _onMcpUpdate: ((entries: Record<string, unknown>) => void) | null = null;
   private _pendingFrames: unknown[] = [];
   private _seenTaskIds = new Set<string>();
 
@@ -60,6 +61,9 @@ export class WebSocketPoller {
 
   /** Called when a slash command (e.g. /restart) is received via WS push. */
   setOnCommand(cb: (cmd: string) => void): void { this._onCommand = cb; }
+
+  /** Called when a mcp_update frame arrives — receives the new mcpServers map. */
+  setOnMcpUpdate(cb: (entries: Record<string, unknown>) => void): void { this._onMcpUpdate = cb; }
 
   /** Start the WebSocket connection (call once). */
   start(todoPath: string, log?: (msg: string) => void, workspaceRoot?: string): void {
@@ -321,6 +325,16 @@ export class WebSocketPoller {
     const msgType = msg['type'] as string | undefined;
 
     // ── VNC frames from pixel-office ─────────────────────────────────────────
+
+    // ── MCP update from pixel-office ─────────────────────────────────────────
+
+    if (msgType === 'mcp_update') {
+      const entries = msg['mcpServers'] as Record<string, unknown> | undefined;
+      if (entries && typeof entries === 'object') {
+        this._onMcpUpdate?.(entries);
+      }
+      return;
+    }
 
     // ── File browser requests from server ─────────────────────────────────────
 
