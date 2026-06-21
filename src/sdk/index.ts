@@ -1,7 +1,8 @@
 import { TaskLoopRunner } from '../taskLoop';
 import { sendPromptToAi } from '../dispatcher';
 import { NodeFileWatcher, NodeProcessLauncher } from '../core/adapters';
-import { ProviderId } from '../providers';
+import { ProviderId, PROVIDERS } from '../providers';
+import { loadSettingsForRoot } from '../core/settingsLoader';
 
 // ---------------------------------------------------------------------------
 // AutoDev standalone SDK — use without VS Code.
@@ -23,13 +24,21 @@ class LoopApi {
     const root = options.cwd ?? process.cwd();
     const launcher = new NodeProcessLauncher();
     const log = options.log ?? console.log;
+    // Provider resolution order: explicit option → `.autodev/settings.json`
+    // provider (parity with the VS Code shell, which reads the same field) →
+    // 'claude-cli' fallback. Guard against an unknown settings value.
+    const settingsProvider = loadSettingsForRoot(root).provider as ProviderId | undefined;
+    const provider: ProviderId =
+      options.provider
+      ?? (settingsProvider && settingsProvider in PROVIDERS ? settingsProvider : undefined)
+      ?? 'claude-cli';
     await this._runner.start({
       workspaceRoot: root,
       fileWatcher: new NodeFileWatcher(),
       sendToAi: (prompt, _label, includeProfile, messageFile) =>
-        sendPromptToAi(options.provider ?? 'claude-cli', prompt, log, launcher, root, includeProfile, messageFile),
+        sendPromptToAi(provider, prompt, log, launcher, root, includeProfile, messageFile),
       log,
-      getActiveProvider: () => options.provider ?? 'claude-cli',
+      getActiveProvider: () => provider,
       onStatusChange: () => {},
     });
   }

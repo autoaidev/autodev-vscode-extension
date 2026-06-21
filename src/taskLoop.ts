@@ -986,7 +986,13 @@ export class TaskLoopRunner {
             if (xfContent !== '') { return false; } // process wrote exit code → done
           } catch { /* no exit file yet — fall through to hooks check */ }
           const ocSid = getSessionId(this._workspaceRoot, 'opencode-cli');
-          return isOpenCodeCliActive(this._workspaceRoot, 90_000, ocSid);
+          // 5-minute staleness window (was 90 s). The exit-file check above is the
+          // authoritative "done" signal for locally-launched runs, so this only
+          // bridges gaps DURING an active run — e.g. a long LLM generation phase
+          // between tool.execute events. A 90 s window flipped the agent to IDLE
+          // mid-run (and tripped the premature-completion watchdog) whenever a
+          // single turn ran longer than that without emitting an intermediate hook.
+          return isOpenCodeCliActive(this._workspaceRoot, 300_000, ocSid);
         }
         try {
           const content = fs.readFileSync(exitFilePath(this._workspaceRoot, provider), 'utf8').trim();

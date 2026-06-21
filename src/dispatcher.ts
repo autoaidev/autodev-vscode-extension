@@ -13,6 +13,7 @@ import { sendCopilotSdkPrompt, getLatestCopilotSdkSessionId, setCopilotSettingsT
 import { sendOpencodeSdkPrompt } from './providers/opencodeSdkProvider';
 import { sendGrokTuiPrompt } from './providers/grokTuiProvider';
 import { getManualHookCmd } from './hooksManager';
+import { isOpenCodeHooksInstalled, installOpenCodeHooks } from './openCodeHooksManager';
 
 // Re-export session helpers so taskLoop.ts imports don't need to change.
 export {
@@ -156,6 +157,25 @@ export async function sendPromptToAi(
     }
 
     const settings = loadSettingsForRoot(root);
+
+    // Ensure the OpenCode hooks plugin is installed for opencode providers when
+    // hooks are enabled. Without it, opencode emits only the synthetic
+    // SessionStart/SessionEnd events the dispatcher wraps around the command —
+    // no live tool.execute stream — so the loop's activity/staleness check
+    // (isOpenCodeCliActive, 90s window) reports the agent IDLE while it is still
+    // working. The extension installs this on activate(); the CLI never did.
+    // Installing it here (idempotent) covers BOTH entry points.
+    if ((providerId === 'opencode-cli' || providerId === 'opencode-sdk') && settings.hooksEnabled) {
+      try {
+        if (!isOpenCodeHooksInstalled(root)) {
+          installOpenCodeHooks(root);
+          log('Installed OpenCode hooks plugin (.opencode/plugins) for live activity events');
+        }
+      } catch (err) {
+        log(`OpenCode hooks plugin install skipped: ${(err as Error).message}`);
+      }
+    }
+
     const storedSessionId = settings.resumeSession ? getSessionId(root, providerId) : undefined;
 
     let resolvedSessionId = storedSessionId;

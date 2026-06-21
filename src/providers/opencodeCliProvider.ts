@@ -14,7 +14,13 @@ export function buildOpenCodeCliCommand(
   sessionId?: string,
   model?: string,
 ): string {
-  const session = sessionId ? ` -s ${sessionId}` : ' -c';
+  // Resume an explicit session with `-s <id>`. On a FRESH run (no session id)
+  // do NOT pass `-c`/`--continue`: opencode's "continue the last session" is
+  // global, not workspace-scoped, so on the first run it attaches to a stale or
+  // non-existent session and emits no output (the task never really runs). A
+  // bare `opencode run` starts a new session; the dispatcher then captures its
+  // id and resumes it with `-s` on subsequent iterations.
+  const session = sessionId ? ` -s ${sessionId}` : '';
   const modelFlag = model ? ` --model ${JSON.stringify(model)}` : '';
   const fileRef = JSON.stringify(`@${combinedFile}`);
   return `opencode run${session}${modelFlag} ${fileRef}`;
