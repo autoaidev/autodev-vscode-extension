@@ -2,7 +2,7 @@
   "name": "autoaidev",
   "displayName": "AutoAIDev",
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
-  "version": "1.0.313",
+  "version": "1.0.315",
   "publisher": "AutoAIDev",
   "license": "MIT",
   "repository": {
@@ -138,8 +138,7 @@
     "adm-zip": "^0.5.17",
     "imapflow": "^1.0.171",
     "mailparser": "^3.7.1",
-    "node-pty": "^1.1.0",
-    "autodev-cli": "file:../autodev-cli"
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.8",
@@ -147,6 +146,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.99.0",
     "esbuild": "^0.24.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "autodev-cli": "file:../autodev-cli"
   }
 }
