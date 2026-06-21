@@ -1,8 +1,8 @@
 import * as path from 'path';
-import { AdmZipArchive } from './archive';
-import { ARCHIVE_PATHS, TOP_FOLDER } from './layout';
-import { SESSION_BACKUP_PROVIDERS } from './sessionProviders';
-import { parseManifest } from './manifest';
+import { AdmZipArchive } from 'autodev-cli/agentBackup/archive';
+import { ARCHIVE_PATHS, TOP_FOLDER } from 'autodev-cli/agentBackup/layout';
+import { SESSION_BACKUP_PROVIDERS } from 'autodev-cli/agentBackup/sessionProviders';
+import { parseManifest } from 'autodev-cli/agentBackup/manifest';
 
 export interface ImportResult {
   destRoot: string;

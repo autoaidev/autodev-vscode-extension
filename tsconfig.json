@@ -2,16 +2,34 @@
   "compilerOptions": {
     "module": "commonjs",
     "target": "ES2022",
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ],
     "outDir": "out",
     "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "declaration": false
+    "declaration": false,
+    "baseUrl": ".",
+    "paths": {
+      "autodev-cli/*": [
+        "../autodev-cli/out/*"
+      ],
+      "autodev-cli": [
+        "../autodev-cli/out/cli"
+      ]
+    }
   },
-  "include": ["src"],
-  "exclude": ["node_modules", ".vscode-test"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    ".vscode-test"
+  ]
 }

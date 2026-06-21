@@ -4,14 +4,14 @@ import * as path from 'path';
 
 // Re-export the pure settings type and loader so VS Code extension code can
 // import from a single place.
-export { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from './core/settingsLoader';
+export { AutodevSettings, SETTINGS_DEFAULTS, loadSettingsForRoot } from 'autodev-cli/core/settingsLoader';
 import {
   AutodevSettings,
   SETTINGS_DEFAULTS,
   loadSettingsForRoot,
   settingsWritePath,
   settingsReadPath,
-} from './core/settingsLoader';
+} from 'autodev-cli/core/settingsLoader';
 
 // ---------------------------------------------------------------------------
 // VS Code-aware settings helpers

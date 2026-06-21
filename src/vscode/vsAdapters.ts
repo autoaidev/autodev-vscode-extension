@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { IFileWatcher, IDisposable, IProcessLauncher } from '../core/adapters';
+import { IFileWatcher, IDisposable, IProcessLauncher } from 'autodev-cli/core/adapters';
 
 // ---------------------------------------------------------------------------
 // VS Code implementations of the core interfaces.

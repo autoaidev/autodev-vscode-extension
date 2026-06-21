@@ -1,19 +1,19 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { taskLoopRunner } from './taskLoop';
+import { taskLoopRunner } from 'autodev-cli/taskLoop';
 import { openSettingsFile, loadSettings } from './settings';
-import { pruneTodoToArchive } from './todo';
+import { pruneTodoToArchive } from 'autodev-cli/todo';
 import { TodoViewProvider } from './sidebar';
-import { sendPromptToAi } from './dispatcher';
-import { closeClaudeTuiClient, closeAllClaudeTuiClients } from './providers/claudeTuiProvider';
-import { closeCopilotSdkSession, closeAllCopilotSdkSessions } from './providers/copilotSdkProvider';
-import { closeOpencodeSdkClient, closeAllOpencodeSdkClients } from './providers/opencodeSdkProvider';
+import { sendPromptToAi } from 'autodev-cli/dispatcher';
+import { closeClaudeTuiClient, closeAllClaudeTuiClients } from 'autodev-cli/providers/claudeTuiProvider';
+import { closeCopilotSdkSession, closeAllCopilotSdkSessions } from 'autodev-cli/providers/copilotSdkProvider';
+import { closeOpencodeSdkClient, closeAllOpencodeSdkClients } from 'autodev-cli/providers/opencodeSdkProvider';
 import { VsFileWatcher, VsProcessLauncher } from './vscode/vsAdapters';
-import { ConfigManager } from './configManager';
-import { PROVIDERS } from './providers';
-import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from './hooksManager';
-import { isOpenCodeHooksInstalled, installOpenCodeHooks } from './openCodeHooksManager';
+import { ConfigManager } from 'autodev-cli/configManager';
+import { PROVIDERS } from 'autodev-cli/providers';
+import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from 'autodev-cli/hooksManager';
+import { isOpenCodeHooksInstalled, installOpenCodeHooks } from 'autodev-cli/openCodeHooksManager';
 import { saveSettings } from './settings';
 import { exportAgentBackup, importAgentBackup } from './agentBackup';
 
@@ -141,7 +141,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('autodev.clearSession', () => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
-      const provider = sidebar.selectedProvider as import('./providers').ProviderId;
+      const provider = sidebar.selectedProvider as import('autodev-cli/providers').ProviderId;
       vscode.window.showInformationMessage('AutoDev: Running /clear on session…');
       void taskLoopRunner.clearSession(root, provider);
     }),
