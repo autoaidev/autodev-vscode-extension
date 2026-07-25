@@ -71,6 +71,11 @@
     },
     "commands": [
       {
+        "command": "autodev.connectOffice",
+        "title": "AutoDev: Connect to Office",
+        "icon": "$(plug)"
+      },
+      {
         "command": "autodev.startTaskLoop",
         "title": "AutoDev: Start Task Loop",
         "icon": "$(play)"
@@ -98,6 +103,11 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "autodev.connectOffice",
+          "when": "view == autodev.chatStatus",
+          "group": "navigation"
+        },
         {
           "command": "autodev.startTaskLoop",
           "when": "view == autodev.chatStatus",

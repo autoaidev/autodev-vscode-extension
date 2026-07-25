@@ -16,6 +16,7 @@ import { areClaudeHooksInstalled, areCopilotHooksInstalled, installHooks } from 
 import { isOpenCodeHooksInstalled, installOpenCodeHooks } from 'autodev-cli/openCodeHooksManager';
 import { saveSettings } from './settings';
 import { exportAgentBackup, importAgentBackup } from './agentBackup';
+import { registerConnectCommand } from './connectCommand';
 
 let _out: vscode.OutputChannel;
 // eslint-disable-next-line no-control-regex
@@ -176,6 +177,11 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
   );
+
+  // "Connect to Office" — bind this workspace to a pixel-office by pasting a
+  // signed setup URL or a WebSocket URL. Registers autodev.connectOffice and
+  // refreshes the sidebar (SERVER/status) on success.
+  registerConnectCommand(context, { log, onConnected: () => sidebar.refresh() });
 
   // Auto-start the task loop when a workspace was bound via the autodev CLI
   // (`--setup-url` / `--connect`) and `autoStartLoop: true` is set in
