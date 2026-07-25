@@ -24,7 +24,7 @@ import { profilePanelHtml, profilePanelScript } from './sidebarProfilePanel';
 import { settingsPanelHtml, settingsPanelScript } from './sidebarSettingsPanel';
 import { PROFILE_SECTIONS } from 'autodev-cli/profileBuilder';
 import { PERIODIC_ACTIONS } from 'autodev-cli/periodicActions';
-import { rebuildProfile } from 'autodev-cli/messageBuilder';
+import { rebuildProfile, AGENT_PROFILE_FILE } from 'autodev-cli/messageBuilder';
 import { copilotNpmRoot, clearCopilotSdkCache } from 'autodev-cli/providers/copilotSdkProvider';
 import { listClaudeSessions } from 'autodev-cli/providers/claudeCliProvider';
 import { listOpenCodeSessions } from 'autodev-cli/providers/opencodeCliProvider';
@@ -235,14 +235,14 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'openAgentProfile': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
-            const profilePath = path.join(root, '.autodev', 'AGENT_PROFILE.md');
+            const profilePath = path.join(root, ...AGENT_PROFILE_FILE.split('/'));
             if (!fs.existsSync(profilePath)) {
               try { rebuildProfile(root); } catch { /* ignore, file may not exist yet */ }
             }
             if (fs.existsSync(profilePath)) {
               void vscode.window.showTextDocument(vscode.Uri.file(profilePath));
             } else {
-              vscode.window.showWarningMessage('AutoDev: AGENT_PROFILE.md not found. Save the profile first to generate it.');
+              vscode.window.showWarningMessage('AutoDev: program.md not found. Save the profile first to generate it.');
             }
           }
           break;
@@ -252,7 +252,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const customRefs = (msg.customRefs ?? []) as string[];
           const current = loadSettings();
           saveSettings({ ...current, enabledProfileSections: sections, customProfileRefs: customRefs });
-          // Immediately rebuild AGENT_PROFILE.md and inject reference into CLAUDE.md / AGENTS.md
+          // Immediately rebuild program.md and inject reference into CLAUDE.md / AGENTS.md
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
             try { rebuildProfile(root); } catch (err) {
@@ -260,7 +260,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
             }
           }
           this._push();
-          vscode.window.showInformationMessage('AutoDev: Profile saved and AGENT_PROFILE.md rebuilt.');
+          vscode.window.showInformationMessage('AutoDev: Profile saved and program.md rebuilt.');
           break;
         }
         case 'installMcpServer': {

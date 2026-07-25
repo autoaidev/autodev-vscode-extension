@@ -5,7 +5,7 @@
 export const profilePanelHtml = `
 <div id="panelProfile" style="display:none">
   <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:8px;line-height:1.5">
-    Choose which protocol sections are included in AGENT_PROFILE.md.
+    Choose which protocol sections are included in program.md.
     All are enabled by default. Unchecked sections are excluded.
   </div>
   <div id="profileSectionList" style="margin-bottom:8px"></div>
@@ -15,12 +15,12 @@ export const profilePanelHtml = `
   </div>
   <div class="cfg-section" style="margin-top:0">Custom References</div>
   <div style="font-size:11px;color:var(--vscode-descriptionForeground);margin-bottom:5px;line-height:1.5">
-    One path per line. Each path is appended as <code style="font-size:10px">@path</code> at the end of AGENT_PROFILE.md so agents auto-load those files.
+    One path per line. Each path is appended as <code style="font-size:10px">@path</code> at the end of program.md so agents auto-load those files.
   </div>
   <textarea id="profileCustomRefs" class="cfg-input" rows="4" placeholder="CLAUDE.md&#10;docs/architecture.md&#10;.cursor/rules/coding.mdc" style="resize:vertical;font-family:var(--vscode-editor-font-family,monospace);font-size:11px"></textarea>
   <div style="display:flex;gap:5px;margin-top:8px">
     <button class="cfg-save" id="saveProfileBtn" style="flex:1;margin-top:0">Save &amp; Rebuild Profile</button>
-    <button class="cfg-save" id="openProfileBtn" style="flex:0 0 auto;margin-top:0;background:transparent;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-panel-border)" title="Open AGENT_PROFILE.md in editor">&#128196; Open</button>
+    <button class="cfg-save" id="openProfileBtn" style="flex:0 0 auto;margin-top:0;background:transparent;color:var(--vscode-descriptionForeground);border:1px solid var(--vscode-panel-border)" title="Open program.md in editor">&#128196; Open</button>
   </div>
 </div>
 `;
