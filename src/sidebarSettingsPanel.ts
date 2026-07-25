@@ -94,57 +94,67 @@ export const settingsPanelHtml = `
 `;
 
 export const settingsPanelScript = `
+// --- Dirty-field guard -----------------------------------------------------
+// While the task loop runs, the sidebar periodically pushes fresh agent/settings
+// state to this webview, which calls populateSettings() and would re-write every
+// input from the stored values. That clobbers whatever the user is currently
+// typing (e.g. a WebSocket URL) before they've hit Save. To prevent that we track
+// a "dirty" flag per field (set on the first user input/change, cleared on Save)
+// and never overwrite a field that is either focused or dirty.
+var settingsDirty = Object.create(null);
+function markSettingsFieldDirty(el){ if(el && el.id){ settingsDirty[el.id]=true; } }
+function clearSettingsDirty(){ settingsDirty = Object.create(null); }
+function isSettingsFieldProtected(el){
+  if(!el){ return false; }
+  if(el===document.activeElement){ return true; }       // user is actively editing it
+  return !!(el.id && settingsDirty[el.id]);              // user has unsaved changes
+}
+// Guarded setters: only write to the field when it is safe to do so.
+function setSettingValue(el, val){ if(el && !isSettingsFieldProtected(el)){ el.value=val; } }
+function setSettingChecked(el, val){ if(el && !isSettingsFieldProtected(el)){ el.checked=val; } }
+// Mark a field dirty the moment the user touches it. Uses event delegation on the
+// settings panel so it also covers fields rendered later (e.g. the profile path
+// input). Programmatic assignments in populateSettings do NOT fire input/change,
+// so this never produces false positives.
+(function wireSettingsDirtyTracking(){
+  var panel=document.getElementById('panelSettings');
+  if(!panel || panel.dataset.dirtyWired){ return; }
+  panel.dataset.dirtyWired='1';
+  function onEdit(e){
+    var t=e.target;
+    if(t && t.id && t.id.indexOf('cfg_')===0){ markSettingsFieldDirty(t); }
+  }
+  panel.addEventListener('input', onEdit);
+  panel.addEventListener('change', onEdit);
+})();
+
 function populateSettings(s){
   ['wsUrl','discordToken','discordChannelId','discordOwners','todoPath'].forEach(function(k){
-    var el=document.getElementById('cfg_'+k);
-    if(el){ el.value=s[k]||''; }
+    setSettingValue(document.getElementById('cfg_'+k), s[k]||'');
   });
-  var li=document.getElementById('cfg_loopInterval');
-  if(li){ li.value=s.loopInterval!==undefined?s.loopInterval:30; }
-  var tt=document.getElementById('cfg_taskTimeoutMinutes');
-  if(tt){ tt.value=s.taskTimeoutMinutes!==undefined?s.taskTimeoutMinutes:30; }
-  var ci=document.getElementById('cfg_taskCheckInMinutes');
-  if(ci){ ci.value=s.taskCheckInMinutes!==undefined?s.taskCheckInMinutes:20; }
-  var rot=document.getElementById('cfg_retryOnTimeout');
-  if(rot){ rot.checked=!!s.retryOnTimeout; }
-  var arp=document.getElementById('cfg_autoResetPendingTasks');
-  if(arp){ arp.checked=s.autoResetPendingTasks!==false; }
-  var ac=document.getElementById('cfg_autoCompact');
-  if(ac){ ac.checked=!!s.autoCompact; }
-  var aci=document.getElementById('cfg_autoCompactInterval');
-  if(aci){ aci.value=s.autoCompactInterval||5; }
-  var asl=document.getElementById('cfg_autoStartLoop');
-  if(asl){ asl.checked=!!s.autoStartLoop; }
-  var vnce=document.getElementById('cfg_vncEnabled');
-  if(vnce){ vnce.checked=!!s.vncEnabled; }
-  var efb=document.getElementById('cfg_enableFileBrowser');
-  if(efb){ efb.checked=!!s.enableFileBrowser; }
-  var gite=document.getElementById('cfg_gitEnabled');
-  if(gite){ gite.checked=!!s.gitEnabled; }
-  var vnch=document.getElementById('cfg_vncHost');
-  if(vnch){ vnch.value=s.vncHost||''; }
-  var vncprt=document.getElementById('cfg_vncPort');
-  if(vncprt){ vncprt.value=s.vncPort!==undefined?s.vncPort:5900; }
-  var vncpw=document.getElementById('cfg_vncPassword');
-  if(vncpw){ vncpw.value=s.vncPassword||''; }
-  var rdpe=document.getElementById('cfg_rdpEnabled');
-  if(rdpe){ rdpe.checked=!!s.rdpEnabled; }
-  var rdph=document.getElementById('cfg_rdpHost');
-  if(rdph){ rdph.value=s.rdpHost||''; }
-  var rdpprt=document.getElementById('cfg_rdpPort');
-  if(rdpprt){ rdpprt.value=s.rdpPort!==undefined?s.rdpPort:3389; }
-  var rdpu=document.getElementById('cfg_rdpUsername');
-  if(rdpu){ rdpu.value=s.rdpUsername||''; }
-  var rdppw=document.getElementById('cfg_rdpPassword');
-  if(rdppw){ rdppw.value=s.rdpPassword||''; }
-  var rdpd=document.getElementById('cfg_rdpDomain');
-  if(rdpd){ rdpd.value=s.rdpDomain||''; }
-  var rdpguac=document.getElementById('cfg_rdpGuacWsUrl');
-  if(rdpguac){ rdpguac.value=s.rdpGuacWsUrl||''; }
-  var he=document.getElementById('cfg_hooksEnabled');
-  if(he){ he.checked=!!s.hooksEnabled; }
-  var oce=document.getElementById('cfg_openCodeHooksEnabled');
-  if(oce){ oce.checked=!!s.openCodeHooksEnabled; }
+  setSettingValue(document.getElementById('cfg_loopInterval'), s.loopInterval!==undefined?s.loopInterval:30);
+  setSettingValue(document.getElementById('cfg_taskTimeoutMinutes'), s.taskTimeoutMinutes!==undefined?s.taskTimeoutMinutes:30);
+  setSettingValue(document.getElementById('cfg_taskCheckInMinutes'), s.taskCheckInMinutes!==undefined?s.taskCheckInMinutes:20);
+  setSettingChecked(document.getElementById('cfg_retryOnTimeout'), !!s.retryOnTimeout);
+  setSettingChecked(document.getElementById('cfg_autoResetPendingTasks'), s.autoResetPendingTasks!==false);
+  setSettingChecked(document.getElementById('cfg_autoCompact'), !!s.autoCompact);
+  setSettingValue(document.getElementById('cfg_autoCompactInterval'), s.autoCompactInterval||5);
+  setSettingChecked(document.getElementById('cfg_autoStartLoop'), !!s.autoStartLoop);
+  setSettingChecked(document.getElementById('cfg_vncEnabled'), !!s.vncEnabled);
+  setSettingChecked(document.getElementById('cfg_enableFileBrowser'), !!s.enableFileBrowser);
+  setSettingChecked(document.getElementById('cfg_gitEnabled'), !!s.gitEnabled);
+  setSettingValue(document.getElementById('cfg_vncHost'), s.vncHost||'');
+  setSettingValue(document.getElementById('cfg_vncPort'), s.vncPort!==undefined?s.vncPort:5900);
+  setSettingValue(document.getElementById('cfg_vncPassword'), s.vncPassword||'');
+  setSettingChecked(document.getElementById('cfg_rdpEnabled'), !!s.rdpEnabled);
+  setSettingValue(document.getElementById('cfg_rdpHost'), s.rdpHost||'');
+  setSettingValue(document.getElementById('cfg_rdpPort'), s.rdpPort!==undefined?s.rdpPort:3389);
+  setSettingValue(document.getElementById('cfg_rdpUsername'), s.rdpUsername||'');
+  setSettingValue(document.getElementById('cfg_rdpPassword'), s.rdpPassword||'');
+  setSettingValue(document.getElementById('cfg_rdpDomain'), s.rdpDomain||'');
+  setSettingValue(document.getElementById('cfg_rdpGuacWsUrl'), s.rdpGuacWsUrl||'');
+  setSettingChecked(document.getElementById('cfg_hooksEnabled'), !!s.hooksEnabled);
+  setSettingChecked(document.getElementById('cfg_openCodeHooksEnabled'), !!s.openCodeHooksEnabled);
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
 
@@ -164,7 +174,7 @@ function renderProfileSelect(profiles, currentPath){
     input.style.display='none';
   } else if(currentPath){
     sel.value='__custom__';
-    input.value=currentPath;
+    if(!isSettingsFieldProtected(input)){ input.value=currentPath; }
     input.style.display='';
   } else {
     sel.value=profiles[0]?profiles[0].filePath:'__custom__';
@@ -222,6 +232,9 @@ document.getElementById('saveSettingsBtn').addEventListener('click',function(){
     copilotGithubToken:(state.settings&&state.settings.copilotGithubToken)||'',
   };
   vscode.postMessage({command:'saveSettings',settings:s});
+  // The current field values are now the persisted source of truth, so drop the
+  // dirty flags — subsequent state pushes may freely repopulate the form again.
+  clearSettingsDirty();
   document.getElementById('tabTasks').click();
 });
 
