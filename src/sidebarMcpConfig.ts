@@ -63,6 +63,7 @@ export const mcpConfigCss = `
 
 export const mcpConfigHtml = `
 <div id="panelMcp" style="display:none">
+  <div style="font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.5;margin:0 0 10px">Connect Jira, email, and other services your agent can use (MCP servers).</div>
   <div class="cfg-section" style="margin-top:0;padding-top:0;border-top:none">Built-in MCP servers</div>
   <div id="mcpDefaultsList" style="margin-bottom:12px"></div>
 

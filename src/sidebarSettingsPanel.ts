@@ -6,12 +6,13 @@
 
 export const settingsPanelHtml = `
 <div id="panelSettings" style="display:none">
-<div id="cozempicBanner" style="display:none;padding:8px 10px;margin-bottom:10px;border-radius:4px;background:color-mix(in srgb,var(--vscode-statusBarItem-warningBackground,#b5630d) 15%,transparent);border:1px solid var(--vscode-statusBarItem-warningBackground,#b5630d);font-size:12px;line-height:1.6">
-  <strong>Cozempic not detected</strong> &mdash; prunes bloated Claude Code sessions.<br>
-  Install: <code style="font-size:11px">pip install cozempic</code> then run <code style="font-size:11px">cozempic init</code>
+<div id="cozempicBanner" style="display:none">
+  <strong>Optional</strong> &mdash; install <em>cozempic</em> to trim very long Claude sessions:
+  <code style="font-size:11px">pip install cozempic</code> then <code style="font-size:11px">cozempic init</code>
 </div>
-  <div class="cfg-section">Server</div>
-  <div class="cfg-field"><label class="cfg-label">WebSocket URL</label><input class="cfg-input" id="cfg_wsUrl" placeholder="wss://host/ws?token=agt_xxx&amp;endpoint=my-slug"></div>
+  <div class="cfg-section">Office (team dashboard)</div>
+  <div style="font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.5;margin-bottom:6px">Working solo? Leave this blank &mdash; it only connects the agent to a shared Pixel Office for team runs. Paste the full invite link (the whole <code style="font-size:10px">wss://&hellip;</code> URL) below.</div>
+  <div class="cfg-field"><label class="cfg-label">Office invite link</label><input class="cfg-input" id="cfg_wsUrl" placeholder="Paste your Office invite link…"></div>
   <div class="cfg-section">Discord</div>
   <div class="cfg-field"><label class="cfg-label">Bot Token</label><input class="cfg-input" id="cfg_discordToken" type="password" placeholder="Bot token"></div>
   <div class="cfg-field"><label class="cfg-label">Channel ID</label><input class="cfg-input" id="cfg_discordChannelId" placeholder="123456789"></div>

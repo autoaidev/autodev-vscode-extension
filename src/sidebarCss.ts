@@ -185,39 +185,96 @@ select:focus,
   font-style: italic;
 }
 
+/* Start is the hero action — a filled primary button, not a quiet outline. */
 .loop-btn {
-  padding: 3px 10px;
+  padding: 6px 14px;
   border-radius: 3px;
   cursor: pointer;
-  border: 1px solid var(--vscode-button-background);
-  background: transparent;
-  color: var(--vscode-button-background);
-  font-family: var(--vscode-font-family);
-  font-size: 11px;
-  white-space: nowrap;
-  transition: background 0.1s, color 0.1s;
-}
-.loop-btn:hover:not(:disabled) {
+  border: none;
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.1s, opacity 0.1s;
+}
+.loop-btn:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+  opacity: .92;
 }
 .loop-btn:disabled { opacity: .4; cursor: not-allowed; }
 .loop-btn.stop {
-  border-color: var(--vscode-testing-iconFailed, #c72e2e);
-  color: var(--vscode-testing-iconFailed, #c72e2e);
-}
-.loop-btn.stop:hover {
   background: var(--vscode-testing-iconFailed, #c72e2e);
   color: #fff;
 }
-.loop-btn.retry {
-  border-color: var(--vscode-statusBarItem-warningBackground, #b5630d);
-  color: var(--vscode-statusBarItem-warningBackground, #b5630d);
+.loop-btn.stop:hover:not(:disabled) {
+  background: var(--vscode-testing-iconFailed, #c72e2e);
+  opacity: .88;
 }
-.loop-btn.retry:hover {
+.loop-btn.retry {
   background: var(--vscode-statusBarItem-warningBackground, #b5630d);
   color: #fff;
 }
+.loop-btn.retry:hover:not(:disabled) {
+  background: var(--vscode-statusBarItem-warningBackground, #b5630d);
+  opacity: .88;
+}
+
+/* ── Step-0 provider-not-found banner (Tasks tab) ────────────────────────── */
+.provider-banner {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-statusBarItem-warningBackground, #b5630d));
+  background: color-mix(in srgb, var(--vscode-statusBarItem-warningBackground, #b5630d) 12%, transparent);
+}
+.provider-banner .pb-title { font-size: 13px; font-weight: 600; color: var(--vscode-foreground); margin-bottom: 3px; }
+.provider-banner .pb-desc { font-size: 11px; color: var(--vscode-descriptionForeground); line-height: 1.5; margin-bottom: 8px; }
+.provider-banner .pb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pb-btn {
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+}
+.pb-btn:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
+.pb-btn.pb-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background);
+  font-weight: 600;
+}
+.pb-btn.pb-primary:hover { background: var(--vscode-button-hoverBackground, var(--vscode-button-background)); opacity: .92; }
+
+/* ── First-run checklist (empty Tasks state) ─────────────────────────────── */
+.first-run { padding: 16px 4px 8px; }
+.first-run .fr-title { font-size: 13px; font-weight: 600; color: var(--vscode-foreground); margin-bottom: 10px; }
+.first-run .fr-step {
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  line-height: 1.9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.first-run .fr-step.fr-done { color: var(--vscode-descriptionForeground); }
+.first-run .fr-example {
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+}
+.first-run .fr-example:hover { background: var(--vscode-list-hoverBackground); }
 
 .settings-btn {
   padding: 3px 7px;
@@ -517,14 +574,15 @@ select:focus,
 .periodic-toggle:hover { color: var(--vscode-foreground); }
 .periodic-toggle-arrow { opacity: .6; font-style: normal; font-size: 9px; }
 
-/* ── Cozempic banner ─────────────────────────────────────────────────────── */
+/* ── Cozempic tip (neutral, optional — not a warning) ────────────────────── */
 #cozempicBanner {
-  padding: 8px 10px;
+  padding: 7px 10px;
   margin-bottom: 10px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--vscode-statusBarItem-warningBackground, #b5630d) 15%, transparent);
-  border: 1px solid var(--vscode-statusBarItem-warningBackground, #b5630d);
-  font-size: 12px;
+  background: var(--vscode-textBlockQuote-background, rgba(127,127,127,.08));
+  border: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
   line-height: 1.6;
 }
 `;

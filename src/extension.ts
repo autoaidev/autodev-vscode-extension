@@ -163,6 +163,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('autodev.archiveTodo', () => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!root) { vscode.window.showWarningMessage('AutoDev: No workspace folder open.'); return; }
+      if (taskLoopRunner.state === 'running') {
+        vscode.window.showWarningMessage('AutoDev: Stop the task loop before archiving — it is currently writing to TODO.md.');
+        return;
+      }
       const settings = loadSettings();
       const todoPath = settings.todoPath || path.join(root, 'TODO.md');
       try {

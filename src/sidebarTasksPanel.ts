@@ -5,6 +5,7 @@
 
 export const tasksPanelHtml = `
 <div id="panelTasks">
+<div id="providerBanner" class="provider-banner" style="display:none"></div>
 <form class="add-form" id="addForm">
   <input class="add-input" id="taskInput" placeholder="New task&#x2026;" autocomplete="off">
   <button class="add-btn" type="submit">Add</button>
@@ -56,10 +57,43 @@ function renderLoop(){
     statusEl.className='loop-status';
     statusEl.innerHTML='&#9711; Idle';
     btnEl.className='loop-btn';
-    btnEl.innerHTML='&#9654; Start';
-    btnEl.disabled=false;
-    btnEl.onclick=function(){vscode.postMessage({command:'startLoop'});};
+    btnEl.innerHTML='&#9654; Start agent';
+    // Gate Start on Step-0 provider readiness: if we probed and the CLI is
+    // missing, disable it and point at the blocker instead of a silent spawn
+    // failure. installed===null (probe pending) leaves Start enabled.
+    var r=state.selectedProviderReady;
+    if(r && r.installed===false){
+      btnEl.disabled=true;
+      btnEl.title=(r.label||'Provider')+' not installed — install & sign in first (see the banner above).';
+      btnEl.onclick=null;
+    }else{
+      btnEl.disabled=false;
+      btnEl.title='';
+      btnEl.onclick=function(){vscode.postMessage({command:'startLoop'});};
+    }
   }
+}
+
+// Step-0 onboarding banner: shown at the top of the Tasks tab when the selected
+// provider's CLI was probed and is missing. Turns the #1 silent first-run
+// failure into a one-click guided path (install / sign in / docs).
+function renderProviderBanner(){
+  var b=document.getElementById('providerBanner');
+  if(!b){return;}
+  var r=state.selectedProviderReady;
+  if(!(r && r.installed===false)){ b.style.display='none'; b.innerHTML=''; return; }
+  b.style.display='';
+  b.innerHTML=
+    '<div class="pb-title">&#9888; '+esc(r.label||'Agent CLI')+' not found</div>'
+    +'<div class="pb-desc">AutoDev needs an agent CLI installed and signed in before it can run tasks.</div>'
+    +'<div class="pb-actions">'
+    +'<button class="pb-btn pb-primary" id="pbInstallBtn">Install '+esc(r.label||'CLI')+'</button>'
+    +'<button class="pb-btn" id="pbSignInBtn">Sign in</button>'
+    +'<button class="pb-btn" id="pbDocsBtn">Docs</button>'
+    +'</div>';
+  var ib=document.getElementById('pbInstallBtn'); if(ib){ib.onclick=function(){vscode.postMessage({command:'installProvider'});};}
+  var sb=document.getElementById('pbSignInBtn'); if(sb){sb.onclick=function(){vscode.postMessage({command:'signInProvider'});};}
+  var db=document.getElementById('pbDocsBtn');   if(db){db.onclick=function(){vscode.postMessage({command:'openProviderDocs'});};}
 }
 
 function renderTasks(){
@@ -70,7 +104,29 @@ function renderTasks(){
   var remaining=total-doneCount;
   if(prog){prog.textContent=total?doneCount+'/'+total+' done \u2022 '+remaining+' left':'';}
   if(!state.tasks.length){
-    list.innerHTML='<div class="empty">No tasks in TODO.md yet.<br>Add one above or edit <strong>TODO.md</strong> directly.</div>';
+    // No workspace open → nothing the extension can do; the header controls
+    // silently persist to nowhere. Point at the one real next step.
+    if(state.hasWorkspace===false){
+      list.innerHTML='<div class="empty">Open a folder to get started.<br>'
+        +'<button class="add-btn" id="openFolderBtn" style="margin-top:10px">Open Folder</button></div>';
+      var ofb=document.getElementById('openFolderBtn');
+      if(ofb){ofb.onclick=function(){vscode.postMessage({command:'openFolder'});};}
+      return;
+    }
+    // First-run checklist — contextual to real state so the next action is never
+    // ambiguous: get a provider → add a task → press Start.
+    var r=state.selectedProviderReady;
+    var provOk=!(r && r.installed===false);
+    var c1=(provOk?'&#10003;':'&#9675;');
+    list.innerHTML='<div class="first-run">'
+      +'<div class="fr-title">Let\\'s run your first task</div>'
+      +'<div class="fr-step '+(provOk?'fr-done':'')+'">'+c1+' 1. Provider ready'+(provOk?'':' &mdash; see the banner above')+'</div>'
+      +'<div class="fr-step">&#9675; 2. Add a task above &#8593; '
+        +'<button class="fr-example" id="addExampleTaskBtn">Add example task</button></div>'
+      +'<div class="fr-step">&#9675; 3. Press <strong>&#9654; Start agent</strong></div>'
+      +'</div>';
+    var ex=document.getElementById('addExampleTaskBtn');
+    if(ex){ex.onclick=function(){vscode.postMessage({command:'addExampleTask'});};}
     return;
   }
   var pending=state.tasks.filter(function(t){return t.status!=='done';});
