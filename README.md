@@ -4,6 +4,13 @@
 
 **Package:** `autoaidev` (publisher `AutoAIDev`) · **Repo:** https://github.com/autoaidev/autodev-vscode-extension
 
+## Links
+
+- **VS Code Marketplace:** <https://marketplace.visualstudio.com/items?itemName=AutoAIDev.autoaidev>
+- **VSIX download:** <https://autoaidev.com/releases/autoaidev-latest.vsix>
+- **Siblings:** [autodev-cli](https://www.npmjs.com/package/autodev-cli) · [desktop app](https://autoaidev.com/releases/AutoAIDev-desktop-latest.AppImage) · [Pixel Office](https://app.pixeloffice.org)
+- **Product sites:** [autoaidev.com](https://autoaidev.com) · [pixeloffice.org](https://pixeloffice.org)
+
 ---
 
 ## Where this fits in AutoDev
