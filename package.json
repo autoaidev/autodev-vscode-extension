@@ -4,6 +4,7 @@
   "description": "Autonomous AI task loop: reads TODO.md, sends tasks to Claude CLI, Copilot CLI, or OpenCode, tracks progress, supports session resume, Discord, and webhooks",
   "version": "1.0.317",
   "publisher": "AutoAIDev",
+  "author": "Peter Ivanov <peter@microweber.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
