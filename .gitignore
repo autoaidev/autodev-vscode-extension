@@ -1,5 +1,7 @@
 /codebase.txt
 /node_modules
+/coverage
+/.nyc_output
 /__old
 /out
 /.vscode/settings.json
