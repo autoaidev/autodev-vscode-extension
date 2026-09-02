@@ -12,3 +12,6 @@ __old/**
 codebase.txt
 codebase_output.bat
 PUBLISH.md
+coverage/**
+.c8rc.json
+SUBAGENT_IMPROVEMENTS.md
