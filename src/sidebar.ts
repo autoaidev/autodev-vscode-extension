@@ -1,7 +1,9 @@
 ﻿import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as crypto from 'crypto';
+import { detectBinPath } from './binDetect';
 import { areHooksInstalled, installHooks, uninstallHooks } from 'autodev-cli/hooksManager';
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from 'autodev-cli/openCodeHooksManager';
 import { ConfigManager } from 'autodev-cli/configManager';
@@ -71,6 +73,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
   private _lastKnownMtime = 0;
   private _cozempicInstalled: boolean | null = null;
   private _binInstalled: Record<string, boolean> = {}; // provider CLI bin -> on PATH (Step-0 probe)
+  private _binPath: Record<string, string> = {};       // provider CLI bin -> resolved absolute path (when found on disk)
   private _ocSessionsCache: Array<{ id: string; mtime: number }> = [];
 
   constructor(
@@ -374,6 +377,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           term.sendText(meta.install);
           // Re-probe after the install likely finished so the badge/banner clear.
           this._binInstalled = {};
+          this._binPath = {};
           setTimeout(() => this._probeSelectedProvider(), 15000);
           break;
         }
@@ -705,11 +709,38 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     if (!meta) { return; }
     const bin = meta.bin;
     if (Object.prototype.hasOwnProperty.call(this._binInstalled, bin)) { return; } // cached
-    const shell = process.env.SHELL || 'bash';
+
+    // First pass: resolve the executable on disk directly (fast, no shell).
+    // This is the cross-platform path — on Windows it finds `claude.exe`/
+    // `claude.cmd` under %USERPROFILE%\.local\bin and npm-global locations,
+    // honoring PATHEXT and splitting PATH on ';'. On Unix it finds
+    // ~/.local/bin/claude, /usr/local/bin, etc. See binDetect.ts.
+    const resolved = detectBinPath(bin, {
+      platform: process.platform,
+      env: process.env,
+      homedir: os.homedir(),
+      fileExists: (p: string) => { try { return fs.existsSync(p); } catch { return false; } },
+    });
+    if (resolved) {
+      this._binInstalled[bin] = true;
+      this._binPath[bin] = resolved;
+      this._push();
+      return;
+    }
+
+    // Second pass: shell probe, for installs that live only on a PATH dir we
+    // don't enumerate (e.g. a custom prefix, or a shim on the login-shell PATH).
+    // Platform-aware: `where` on Windows (cmd builtin), `command -v` in a login
+    // shell on Unix (so profile files that add ~/.local/bin are sourced).
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { exec } = require('child_process') as typeof import('child_process');
-    exec(`${shell} -lc "command -v ${bin}"`, { timeout: 8000 }, (err: unknown, stdout: string) => {
-      this._binInstalled[bin] = !err && !!String(stdout || '').trim();
+    const cmd = process.platform === 'win32'
+      ? `where ${bin}`
+      : `${process.env.SHELL || 'bash'} -lc "command -v ${bin}"`;
+    exec(cmd, { timeout: 8000, windowsHide: true }, (err: unknown, stdout: string) => {
+      const line = String(stdout || '').split(/\r?\n/).map(s => s.trim()).find(Boolean) || '';
+      this._binInstalled[bin] = !err && !!line;
+      if (this._binInstalled[bin] && line && path.isAbsolute(line)) { this._binPath[bin] = line; }
       this._push();
     });
   }

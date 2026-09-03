@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.319] — 2026-09-03
+
+### Fixed
+- **Windows: existing Claude Code install is now detected.** The Step-0 provider-readiness probe was Unix-only — it ran `${SHELL:-bash} -lc "command -v claude"`, which on Windows has no `$SHELL`, no POSIX `command -v`, and looked for a bare `claude` rather than `claude.exe`/`claude.cmd`. A perfectly-installed user (`C:\Users\user\.local\bin\claude.exe`) was reported "not installed" and kept getting the install-Claude banner. Detection now resolves the executable on disk first (cross-platform: `.exe`/`.cmd`/`.bat` + `PATHEXT`, `~/.local/bin` / `%APPDATA%\npm` / `%LOCALAPPDATA%`, PATH split on `;`), then falls back to `where` on Windows / login-shell `command -v` on Unix. Unix detection is unchanged. New pure `detectBinPath()` helper (`src/binDetect.ts`) with unit tests.
+
 ## [1.0.308] — 2026-06-18
 
 ### Added
