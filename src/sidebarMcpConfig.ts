@@ -59,6 +59,12 @@ export const mcpConfigCss = `
 .mcp-add-btn{display:block;width:100%;margin-top:6px;padding:7px;font-size:12px;background:transparent;color:var(--vscode-foreground);border:1px dashed var(--vscode-panel-border);border-radius:3px;cursor:pointer;text-align:center}.mcp-add-btn:hover{background:var(--vscode-list-hoverBackground)}
 .mcp-save-all{position:sticky;bottom:0;display:block;width:100%;margin-top:14px;padding:9px 12px;font-size:13px;font-weight:600;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:3px;cursor:pointer;box-shadow:0 -4px 8px -4px rgba(0,0,0,.25)}
 .mcp-save-all:hover{background:var(--vscode-button-hoverBackground)}
+.mcp-exp-tag{color:var(--vscode-editorWarning-foreground,#e8ae00)!important;text-transform:uppercase;letter-spacing:.4px;font-size:9px}
+.mcp-prereq-warn{font-size:11px;color:var(--vscode-editorWarning-foreground,#e8ae00);background:rgba(232,174,0,.1);border-radius:3px;padding:6px 8px;margin:6px 0;line-height:1.5}
+.mcp-steps{font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.6;margin-top:8px;border-left:3px solid var(--vscode-testing-iconPassed,#388a34);padding:6px 10px;background:var(--vscode-textBlockQuote-background,rgba(127,127,127,.08))}
+.mcp-steps ol{margin:4px 0 0;padding-left:18px}
+.mcp-steps li{margin-bottom:3px}
+.mcp-steps .mcp-steps-title{font-weight:600;color:var(--vscode-foreground)}
 `;
 
 export const mcpConfigHtml = `
@@ -141,6 +147,48 @@ export const mcpConfigHtml = `
     </div>
   </div>
 
+  <!-- ── Creative apps (Blender / GIMP) ──────────────────────────────────── -->
+  <div class="cfg-section">Creative apps</div>
+  <div style="font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.5;margin:0 0 8px">Detected creative apps your agent can drive over MCP. Enabling writes the server to <code style="font-size:11px">.mcp.json</code> and syncs it to every provider — you still finish a couple of in-app steps.</div>
+
+  <!-- Blender -->
+  <div id="mcpAcc_blender" class="mcp-acc">
+    <div class="mcp-acc-head" data-acc="blender">
+      <input type="checkbox" id="mcpBlender_enabled" title="Enable the Blender MCP server" disabled>
+      <span class="mcp-acc-title">Blender <span class="mcp-acc-sub">blender-mcp · uvx</span></span>
+      <span class="mcp-badge unk" id="mcpBlender_detect" style="display:none"></span>
+      <button class="mcp-install-btn" id="mcpBlender_prereqBtn" style="display:none">Install uvx</button>
+      <span class="mcp-acc-chev">&#9656;</span>
+    </div>
+    <div class="mcp-acc-body">
+      <div class="mcp-help" id="mcpBlender_detectLine">Checking for Blender…</div>
+      <div class="mcp-prereq-warn" id="mcpBlender_prereqWarn" style="display:none"></div>
+      <div class="mcp-steps" id="mcpBlender_steps" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- GIMP (experimental) -->
+  <div id="mcpAcc_gimp" class="mcp-acc">
+    <div class="mcp-acc-head" data-acc="gimp">
+      <span style="width:16px;flex-shrink:0"></span>
+      <span class="mcp-acc-title">GIMP <span class="mcp-acc-sub mcp-exp-tag">experimental</span></span>
+      <span class="mcp-badge unk" id="mcpGimp_detect" style="display:none"></span>
+      <button class="mcp-install-btn" id="mcpGimp_prereqBtn" style="display:none">Install python</button>
+      <span class="mcp-acc-chev">&#9656;</span>
+    </div>
+    <div class="mcp-acc-body">
+      <div class="mcp-help" id="mcpGimp_detectLine">Checking for GIMP…</div>
+      <div class="mcp-prereq-warn" id="mcpGimp_notes" style="display:none"></div>
+      <div class="mcp-prereq-warn" id="mcpGimp_prereqWarn" style="display:none"></div>
+      <div class="cfg-field"><label class="cfg-label">gimp_mcp_client.py path <small style="opacity:.6">(optional — leave empty to write a disabled stub)</small></label><input class="cfg-input" id="mcpGimp_client" placeholder="/path/to/gimp-mcp/gimp_mcp_client.py"></div>
+      <div class="mcp-card-actions" style="justify-content:space-between;gap:6px">
+        <button class="mcp-install-btn" id="mcpGimp_enableBtn" style="padding:4px 10px;font-size:11px">Add experimental stub</button>
+        <button class="mcp-remove-btn" id="mcpGimp_removeBtn" style="display:none">Remove</button>
+      </div>
+      <div class="mcp-steps" id="mcpGimp_steps" style="display:none"></div>
+    </div>
+  </div>
+
   <!-- ── Custom MCP servers ───────────────────────────────────────────────── -->
   <div id="mcpAcc_custom" class="mcp-acc">
     <div class="mcp-acc-head" data-acc="custom">
@@ -161,7 +209,11 @@ export const mcpConfigHtml = `
 export const mcpConfigScript = `
 // Names of MCP servers managed by their own preset accordions — these are
 // hidden from the Custom JSON tab so the user has exactly one place to edit each.
-const RESERVED_MCP = { jira: 'mcp-atlassian', email: 'zerolib-email' };
+const RESERVED_MCP = { jira: 'mcp-atlassian', email: 'zerolib-email', blender: 'blender', gimp: 'gimp' };
+function _isReservedMcp(name){
+  return name === RESERVED_MCP.jira || name === RESERVED_MCP.email
+    || name === RESERVED_MCP.blender || name === RESERVED_MCP.gimp;
+}
 
 function _setVal(id, v){ const el = document.getElementById(id); if(el) el.value = v; }
 function _setCheck(id, v){ const el = document.getElementById(id); if(el) el.checked = !!v; }
@@ -319,13 +371,18 @@ function populateMcp(s, defaults){
   // Custom cards — show only entries NOT managed by preset accordions.
   const filtered = {};
   for(const name of Object.keys(userMcp)){
-    if(name === RESERVED_MCP.jira || name === RESERVED_MCP.email) continue;
+    if(_isReservedMcp(name)) continue;
     filtered[name] = userMcp[name];
   }
   _renderCustomCards(filtered);
 
   setMcpStatus('', '');
   window.__mcpFormReady = true;
+
+  // Detected creative apps → enable MCP. Ask the extension to run the CLI's
+  // buildDetect and post back a { apps:[...] } payload we render into the two
+  // creative-app accordions above (see renderCreativeApps).
+  vscode.postMessage({command:'detectCreativeApps'});
 }
 
 function _parseMcpInput(raw){
@@ -527,9 +584,17 @@ function _gatherMcpEntries(){
   const e = _gatherEmail();  if(e) out[RESERVED_MCP.email] = e;
   const custom = _gatherCustomCards();
   for(const name of Object.keys(custom)){
-    if(name === RESERVED_MCP.jira || name === RESERVED_MCP.email) continue;
+    if(_isReservedMcp(name)) continue;
     out[name] = custom[name];
   }
+  // Preserve creative-app servers (Blender / GIMP) — they're managed by the
+  // Creative apps section, not the custom cards, so they aren't in _gatherCustomCards.
+  // saveProjectUserMcp is a full replace, so without this a "Save All & Sync"
+  // would silently drop an enabled Blender/GIMP server.
+  const savedMcp = (state && state.settings && state.settings.mcpServers) || {};
+  [RESERVED_MCP.blender, RESERVED_MCP.gimp].forEach(function(nm){
+    if(savedMcp[nm] && !out[nm]) out[nm] = savedMcp[nm];
+  });
   return out;
 }
 
@@ -568,6 +633,141 @@ window.renderMcpEmailTestResult = function(msg){
     return;
   }
   _showEmailTestResult({ok:false, message:'(empty result)', steps:[]}, false);
+};
+
+// ── Creative apps (Blender / GIMP) ───────────────────────────────────────────
+// Detection results arrive from the extension (buildDetect via the CLI) as a
+// { apps:[{id,name,installed,path,source,experimental,prerequisites,postSetup,
+// notes,alreadyEnabled,...}] } payload. We render them into the two accordions.
+var _creativeApps = [];
+
+function _installPrereq(prereqId){
+  vscode.postMessage({command:'installCreativePrereq', prereq: prereqId});
+}
+
+function _stepsHtml(title, steps){
+  var items = (steps||[]).map(function(s){ return '<li>'+esc(s)+'</li>'; }).join('');
+  return '<div class="mcp-steps-title">'+esc(title)+'</div><ol>'+items+'</ol>';
+}
+
+function _detectBadge(el, a){
+  if(!el) return;
+  el.style.display = 'inline-flex';
+  if(a.installed){
+    el.className = 'mcp-badge ok';
+    el.textContent = 'detected';
+    el.title = a.path || '';
+  } else {
+    el.className = 'mcp-badge miss';
+    el.textContent = 'not installed';
+    el.title = '';
+  }
+}
+
+function _detectLineHtml(a, notInstalledMsg){
+  if(a.installed){
+    return 'Detected at <code>'+esc(a.path||'')+'</code>'+(a.source?' <span style="opacity:.6">('+esc(a.source)+')</span>':'');
+  }
+  return notInstalledMsg;
+}
+
+function _renderPrereq(a, prereqId, warnId, btnId, label){
+  var pr = (a.prerequisites||[]).find(function(p){ return p.id===prereqId; });
+  var warn = document.getElementById(warnId);
+  var btn  = document.getElementById(btnId);
+  if(pr && !pr.installed){
+    if(warn){ warn.style.display='block'; warn.textContent='⚠ '+label+' not found on PATH. '+ (pr.installHint||''); }
+    if(btn){ btn.style.display='inline-block'; btn.onclick=function(e){ e.stopPropagation(); _installPrereq(prereqId); }; }
+  } else {
+    if(warn) warn.style.display='none';
+    if(btn) btn.style.display='none';
+  }
+}
+
+function _renderBlender(a){
+  _detectBadge(document.getElementById('mcpBlender_detect'), a);
+  var line = document.getElementById('mcpBlender_detectLine');
+  if(line){ line.innerHTML = _detectLineHtml(a, 'Not installed — install Blender to enable this server.'); }
+  _setAccDisabled('mcpAcc_blender', !a.installed);
+
+  var cb = document.getElementById('mcpBlender_enabled');
+  if(cb){
+    cb.disabled = !a.installed;
+    cb.checked  = !!a.alreadyEnabled;
+    cb.title = a.installed ? 'Enable the Blender MCP server' : 'Install Blender to enable';
+    cb.onchange = function(){
+      if(cb.checked) vscode.postMessage({command:'enableCreativeApp', app:'blender'});
+      else vscode.postMessage({command:'disableCreativeApp', app:'blender'});
+    };
+  }
+  _renderPrereq(a, 'uvx', 'mcpBlender_prereqWarn', 'mcpBlender_prereqBtn', 'uvx');
+
+  var steps = document.getElementById('mcpBlender_steps');
+  if(steps){
+    if(a.alreadyEnabled){ steps.style.display='block'; steps.innerHTML=_stepsHtml('Blender is enabled. Finish these steps:', a.postSetup); }
+    else { steps.style.display='none'; }
+  }
+}
+
+function _renderGimp(a){
+  _detectBadge(document.getElementById('mcpGimp_detect'), a);
+  var line = document.getElementById('mcpGimp_detectLine');
+  if(line){ line.innerHTML = _detectLineHtml(a, 'GIMP not detected — you can still write a stub, but the server needs GIMP 3.0 + the upstream client to run.'); }
+  _setAccDisabled('mcpAcc_gimp', !a.installed);
+
+  var notes = document.getElementById('mcpGimp_notes');
+  if(notes){
+    if(a.notes && a.notes.length){ notes.style.display='block'; notes.innerHTML = a.notes.map(function(n){ return esc(n); }).join('<br>'); }
+    else { notes.style.display='none'; }
+  }
+  _renderPrereq(a, 'python', 'mcpGimp_prereqWarn', 'mcpGimp_prereqBtn', 'python');
+
+  var enBtn = document.getElementById('mcpGimp_enableBtn');
+  var rmBtn = document.getElementById('mcpGimp_removeBtn');
+  var clientInp = document.getElementById('mcpGimp_client');
+  if(enBtn){
+    var updLabel = function(){ enBtn.textContent = (clientInp && clientInp.value.trim()) ? 'Enable with client' : 'Add experimental stub'; };
+    updLabel();
+    if(clientInp && !clientInp.dataset.bound){ clientInp.dataset.bound='1'; clientInp.addEventListener('input', updLabel); }
+    enBtn.onclick = function(){
+      var cp = clientInp ? clientInp.value.trim() : '';
+      vscode.postMessage({command:'enableCreativeApp', app:'gimp', gimpClient: cp});
+    };
+  }
+  if(rmBtn){
+    rmBtn.style.display = a.alreadyEnabled ? 'inline-block' : 'none';
+    rmBtn.onclick = function(){ vscode.postMessage({command:'disableCreativeApp', app:'gimp'}); };
+  }
+  var steps = document.getElementById('mcpGimp_steps');
+  if(steps){
+    steps.style.display='block';
+    steps.innerHTML = _stepsHtml(a.alreadyEnabled ? 'GIMP stub written. Manual steps to finish:' : 'Manual steps (experimental):', a.postSetup);
+  }
+}
+
+window.renderCreativeApps = function(apps){
+  _creativeApps = apps || [];
+  _creativeApps.forEach(function(a){
+    if(a.id === 'blender') _renderBlender(a);
+    else if(a.id === 'gimp') _renderGimp(a);
+  });
+};
+
+// After an enable, show the setup steps immediately (before the re-detect push
+// lands) and expand the accordion so the user sees what to do next.
+window.renderCreativeAppEnableResult = function(msg){
+  if(!msg || !msg.app) return;
+  if(!msg.ok){ setMcpStatus('error', 'Enable '+esc(msg.app)+' failed: '+esc(msg.error||'unknown error')); return; }
+  var stepsId = msg.app==='blender' ? 'mcpBlender_steps' : 'mcpGimp_steps';
+  var steps = document.getElementById(stepsId);
+  if(steps){
+    steps.style.display='block';
+    var title = msg.stub ? 'Disabled stub written — finish these steps:'
+      : (msg.app==='blender' ? 'Blender enabled. Finish these steps:' : 'GIMP configured. Manual steps:');
+    steps.innerHTML = _stepsHtml(title, msg.postSetup||[]);
+  }
+  var acc = document.getElementById('mcpAcc_'+msg.app);
+  if(acc) acc.classList.add('open');
 };
 
 function _bindMcpEvents(){

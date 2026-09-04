@@ -8,6 +8,8 @@ import { areHooksInstalled, installHooks, uninstallHooks } from 'autodev-cli/hoo
 import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks } from 'autodev-cli/openCodeHooksManager';
 import { ConfigManager } from 'autodev-cli/configManager';
 import { loadProjectUserMcp, saveProjectUserMcp, removeProjectUserMcp } from 'autodev-cli/core/projectMcp';
+import { buildDetect } from 'autodev-cli/commands/mcp';
+import { serverSpecFor, catalogEntry, uvInstallHint, pythonInstallHint, type CreativeAppId } from 'autodev-cli/core/mcpCatalog';
 import { DEFAULT_MCP_SERVERS } from 'autodev-cli/mcpManager';
 import { getMcpInstallSnapshot, checkMcpInstallAsync, refreshMcpInstall, installCommandFor, invalidateMcpInstallCache } from 'autodev-cli/mcpInstallCheck';
 import { testEmailViaMcp } from 'autodev-cli/mcpEmailTest';
@@ -260,6 +262,88 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           if (enabled) set.delete(name); else set.add(name);
           saveSettings({ ...current, disabledBuiltinMcp: [...set] });
           this._syncAndPushMcp();
+          break;
+        }
+        case 'detectCreativeApps': {
+          // Detected creative apps → enable MCP. Uses the CLI's buildDetect so the
+          // extension and `autodev mcp detect` agree on results (single source).
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) { this._view?.webview.postMessage({ command: 'creativeAppsDetect', apps: [] }); break; }
+          try {
+            const result = buildDetect(root);
+            this._view?.webview.postMessage({ command: 'creativeAppsDetect', apps: result.apps });
+          } catch (err) {
+            this._view?.webview.postMessage({
+              command: 'creativeAppsDetect', apps: [],
+              error: String(err instanceof Error ? err.message : err),
+            });
+          }
+          break;
+        }
+        case 'enableCreativeApp': {
+          // Build the platform-aware server spec + merge into .mcp.json, then
+          // propagate EXACTLY as saveMcpBulk does (applyAllSkills/applyMcpSkills
+          // + syncProjectMcpServers via _syncAndPushMcp) — no new write path.
+          const appRaw = String(msg.app ?? '').trim();
+          if (appRaw !== 'blender' && appRaw !== 'gimp') break;
+          const app = appRaw as CreativeAppId;
+          const gimpClient = typeof msg.gimpClient === 'string' && msg.gimpClient.trim() ? msg.gimpClient.trim() : undefined;
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          try {
+            const entry = catalogEntry(app, process.platform);
+            const server = serverSpecFor(app, process.platform, { gimpClientPath: gimpClient });
+            const user = loadProjectUserMcp(root);
+            user[entry.serverName] = server;
+            saveProjectUserMcp(root, user);
+            // Mirror saveMcpBulk so the server reaches every provider config.
+            try { applyAllSkills(root); applyMcpSkills(root, loadSettings()); } catch { /* ignore */ }
+            this._syncAndPushMcp();
+            const isStub = app === 'gimp' && !gimpClient;
+            this._view?.webview.postMessage({
+              command: 'creativeAppEnableResult',
+              app, ok: true, stub: isStub, serverName: entry.serverName,
+              postSetup: entry.postSetup, notes: entry.notes,
+            });
+            vscode.window.showInformationMessage(
+              isStub
+                ? 'AutoDev: Wrote a disabled GIMP MCP stub — provide the gimp_mcp_client.py path to complete it.'
+                : `AutoDev: ${entry.name} MCP server enabled — finish the setup steps shown in the panel.`,
+            );
+          } catch (err) {
+            this._view?.webview.postMessage({
+              command: 'creativeAppEnableResult', app, ok: false,
+              error: String(err instanceof Error ? err.message : err),
+            });
+            vscode.window.showErrorMessage(`AutoDev: Enable ${app} failed — ${err instanceof Error ? err.message : String(err)}`);
+          }
+          break;
+        }
+        case 'disableCreativeApp': {
+          const appRaw = String(msg.app ?? '').trim();
+          if (appRaw !== 'blender' && appRaw !== 'gimp') break;
+          const app = appRaw as CreativeAppId;
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const entry = catalogEntry(app, process.platform);
+          removeProjectUserMcp(root, entry.serverName);
+          this._syncAndPushMcp();
+          vscode.window.showInformationMessage(`AutoDev: ${entry.name} MCP server disabled.`);
+          break;
+        }
+        case 'installCreativePrereq': {
+          // Open a terminal running the trusted, platform-specific install hint
+          // for a creative-app prerequisite (uvx / python). The command string is
+          // recomputed here from the catalog — never taken from the webview — so a
+          // workspace can't inject a shell command.
+          const id = String(msg.prereq ?? '').trim();
+          const cmd = (id === 'uvx' || id === 'uv') ? uvInstallHint(process.platform)
+            : id === 'python' ? pythonInstallHint(process.platform)
+            : '';
+          if (!cmd) break;
+          const term = vscode.window.createTerminal(`Install: ${id}`);
+          term.show(true);
+          term.sendText(cmd);
           break;
         }
         case 'openAgentProfile': {
@@ -1319,6 +1403,10 @@ window.addEventListener('message',function(e){
     document.getElementById('openCodeHooksStatusBadge').style.display=msg.openCodeHooksInstalled?'':'none';
   } else if(msg.command==='mcpEmailTestResult' && typeof window.renderMcpEmailTestResult==='function'){
     window.renderMcpEmailTestResult(msg);
+  } else if(msg.command==='creativeAppsDetect' && typeof window.renderCreativeApps==='function'){
+    window.renderCreativeApps(msg.apps||[]);
+  } else if(msg.command==='creativeAppEnableResult' && typeof window.renderCreativeAppEnableResult==='function'){
+    window.renderCreativeAppEnableResult(msg);
   } else if(msg.command==='opencodeModels'){
     var dl=document.getElementById('ocModelDatalist');
     if(dl){
