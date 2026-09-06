@@ -170,7 +170,7 @@ export const mcpConfigHtml = `
   <!-- GIMP (experimental) -->
   <div id="mcpAcc_gimp" class="mcp-acc">
     <div class="mcp-acc-head" data-acc="gimp">
-      <span style="width:16px;flex-shrink:0"></span>
+      <input type="checkbox" id="mcpGimp_enabled" title="Enable the GIMP MCP server" disabled>
       <span class="mcp-acc-title">GIMP <span class="mcp-acc-sub mcp-exp-tag">experimental</span></span>
       <span class="mcp-badge unk" id="mcpGimp_detect" style="display:none"></span>
       <button class="mcp-install-btn" id="mcpGimp_prereqBtn" style="display:none">Install python</button>
@@ -180,12 +180,14 @@ export const mcpConfigHtml = `
       <div class="mcp-help" id="mcpGimp_detectLine">Checking for GIMP…</div>
       <div class="mcp-prereq-warn" id="mcpGimp_notes" style="display:none"></div>
       <div class="mcp-prereq-warn" id="mcpGimp_prereqWarn" style="display:none"></div>
-      <div class="cfg-field"><label class="cfg-label">gimp_mcp_client.py path <small style="opacity:.6">(optional — leave empty to write a disabled stub)</small></label><input class="cfg-input" id="mcpGimp_client" placeholder="/path/to/gimp-mcp/gimp_mcp_client.py"></div>
-      <div class="mcp-card-actions" style="justify-content:space-between;gap:6px">
-        <button class="mcp-install-btn" id="mcpGimp_enableBtn" style="padding:4px 10px;font-size:11px">Add experimental stub</button>
-        <button class="mcp-remove-btn" id="mcpGimp_removeBtn" style="display:none">Remove</button>
-      </div>
       <div class="mcp-steps" id="mcpGimp_steps" style="display:none"></div>
+      <details style="margin-top:6px">
+        <summary style="font-size:11px;opacity:.7;cursor:pointer">Advanced: use a custom gimp_mcp_client.py</summary>
+        <div class="cfg-field"><label class="cfg-label">gimp_mcp_client.py path <small style="opacity:.6">(optional — overrides the auto-installed client)</small></label><input class="cfg-input" id="mcpGimp_client" placeholder="/path/to/gimp-mcp/gimp_mcp_client.py"></div>
+        <div class="mcp-card-actions" style="justify-content:flex-end;gap:6px">
+          <button class="mcp-install-btn" id="mcpGimp_enableBtn" style="padding:4px 10px;font-size:11px">Enable with this client</button>
+        </div>
+      </details>
     </div>
   </div>
 
@@ -712,7 +714,7 @@ function _renderBlender(a){
 function _renderGimp(a){
   _detectBadge(document.getElementById('mcpGimp_detect'), a);
   var line = document.getElementById('mcpGimp_detectLine');
-  if(line){ line.innerHTML = _detectLineHtml(a, 'GIMP not detected — you can still write a stub, but the server needs GIMP 3.0 + the upstream client to run.'); }
+  if(line){ line.innerHTML = _detectLineHtml(a, 'GIMP not detected — install GIMP 3.x to enable this server.'); }
   _setAccDisabled('mcpAcc_gimp', !a.installed);
 
   var notes = document.getElementById('mcpGimp_notes');
@@ -722,26 +724,34 @@ function _renderGimp(a){
   }
   _renderPrereq(a, 'python', 'mcpGimp_prereqWarn', 'mcpGimp_prereqBtn', 'python');
 
-  var enBtn = document.getElementById('mcpGimp_enableBtn');
-  var rmBtn = document.getElementById('mcpGimp_removeBtn');
-  var clientInp = document.getElementById('mcpGimp_client');
-  if(enBtn){
-    var updLabel = function(){ enBtn.textContent = (clientInp && clientInp.value.trim()) ? 'Enable with client' : 'Add experimental stub'; };
-    updLabel();
-    if(clientInp && !clientInp.dataset.bound){ clientInp.dataset.bound='1'; clientInp.addEventListener('input', updLabel); }
-    enBtn.onclick = function(){
-      var cp = clientInp ? clientInp.value.trim() : '';
-      vscode.postMessage({command:'enableCreativeApp', app:'gimp', gimpClient: cp});
+  // Enable checkbox — identical behaviour to Blender's. Enabling writes the gimp
+  // server via enableCreativeApp; the CLI's syncProjectMcpServers hook installs
+  // the plugin + client and re-points the config at the local client.
+  var cb = document.getElementById('mcpGimp_enabled');
+  if(cb){
+    cb.disabled = !a.installed;
+    cb.checked  = !!a.alreadyEnabled;
+    cb.title = a.installed ? 'Enable the GIMP MCP server' : 'Install GIMP to enable';
+    cb.onchange = function(){
+      if(cb.checked) vscode.postMessage({command:'enableCreativeApp', app:'gimp'});
+      else vscode.postMessage({command:'disableCreativeApp', app:'gimp'});
     };
   }
-  if(rmBtn){
-    rmBtn.style.display = a.alreadyEnabled ? 'inline-block' : 'none';
-    rmBtn.onclick = function(){ vscode.postMessage({command:'disableCreativeApp', app:'gimp'}); };
+
+  // Advanced (optional): override the auto-installed client with a custom path.
+  var enBtn = document.getElementById('mcpGimp_enableBtn');
+  var clientInp = document.getElementById('mcpGimp_client');
+  if(enBtn){
+    enBtn.onclick = function(){
+      var cp = clientInp ? clientInp.value.trim() : '';
+      vscode.postMessage({command:'enableCreativeApp', app:'gimp', gimpClient: cp || undefined});
+    };
   }
+
   var steps = document.getElementById('mcpGimp_steps');
   if(steps){
-    steps.style.display='block';
-    steps.innerHTML = _stepsHtml(a.alreadyEnabled ? 'GIMP stub written. Manual steps to finish:' : 'Manual steps (experimental):', a.postSetup);
+    if(a.alreadyEnabled){ steps.style.display='block'; steps.innerHTML=_stepsHtml('GIMP is enabled. Finish these steps:', a.postSetup); }
+    else { steps.style.display='none'; }
   }
 }
 
@@ -762,8 +772,7 @@ window.renderCreativeAppEnableResult = function(msg){
   var steps = document.getElementById(stepsId);
   if(steps){
     steps.style.display='block';
-    var title = msg.stub ? 'Disabled stub written — finish these steps:'
-      : (msg.app==='blender' ? 'Blender enabled. Finish these steps:' : 'GIMP configured. Manual steps:');
+    var title = msg.app==='blender' ? 'Blender enabled. Finish these steps:' : 'GIMP enabled. Finish these steps:';
     steps.innerHTML = _stepsHtml(title, msg.postSetup||[]);
   }
   var acc = document.getElementById('mcpAcc_'+msg.app);

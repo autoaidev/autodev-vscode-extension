@@ -306,9 +306,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
               postSetup: entry.postSetup, notes: entry.notes,
             });
             vscode.window.showInformationMessage(
-              isStub
-                ? 'AutoDev: Wrote a disabled GIMP MCP stub — provide the gimp_mcp_client.py path to complete it.'
-                : `AutoDev: ${entry.name} MCP server enabled — finish the setup steps shown in the panel.`,
+              `AutoDev: ${entry.name} MCP server enabled — finish the setup steps shown in the panel.`,
             );
           } catch (err) {
             this._view?.webview.postMessage({
