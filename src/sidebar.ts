@@ -765,6 +765,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
    * we re-push once the probe settles.
    */
   private _refreshCozempic(): void {
+    // Opt-in only: cozempic is an optional external tool. Unless the workspace
+    // explicitly enables `cozempicAutoInit` (default false), don't probe for it
+    // (and the install banner stays hidden — see _push).
+    if (loadSettings().cozempicAutoInit !== true) { return; }
     if (this._cozempicInstalled !== null) { return; }
     // VS Code's process doesn't inherit the user's full shell PATH (e.g. ~/.local/bin
     // where pip/pipx installs cozempic). Use a login shell so profile files are sourced.
@@ -907,7 +911,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
       availableSessions,
       resumeAt: taskLoopRunner.resumeAt?.getTime() ?? null,
       profiles: getBuiltinProfiles(),
-      cozempicInstalled: this._cozempicInstalled ?? false,
+      // Banner shows only when this is exactly false. Gate on the opt-in flag:
+      // when cozempicAutoInit is off (default) push `true` so the install banner
+      // stays hidden and we never nudge users toward the optional tool.
+      cozempicInstalled: settings.cozempicAutoInit === true ? (this._cozempicInstalled ?? false) : true,
       hooksInstalled: root ? areHooksInstalled('project', root) : false,
       openCodeHooksInstalled: root ? isOpenCodeHooksInstalled(root) : false,
       mcpDefaults: DEFAULT_MCP_SERVERS.map(s => ({ name: s.name, command: s.command, args: s.args })),
