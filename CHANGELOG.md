@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.337] — 2026-09-10
+
+### Changed
+- **Bundled agent-profile media refreshed to CLI 1.4.158** — anti-stall pillars, workflow reinforcement, and the new top-of-file `> **Digest:**` summary lines now ship to VS Code users (all 35 profile sections re-synced from the sibling CLI).
+
 ## [1.0.319] — 2026-09-03
 
 ### Fixed
