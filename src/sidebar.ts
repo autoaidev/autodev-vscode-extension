@@ -127,6 +127,10 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           const saved = loadSettings();
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) { this._syncHooks(prev, saved, root); }
+          // If the cozempic master switch was just turned on, run the (opt-in)
+          // probe so the install banner / gated behavior update live. When off,
+          // _push already suppresses the banner (pushes cozempicInstalled:true).
+          this._refreshCozempic();
           this._push();
           vscode.window.showInformationMessage('AutoDev: Settings saved.');
           break;

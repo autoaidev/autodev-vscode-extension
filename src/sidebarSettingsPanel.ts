@@ -6,6 +6,11 @@
 
 export const settingsPanelHtml = `
 <div id="panelSettings" style="display:none">
+  <div class="cfg-section">Long sessions (optional)</div>
+  <div class="cfg-row">
+    <div class="cfg-field cfg-check"><label><input type="checkbox" id="cfg_cozempicAutoInit"> Cozempic long-session guard (optional)</label></div>
+  </div>
+  <div style="font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.5;margin-bottom:6px">Auto-trims very long Claude sessions. Off by default; requires <code style="font-size:10px">pip install cozempic</code>.</div>
 <div id="cozempicBanner" style="display:none">
   <strong>Optional</strong> &mdash; install <em>cozempic</em> to trim very long Claude sessions:
   <code style="font-size:11px">pip install cozempic</code> then <code style="font-size:11px">cozempic init</code>
@@ -156,6 +161,16 @@ function populateSettings(s){
   setSettingValue(document.getElementById('cfg_rdpGuacWsUrl'), s.rdpGuacWsUrl||'');
   setSettingChecked(document.getElementById('cfg_hooksEnabled'), !!s.hooksEnabled);
   setSettingChecked(document.getElementById('cfg_openCodeHooksEnabled'), !!s.openCodeHooksEnabled);
+  // Cozempic long-session guard — master switch for the optional probe + install
+  // banner. Writes cozempicAutoInit to .autodev/settings.json immediately (the same
+  // scope the CLI reads via loadSettingsForRoot) so toggling takes effect live.
+  var cozChk=document.getElementById('cfg_cozempicAutoInit');
+  if(cozChk){
+    setSettingChecked(cozChk, s.cozempicAutoInit===true);
+    cozChk.onchange=function(){
+      vscode.postMessage({command:'saveSettings',settings:Object.assign({},state.settings||{},{cozempicAutoInit:cozChk.checked})});
+    };
+  }
   renderProfileSelect(state.profiles||[], s['profilePath']||'');
 }
 
