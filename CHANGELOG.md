@@ -2,6 +2,12 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.343] — 2026-09-15
+
+### Added
+- **Master `autodev` Agent Skill bundled** (from CLI 1.4.163) — a single keyword-triggered skill (`media/skills/autodev/SKILL.md`) that routes agents to the on-disk `.autodev/profile/*` protocol files on demand; supplements the always-loaded PROGRAM.md. `copy-cli-media` now syncs `media/skills/` from the sibling CLI (additive) alongside `media/profile/`.
+- **Keyword metadata on every profile pillar** — each of the 38 pillars now carries an `<!-- autodev-keywords: … -->` trigger line, re-synced to the bundled media.
+
 ## [1.0.337] — 2026-09-10
 
 ### Changed

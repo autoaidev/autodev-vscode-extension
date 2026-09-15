@@ -59,3 +59,41 @@ if (missing.length > 0) {
   process.exit(1);
 }
 console.log(`copy-cli-media: parity OK — all ${sections.length} PROFILE_SECTIONS present in media/profile/`);
+
+// ---------------------------------------------------------------------------
+// Skills — sync the CLI's bundled Agent Skills (media/skills/<slug>/SKILL.md)
+// into this extension's media/skills/ so the bundled profileBuilder/protocolSections
+// deploy them at runtime (applyAllSkills reads <bundle>/../media/skills). This is
+// ADDITIVE (per-slug overwrite): we copy every skill dir the CLI provides but do
+// NOT wipe skills the extension already carries, so the new master `autodev` skill
+// ships without disturbing pre-existing bundled skills.
+// ---------------------------------------------------------------------------
+const skillsSrc = path.resolve(__dirname, '..', '..', 'autodev-cli', 'media', 'skills');
+const skillsDest = path.resolve(__dirname, '..', 'media', 'skills');
+let skillCount = 0;
+if (fs.existsSync(skillsSrc)) {
+  fs.mkdirSync(skillsDest, { recursive: true });
+  for (const slug of fs.readdirSync(skillsSrc)) {
+    const srcSkill = path.join(skillsSrc, slug, 'SKILL.md');
+    if (!fs.existsSync(srcSkill)) { continue; }
+    const destSlugDir = path.join(skillsDest, slug);
+    fs.mkdirSync(destSlugDir, { recursive: true });
+    fs.copyFileSync(srcSkill, path.join(destSlugDir, 'SKILL.md'));
+    skillCount++;
+  }
+  console.log(`copy-cli-media: copied ${skillCount} skill(s) from CLI → media/skills/`);
+} else {
+  console.log('copy-cli-media: no CLI media/skills/ dir — skipping skills sync');
+}
+
+// Parity: the master `autodev` skill MUST be present after sync, or the keyword-
+// triggered protocol router would silently not ship in the extension bundle.
+const masterSkill = path.join(skillsDest, 'autodev', 'SKILL.md');
+if (!fs.existsSync(masterSkill)) {
+  console.error(
+    'copy-cli-media: FAIL — the master skill media/skills/autodev/SKILL.md is missing after sync. ' +
+      'Run `npm run build` (or `npm run gen:skill`) in the sibling autodev-cli so the generator emits it.',
+  );
+  process.exit(1);
+}
+console.log('copy-cli-media: parity OK — master skill media/skills/autodev/SKILL.md present.');
