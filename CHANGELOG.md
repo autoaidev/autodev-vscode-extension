@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.346] — 2026-09-24
+
+### Fixed
+- **grok can start on Windows again** — bundles CLI 1.4.168, which TOML-escapes the double-quoted `[folders."<path>"]` key in `~/.grok/trusted_folders.toml`. A raw Windows path (`C:\Users\…`) previously injected invalid TOML escapes (`\U`,`\u`,`\a`,`\.`), making grok's whole trust store unparseable so `grok --always-approve` fell back to the interactive trust prompt. The CLI now also repairs a store already corrupted by the old bug (re-escaping every folders key, preserving `trusted`/`decided_at`, backing up the broken original).
+
 ## [1.0.343] — 2026-09-15
 
 ### Added
