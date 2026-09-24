@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.349] — 2026-09-24
+
+### Added
+- **Transient provider failures are retried instead of lost** — bundles CLI 1.4.172. A provider hard-failure (token blip, timeout, watchdog no-output, "provider stopped/timed out", crash, session-error) on a task now retries the SAME task up to 10 times with exponential backoff (2s → 4s → … → 64s → 120s cap, ±15% jitter) before the task is finally reported failed/blocked. During retries the task stays in-progress and claimable and the office reads "working" (a soft `retrying (N/10)` progress note), so a brief grok/claude auth or timeout blip no longer strands the task until a human re-assigns it. `reauth_required` is excluded — genuine auth-expiry keeps its own pause/resume + re-auth path. Configurable via `maxProviderRetries` (default 10).
+
 ## [1.0.348] — 2026-09-24
 
 ### Fixed
