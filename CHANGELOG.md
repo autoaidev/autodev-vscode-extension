@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.348] — 2026-09-24
+
+### Fixed
+- **A missing `PROGRAM.md` no longer fails a task** — bundles CLI 1.4.171. `writeCombinedFile` now reads `.autodev/PROGRAM.md` defensively (never throws when the file is absent) and `rebuildProfile` assembles the profile body in a try/catch so a throw can't prevent the `PROGRAM.md` write. Fixes office grok agents failing tasks with `ENOENT … open '.autodev\PROGRAM.md'`.
+
 ## [1.0.346] — 2026-09-24
 
 ### Fixed
