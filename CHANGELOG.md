@@ -2,6 +2,12 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.350] — 2026-09-25
+
+### Fixed
+- **A logged-out grok agent now asks for re-login instead of silently failing every turn** — bundles CLI 1.4.173. When grok's credential file (`~/.grok/auth.json`) goes missing its silent token refresh fails (`Failed(ManualLogin)`) and the turn dies with grok's native "Turn failed: Grok stopped before this turn finished" banner. The grok provider previously detected only the interactive OAuth login gate, so this slipped through as a false idle (a completed-looking turn that lost the task) or a generic session-exit — never the 🔑 needs-auth state. grok auth failures (missing/empty auth.json, `Failed(ManualLogin)`, a failed silent refresh, or a login gate) are now classified as `reauth_required` on BOTH the task-loop and operate paths: the loop pauses for re-login and the office/app show the 🔑 needs-auth state (the reauth sentinel + `Failed(ManualLogin)` are now matched by the auth detector, which they were not before). Auth failures are NEVER retried in a tight loop — a missing token can only be fixed by re-login.
+- **Transient grok turn failures now retry instead of vanishing** — grok's turn-failure banner WITH credentials still present is classified as a transient `turn-failed` hard-failure and retried with exponential backoff (the 1.0.349 mechanic), up to `maxProviderRetries` (default 10), instead of being misread as a clean idle. Reauth and transient-retry stay distinct.
+
 ## [1.0.349] — 2026-09-24
 
 ### Added
