@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.358] — 2026-09-25
+
+### Fixed
+- **grok agents no longer fail every resumed turn in an infinite retry loop** — bundles CLI 1.4.182. After 1.4.181 forced grok to RESUME its session, every resumed turn failed instantly (~1s) and looped forever at `retry 1/10`. The headless session-log tailer seeded/tailed the *newest-by-mtime* grok session dir, but the resumed session is not always the newest on disk (a later stateless-fallback turn mints a newer, unrelated dir); the tailer then read the resumed session from offset 0 and surfaced a PRIOR turn's errored `turn_ended` as this turn's result. The tailer now seeds and tails the KNOWN session dir (`grokSessionDirFor`) for resume and new-persistent launches, so a newer unrelated dir can never divert it. Two further guards: a `turn_ended` is only honored once this turn has demonstrably started in the tailed window (never a stale backlog record), and a resume that errors before producing any output is marked non-resumable and falls back to a fresh stateless relaunch instead of re-resuming the same broken session forever.
+
 ## [1.0.350] — 2026-09-25
 
 ### Fixed
