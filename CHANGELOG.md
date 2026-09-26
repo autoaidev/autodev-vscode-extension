@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.361] — 2026-09-26
+
+### Fixed
+- **grok resume waits much longer under a many-agents-at-once launch** — bundles CLI 1.4.185. When you start ~17 grok agents at once, grok serializes on its shared session index and a headless `--resume` can legitimately take minutes to produce its first output. The previous single ~180s grace window was too impatient and tripped a false stateless fallback. The resume hang-probe is now exponential and multi-round: after the first 90s window it grants up to 15 further windows (growing 8s ×2, capped at 22s → ~6.7min of total patience), but each extension is **gated on real progress** — grok must have written NEW session events during that window. A silent window with no first token still falls back immediately, so a genuinely hung resume is abandoned fast while a slow-but-alive one is waited out. The office log now shows honest progress (`--resume still loading after Ns (round K/15, grok is writing session events) — waiting up to ~Ms more`) instead of a scary stall. The run watchdog default is raised 10min → 20min so a slow load still leaves ≥13min of real work budget. All thresholds are env-overridable (`AUTODEV_GROK_RESUME_MAX_EXTENSIONS`, `AUTODEV_GROK_RESUME_EXT_BASE_MS`, `AUTODEV_GROK_RESUME_EXT_CAP_MS`, `AUTODEV_GROK_MAX_RUN_MS`).
+
 ## [1.0.359] — 2026-09-26
 
 ### Fixed
