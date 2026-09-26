@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.359] — 2026-09-26
+
+### Fixed
+- **Unfinished tasks are never falsely marked DONE anymore** — bundles CLI 1.4.183. When a provider (observed live on a Windows grok-cli office loop) crashed / hit a StopFailure and exited leaving a task `[~]` in-progress, the loop's stranded sweep called `markDone()` on it — reporting a half-done task as SUCCESS (false-green). On a locked/unwritable `TODO.md` (Windows file lock) that write failed silently, the task stayed `[~]`, and the branch re-picked it instantly → the `✅ Auto-marked 1 stranded [~] task as done` line flooded ~40×/second. The stranded reconciliation is now truthful: a stranded task is **never** marked done — it is reset to pending and re-attempted a bounded number of times (`maxStrandRetries`, default 3), then flagged **blocked / needs-attention** (reported the same way a provider hard-failure is). The strand counter and the blocked promotion advance purely in-memory *before* and *independently of* any `TODO.md` write, so a permanently locked file can no longer flood — a task is reconciled at most MAX+1 times total — and the branch waits out the normal loop interval instead of hot-looping. Correctness over efficiency: a task the agent genuinely finished but forgot to mark gets safely re-done, rather than a crashed task being falsely completed.
+
 ## [1.0.358] — 2026-09-25
 
 ### Fixed
