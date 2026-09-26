@@ -2,6 +2,12 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.362] — 2026-09-26
+
+### Fixed
+- **Resuming agents stop re-reading their whole identity/profile every turn** — bundles CLI 1.4.186. A resuming provider (grok-cli/grok-tui always; others when resumeSession is on) already carries its `SOUL.md` identity and `.autodev/PROGRAM.md` protocol forward in the live conversation, but the standing profile pillars ("Read SOUL.md before every message") made the agent open every turn by redundantly re-reading them — wasting the turn's opening and making resume look like a no-op ("seems session is not resuming, it always reads its profile"). On a resumed turn (past turn 1) the message now carries a per-turn `<system-reminder>` that overrides the standing re-read ("You are CONTINUING your existing session … do NOT re-read them; continue directly"). It is gated so it never fights the other reminders: turn 1 still gets the first-turn identity-load reminder, and a live `SOUL.md` edit still wins (re-read). Purely additive — stateless providers and one-shot sends are unchanged.
+- **`.autodev/PROGRAM.md` no longer gets deleted on Windows** — bundles CLI 1.4.186. The legacy-index cleanup deleted `PROGRAM.md` on a case-insensitive filesystem: `program.md` IS `PROGRAM.md` there, but `fs.realpathSync` echoes back the requested case so the realpath guard missed the collision and removed the live index. The cleanup now skips any legacy candidate that resolves to `PROGRAM.md` case-insensitively, `rebuildProfile` re-asserts a present + non-empty `PROGRAM.md` as its last action, and a failed dispatch-time rebuild logs a clear line instead of swallowing silently.
+
 ## [1.0.361] — 2026-09-26
 
 ### Fixed
