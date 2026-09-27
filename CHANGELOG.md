@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.366] — 2026-09-27
+
+### Fixed
+- **A grok "Not signed in" token expiry is now a re-authentication signal, not an infinite retry loop** — bundles CLI 1.4.190. When grok's token expires the CLI captured grok's real reason ("Not signed in. To authenticate without a browser, run: `grok login --device-code`", or "set `XAI_API_KEY`"), but treated it as a generic retryable error → `retry 1/10 … 10/10`, burning turns and tokens on a state that can never self-resolve. A new precise classifier recognizes grok's headless/ACP not-signed-in surface across every failure path (persistent ACP startup, ACP mid-turn, the `--continue` headless fast-fail), emits the same `reauth_required` signal the app already surfaces (provider-tagged, written to `.autodev/hooks-events.jsonl`), and HALTS the loop into the needs-auth pause instead of retrying — mirroring how Claude re-auth already halts. A restored login resumes normally on the next turn. Live-verified on grok 1.0.41 (headless and ACP). The classifier is precise: a 404 session-not-found or ordinary prose mentioning auth/401 does NOT trip it.
+
 ## [1.0.362] — 2026-09-26
 
 ### Fixed
