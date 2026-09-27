@@ -2,6 +2,11 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.368] — 2026-09-27
+
+### Fixed
+- **A mid-run steer now survives a restart (at-least-once delivery)** — bundles CLI 1.4.192. A steer sent to a live persistent-ACP agent (grok/opencode) — e.g. "make me an html file" — used to be marked delivered the moment it was handed to the process; if the session restarted before that steered turn actually ran, the steer was silently lost (the office had stopped re-delivering it). Steers are now journaled to a durable queue (`.autodev/pending-steers.jsonl`, separate from TODO.md which grok rewrites mid-turn) BEFORE they're acked, the server ack + de-queue fire only after the steered turn COMPLETES (not on hand-off), and on (re)start the loop drains the queue — re-delivering each steer to the live session (spawning + restoring it when needed) and removing it only on completion. Dedup is by delivery id, so a reconnect-replay or an already-completed steer is a no-op; an interrupted steer stays queued and is re-delivered. Applies to grok-cli/grok-tui and opencode via the shared AcpSession steer path.
+
 ## [1.0.366] — 2026-09-27
 
 ### Fixed
