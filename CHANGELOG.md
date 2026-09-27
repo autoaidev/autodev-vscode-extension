@@ -2,6 +2,12 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.371] — 2026-09-27
+
+### Fixed
+- **Long, actively-working agent turns are no longer cancelled too early** — bundles CLI 1.4.195. The persistent-ACP per-turn watchdog (grok/opencode) was a TOTAL-runtime cap (default 20min): a legitimately long turn that was *actively working* — e.g. a QA pass firing dozens of `search_replace`/`read_file` tool calls — got cancelled the moment it crossed the cap ("timing out too early, the agent is working"), churning `Provider turn failed — retry N/10` plus a needless leader reconnect. The watchdog is now **activity-based (an idle timeout)**: it is reset on *any* agent activity in the turn (tool calls, tool updates, message/thought chunks, plan updates), so a turn that keeps making progress runs as long as it needs. It only fires after a full window of **total silence** — a genuine stall (e.g. grok's `waiting_for_model` hang) — and then still cancels + reconnects with durable-steer survival intact. The idle window is env-tunable (`AUTODEV_ACP_IDLE_MS`; legacy `AUTODEV_ACP_MAX_RUN_MS`/`GROK_MAX_RUN_MS` are honored as the idle window for back-compat), default 15 min of silence; an optional absolute ceiling (`AUTODEV_ACP_ABS_MAX_MS`) is off by default. The log now says it was idle/stalled (no activity for Ns), not "exceeded runtime".
+- **grok leader (always-open) startup is more robust and fails cleanly on Windows** — bundles CLI 1.4.195. When the always-open leader's socket didn't appear in time (observed on Windows, where grok 1.0.41 exposes only a Unix-socket `--leader-socket` with no TCP alternative), the loop logged `socket never appeared — falling back` and then re-spawned a leader *every turn* (retry-churn). Startup now waits longer for the socket (30s, env-tunable via `AUTODEV_GROK_LEADER_SOCKET_MS` / `AUTODEV_GROK_LEADER_KEEPALIVE_MS`), logs *why* it failed (socket path, whether the leader is still alive, its stderr tail), and — on failure — caches leader-unavailable for the rest of the run so it falls back **once**, quietly, to the non-leader ACP path (which still restores context via a quiet session/load) with no thrash. The Linux leader path is unchanged.
+
 ## [1.0.368] — 2026-09-27
 
 ### Fixed
