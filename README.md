@@ -546,6 +546,12 @@ See [CHANGELOG.md](CHANGELOG.md) for release history and [SUPPORT.md](SUPPORT.md
 
 ---
 
+## Author / Maintainer
+
+**Peter Ivanov** <peter@microweber.com>
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
