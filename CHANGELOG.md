@@ -2,6 +2,16 @@
 
 All notable changes to AutoAIDev are documented here.
 
+## [1.0.373] — 2026-10-29
+
+### Added
+- **Grok ACP — new selectable provider** — bundles CLI 1.4.197. `grok-acp` is a sibling of `grok-cli`/`grok-tui` that always drives grok's **persistent ACP session** (the long-lived `grok agent stdio` process) rather than per-turn spawns or the tmux TUI. It now appears in both the primary provider and fallback provider pickers, carries the same install/sign-in onboarding (`npm install -g @vibe-kit/grok-cli` → `grok`) as the other grok entries, and is driven by the CLI with `-p grok-acp`.
+
+## [1.0.372] — 2026-10-27
+
+### Added
+- **SyntheticMem — optional permanent agent memory (remote MCP)** — bundles CLI 1.4.196. The MCP servers panel now has a "Hosted memory" section to wire [SyntheticMem](https://syntheticmem.com) (permanent, provenance-aware memory + semantic recall) into an agent with one toggle: paste an `agt_` key or click **Get a free 24h demo key** (no signup), plus a link to register for a permanent key. Enabling routes through the CLI catalog seam (`remoteServerSpec` + `saveProjectUserMcp` + sync) exactly like the other servers — it writes the correct remote `http` config and propagates it to every provider (Claude/VS Code/opencode/Copilot/Grok). The agent key is password-masked and never logged.
+
 ## [1.0.371] — 2026-09-27
 
 ### Fixed

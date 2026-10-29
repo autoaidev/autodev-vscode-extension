@@ -9,7 +9,8 @@ import { isOpenCodeHooksInstalled, installOpenCodeHooks, uninstallOpenCodeHooks 
 import { ConfigManager } from 'autodev-cli/configManager';
 import { loadProjectUserMcp, saveProjectUserMcp, removeProjectUserMcp } from 'autodev-cli/core/projectMcp';
 import { buildDetect } from 'autodev-cli/commands/mcp';
-import { serverSpecFor, catalogEntry, uvInstallHint, pythonInstallHint, type CreativeAppId } from 'autodev-cli/core/mcpCatalog';
+import { serverSpecFor, catalogEntry, uvInstallHint, pythonInstallHint, remoteCatalogEntry, remoteServerSpec, type CreativeAppId } from 'autodev-cli/core/mcpCatalog';
+import { fetchRemoteDemoKey } from 'autodev-cli/commands/mcp';
 import { DEFAULT_MCP_SERVERS } from 'autodev-cli/mcpManager';
 import { getMcpInstallSnapshot, checkMcpInstallAsync, refreshMcpInstall, installCommandFor, invalidateMcpInstallCache } from 'autodev-cli/mcpInstallCheck';
 import { testEmailViaMcp } from 'autodev-cli/mcpEmailTest';
@@ -54,6 +55,7 @@ const PROVIDER_META: Record<string, ProviderMeta> = {
   'opencode-sdk': { bin: 'opencode', install: 'npm install -g opencode-ai',               auth: 'opencode auth login', docs: 'https://opencode.ai/docs' },
   'grok-cli':     { bin: 'grok',     install: 'npm install -g @vibe-kit/grok-cli',        auth: 'grok',                docs: 'https://github.com/superagent-ai/grok-cli' },
   'grok-tui':     { bin: 'grok',     install: 'npm install -g @vibe-kit/grok-cli',        auth: 'grok',                docs: 'https://github.com/superagent-ai/grok-cli' },
+  'grok-acp':     { bin: 'grok',     install: 'npm install -g @vibe-kit/grok-cli',        auth: 'grok',                docs: 'https://github.com/superagent-ai/grok-cli' },
 };
 
 export class TodoViewProvider implements vscode.WebviewViewProvider {
@@ -101,7 +103,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = { enableScripts: true, localResourceRoots: [this._extensionUri] };
     webviewView.webview.html = buildHtml(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage((msg) => {
+    webviewView.webview.onDidReceiveMessage(async (msg) => {
       switch (msg.command) {
         case 'setProvider':              this.setProvider(msg.provider as ProviderId); break;
         case 'setFallbackProvider':       this.setFallbackProvider(msg.provider as ProviderId); break;
@@ -223,20 +225,32 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           // Global Save All & Sync — full replace of user MCP entries directly
           // in <root>/.mcp.json. We no longer touch .autodev/settings.json's
           // mcpServers field (it's been retired — .mcp.json is the source).
-          const entries = (msg.entries ?? {}) as Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }>;
+          const entries = (msg.entries ?? {}) as Record<string, {
+            command?: string; args?: string[]; env?: Record<string, string>; enabled?: boolean;
+            type?: string; url?: string; headers?: Record<string, string>;
+          }>;
           // ALL entries (including enabled:false) are written to .mcp.json so that
           // credentials are preserved when a server is disabled. syncProjectMcpServers
           // filters out enabled:false entries before propagating to other provider configs.
-          const allForMcp: Record<string, { command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }> = {};
+          // Remote entries (type/url/headers — e.g. SyntheticMem) are carried through
+          // verbatim; stdio entries keep command/args/env.
+          const allForMcp: Record<string, {
+            command?: string; args?: string[]; env?: Record<string, string>; enabled?: boolean;
+            type?: string; url?: string; headers?: Record<string, string>;
+          }> = {};
           let activeCount = 0;
           for (const [name, e] of Object.entries(entries)) {
             if (!e) continue;
-            allForMcp[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}), ...(e.enabled === false ? { enabled: false } : {}) };
+            if (typeof e.url === 'string' && e.url) {
+              allForMcp[name] = { type: e.type ?? 'http', url: e.url, ...(e.headers ? { headers: e.headers } : {}), ...(e.enabled === false ? { enabled: false } : {}) };
+            } else {
+              allForMcp[name] = { command: e.command, args: e.args, ...(e.env ? { env: e.env } : {}), ...(e.enabled === false ? { enabled: false } : {}) };
+            }
             if (e.enabled !== false) activeCount++;
           }
           const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
           if (root) {
-            saveProjectUserMcp(root, allForMcp);
+            saveProjectUserMcp(root, allForMcp as Parameters<typeof saveProjectUserMcp>[1]);
             try {
               applyAllSkills(root);
               applyMcpSkills(root, loadSettings());
@@ -331,6 +345,67 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
           removeProjectUserMcp(root, entry.serverName);
           this._syncAndPushMcp();
           vscode.window.showInformationMessage(`AutoDev: ${entry.name} MCP server disabled.`);
+          break;
+        }
+        case 'enableSyntheticmem': {
+          // Remote "permanent memory" server. Build the spec from the CLI catalog
+          // (remoteServerSpec injects the bearer key) + write + propagate EXACTLY
+          // as enableCreativeApp does — no hand-written URL, no parallel writer.
+          // The key is NEVER logged.
+          const key = String(msg.key ?? '').trim();
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          const entry = remoteCatalogEntry('syntheticmem');
+          if (!entry) break;
+          if (!key) {
+            this._view?.webview.postMessage({ command: 'syntheticmemResult', ok: false, error: 'A key is required.' });
+            break;
+          }
+          try {
+            const server = remoteServerSpec(entry, key);
+            server._meta = { ...(server._meta || {}), catalogId: entry.id };
+            const user = loadProjectUserMcp(root);
+            user[entry.id] = server;
+            saveProjectUserMcp(root, user);
+            try { applyAllSkills(root); applyMcpSkills(root, loadSettings()); } catch { /* ignore */ }
+            this._syncAndPushMcp();
+            this._view?.webview.postMessage({ command: 'syntheticmemResult', ok: true });
+            vscode.window.showInformationMessage('AutoDev: SyntheticMem memory server enabled — synced to every provider.');
+          } catch (err) {
+            this._view?.webview.postMessage({
+              command: 'syntheticmemResult', ok: false,
+              error: String(err instanceof Error ? err.message : err),
+            });
+          }
+          break;
+        }
+        case 'disableSyntheticmem': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if (!root) break;
+          removeProjectUserMcp(root, 'syntheticmem');
+          this._syncAndPushMcp();
+          this._view?.webview.postMessage({ command: 'syntheticmemResult', ok: true, removed: true });
+          vscode.window.showInformationMessage('AutoDev: SyntheticMem memory server removed.');
+          break;
+        }
+        case 'fetchSyntheticmemDemoKey': {
+          // Free, anonymous 24h demo key — fetched via the CLI helper (single source
+          // of truth for the endpoint). The key is posted to the webview to fill the
+          // field, then immediately used to enable; it is NOT written to any log.
+          const entry = remoteCatalogEntry('syntheticmem');
+          if (!entry) break;
+          try {
+            const demo = await fetchRemoteDemoKey(entry);
+            this._view?.webview.postMessage({
+              command: 'syntheticmemDemoKey', ok: true,
+              key: demo.key, ttlHours: demo.ttlHours ?? 24,
+            });
+          } catch (err) {
+            this._view?.webview.postMessage({
+              command: 'syntheticmemDemoKey', ok: false,
+              error: String(err instanceof Error ? err.message : err),
+            });
+          }
           break;
         }
         case 'installCreativePrereq': {
@@ -1416,6 +1491,10 @@ window.addEventListener('message',function(e){
     window.renderCreativeApps(msg.apps||[]);
   } else if(msg.command==='creativeAppEnableResult' && typeof window.renderCreativeAppEnableResult==='function'){
     window.renderCreativeAppEnableResult(msg);
+  } else if(msg.command==='syntheticmemDemoKey' && typeof window.renderSyntheticmemDemoKey==='function'){
+    window.renderSyntheticmemDemoKey(msg);
+  } else if(msg.command==='syntheticmemResult' && typeof window.renderSyntheticmemResult==='function'){
+    window.renderSyntheticmemResult(msg);
   } else if(msg.command==='opencodeModels'){
     var dl=document.getElementById('ocModelDatalist');
     if(dl){

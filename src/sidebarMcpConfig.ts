@@ -191,6 +191,26 @@ export const mcpConfigHtml = `
     </div>
   </div>
 
+  <!-- ── SyntheticMem (remote · permanent agent memory) ──────────────────── -->
+  <div class="cfg-section">Hosted memory</div>
+  <div style="font-size:11px;color:var(--vscode-descriptionForeground);line-height:1.5;margin:0 0 8px">Optional. Give this agent permanent, provenance-aware memory + semantic recall over a remote MCP server.</div>
+  <div id="mcpAcc_syntheticmem" class="mcp-acc">
+    <div class="mcp-acc-head" data-acc="syntheticmem">
+      <input type="checkbox" id="mcpSynthmem_enabled" title="Include SyntheticMem in synced provider configs">
+      <span class="mcp-acc-title">SyntheticMem <span class="mcp-acc-sub">permanent agent memory · remote MCP</span></span>
+      <span class="mcp-acc-chev">&#9656;</span>
+    </div>
+    <div class="mcp-acc-body">
+      <div class="mcp-help">Permanent, provenance-aware memory for your agent (<code style="font-size:11px">syntheticmem.com</code>). Paste a key, or grab a free 24h demo key — no signup. <a href="https://syntheticmem.com/app" target="_blank" style="color:var(--vscode-textLink-foreground)">Register for a permanent key →</a></div>
+      <div class="cfg-field"><label class="cfg-label">Agent key <small style="opacity:.6">(agt_…)</small></label><input class="cfg-input" id="mcpSynthmem_key" type="password" placeholder="agt_…"></div>
+      <div class="mcp-card-actions" style="justify-content:space-between;gap:6px">
+        <button class="mcp-install-btn" id="mcpSynthmem_demoBtn" style="padding:4px 10px;font-size:11px">Get a free 24h demo key</button>
+        <button class="mcp-remove-btn" id="removeMcpSynthmemBtn">Remove</button>
+      </div>
+      <div id="mcpSynthmem_status" style="font-size:11px;margin-top:6px;min-height:14px;color:var(--vscode-descriptionForeground)"></div>
+    </div>
+  </div>
+
   <!-- ── Custom MCP servers ───────────────────────────────────────────────── -->
   <div id="mcpAcc_custom" class="mcp-acc">
     <div class="mcp-acc-head" data-acc="custom">
@@ -211,10 +231,11 @@ export const mcpConfigHtml = `
 export const mcpConfigScript = `
 // Names of MCP servers managed by their own preset accordions — these are
 // hidden from the Custom JSON tab so the user has exactly one place to edit each.
-const RESERVED_MCP = { jira: 'mcp-atlassian', email: 'zerolib-email', blender: 'blender', gimp: 'gimp' };
+const RESERVED_MCP = { jira: 'mcp-atlassian', email: 'zerolib-email', blender: 'blender', gimp: 'gimp', syntheticmem: 'syntheticmem' };
 function _isReservedMcp(name){
   return name === RESERVED_MCP.jira || name === RESERVED_MCP.email
-    || name === RESERVED_MCP.blender || name === RESERVED_MCP.gimp;
+    || name === RESERVED_MCP.blender || name === RESERVED_MCP.gimp
+    || name === RESERVED_MCP.syntheticmem;
 }
 
 function _setVal(id, v){ const el = document.getElementById(id); if(el) el.value = v; }
@@ -369,6 +390,16 @@ function populateMcp(s, defaults){
   _setVal('mcpEmail_sentFolder',  menv.MCP_EMAIL_SERVER_SENT_FOLDER_NAME || '');
   _setCheck('mcpEmail_receiveTasks', _parseBool(menv.AUTODEV_EMAIL_RECEIVE_TASKS, false));
   _setVal('mcpEmail_allowedSenders', menv.AUTODEV_EMAIL_ALLOWED_SENDERS || '');
+
+  // SyntheticMem (remote) — pull the bearer key from headers.Authorization if present.
+  const synth = userMcp[RESERVED_MCP.syntheticmem];
+  const synthHeaders = (synth && synth.headers) || {};
+  const synthAuth = String(synthHeaders.Authorization || synthHeaders.authorization || '');
+  const synthKey = synthAuth.replace(/^Bearer\\s+/i, '').trim();
+  const synthOn = !!synth && synth.enabled !== false;
+  _setCheck('mcpSynthmem_enabled', synthOn);
+  _setAccDisabled('mcpAcc_syntheticmem', !synthOn);
+  _setVal('mcpSynthmem_key', synthKey);
 
   // Custom cards — show only entries NOT managed by preset accordions.
   const filtered = {};
@@ -589,12 +620,12 @@ function _gatherMcpEntries(){
     if(_isReservedMcp(name)) continue;
     out[name] = custom[name];
   }
-  // Preserve creative-app servers (Blender / GIMP) — they're managed by the
-  // Creative apps section, not the custom cards, so they aren't in _gatherCustomCards.
-  // saveProjectUserMcp is a full replace, so without this a "Save All & Sync"
-  // would silently drop an enabled Blender/GIMP server.
+  // Preserve servers managed by their own sections (Blender / GIMP / SyntheticMem) —
+  // they're NOT in the custom cards, so without this a "Save All & Sync" (a full
+  // replace via saveProjectUserMcp) would silently drop them. SyntheticMem is a
+  // REMOTE entry (type/url/headers), carried through verbatim by the saveMcpBulk handler.
   const savedMcp = (state && state.settings && state.settings.mcpServers) || {};
-  [RESERVED_MCP.blender, RESERVED_MCP.gimp].forEach(function(nm){
+  [RESERVED_MCP.blender, RESERVED_MCP.gimp, RESERVED_MCP.syntheticmem].forEach(function(nm){
     if(savedMcp[nm] && !out[nm]) out[nm] = savedMcp[nm];
   });
   return out;
@@ -779,6 +810,52 @@ window.renderCreativeAppEnableResult = function(msg){
   if(acc) acc.classList.add('open');
 };
 
+// ── SyntheticMem (remote · permanent memory) ────────────────────────────────
+function _setSynthStatus(kind, msg){
+  var el = document.getElementById('mcpSynthmem_status');
+  if(!el) return;
+  el.textContent = msg || '';
+  el.style.color = kind==='error'
+    ? 'var(--vscode-testing-iconFailed,#c72e2e)'
+    : kind==='ok'
+      ? 'var(--vscode-testing-iconPassed,#388a34)'
+      : 'var(--vscode-descriptionForeground)';
+}
+
+// Enable/disable SyntheticMem via dedicated extension handlers (which build the
+// remote server spec from the CLI catalog + propagate) — never a hand-written URL.
+function _applySyntheticmem(){
+  var key = _getVal('mcpSynthmem_key');
+  if(!key){
+    _setSynthStatus('error', 'Paste an agt_ key or click "Get a free 24h demo key".');
+    var cb = document.getElementById('mcpSynthmem_enabled'); if(cb) cb.checked = false;
+    _setAccDisabled('mcpAcc_syntheticmem', true);
+    return;
+  }
+  _setSynthStatus('', 'Enabling…');
+  vscode.postMessage({command:'enableSyntheticmem', key: key});
+}
+
+// The extension posts back the fetched demo key — fill the (password) field and
+// enable in one go. The key is a 24h ephemeral demo key.
+window.renderSyntheticmemDemoKey = function(msg){
+  if(!msg) return;
+  if(!msg.ok){ _setSynthStatus('error', 'Could not get a demo key: ' + esc(msg.error||'unknown error')); return; }
+  _setVal('mcpSynthmem_key', msg.key || '');
+  var cb = document.getElementById('mcpSynthmem_enabled');
+  if(cb) cb.checked = true;
+  _setAccDisabled('mcpAcc_syntheticmem', false);
+  _setSynthStatus('ok', 'Got a free demo key (expires in ~' + (msg.ttlHours||24) + 'h). Register at syntheticmem.com/app to keep memories permanently.');
+  if(msg.key){ vscode.postMessage({command:'enableSyntheticmem', key: msg.key}); }
+};
+
+// Reflect the result of an enable/disable so the user gets feedback at the button.
+window.renderSyntheticmemResult = function(msg){
+  if(!msg) return;
+  if(!msg.ok){ _setSynthStatus('error', esc(msg.error||'Failed')); return; }
+  _setSynthStatus('ok', msg.removed ? 'SyntheticMem removed.' : 'SyntheticMem enabled — synced to every provider.');
+};
+
 function _bindMcpEvents(){
   // Accordion headers — toggle open/closed. Clicking the checkbox itself
   // shouldn't toggle the accordion, only the header chrome around it.
@@ -816,6 +893,32 @@ function _bindMcpEvents(){
       _saveAllNow();
     });
   }
+
+  // SyntheticMem — enable checkbox (needs a key), demo-key button, remove.
+  const smEn = document.getElementById('mcpSynthmem_enabled');
+  if(smEn){
+    smEn.addEventListener('change', function(){
+      if(smEn.checked){ _applySyntheticmem(); }
+      else { _setAccDisabled('mcpAcc_syntheticmem', true); _setSynthStatus('', 'Removing…'); vscode.postMessage({command:'disableSyntheticmem'}); }
+    });
+  }
+  const smDemo = document.getElementById('mcpSynthmem_demoBtn');
+  if(smDemo){
+    smDemo.addEventListener('click', function(){
+      smDemo.disabled = true;
+      const orig = smDemo.textContent; smDemo.textContent = 'Fetching…';
+      _setSynthStatus('', 'Requesting a free 24h demo key…');
+      vscode.postMessage({command:'fetchSyntheticmemDemoKey'});
+      setTimeout(function(){ smDemo.disabled = false; smDemo.textContent = orig; }, 15000);
+    });
+  }
+  const smRm = document.getElementById('removeMcpSynthmemBtn');
+  if(smRm){ smRm.addEventListener('click', function(){
+    const cb = document.getElementById('mcpSynthmem_enabled'); if(cb) cb.checked = false;
+    _setAccDisabled('mcpAcc_syntheticmem', true);
+    _setSynthStatus('', 'Removing…');
+    vscode.postMessage({command:'disableSyntheticmem'});
+  });}
 
   // Per-card Remove buttons (immediate — they delete from settings).
   const rj = document.getElementById('removeMcpJiraBtn');
